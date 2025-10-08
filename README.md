@@ -66,6 +66,9 @@ orbit-core/
 
 ## Getting Started
 
+### Quick Start
+See the [Quick Start Guide](QUICKSTART.md) for step-by-step instructions to get up and running quickly.
+
 ### Prerequisites
 - **Go**: Version 1.21 or higher
 - **PostgreSQL**: Version 15 or higher
@@ -165,6 +168,14 @@ docker-compose up
 - `POST /api/v1/integration/external/connect` - Connect external service
 - `POST /api/v1/integration/external/disconnect` - Disconnect external service
 - `GET /api/v1/integration/external/status` - Get integration status
+
+## Documentation
+
+- **[Quick Start Guide](QUICKSTART.md)** - Get started in minutes
+- **[API Documentation](API.md)** - Complete API reference
+- **[Database Schema](DATABASE.md)** - Database structure and migrations
+- **[Architecture Overview](ARCHITECTURE.md)** - System design and architecture
+- **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to the project
 
 ## Technology Stack
 
