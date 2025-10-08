@@ -41,6 +41,34 @@ To maintain clear boundaries and accommodate different technology stacks and dep
 2. **Deployment Repository**
    - Stores high-level deployment configurations, including **Kubernetes** setups and **CI/CD pipelines**.
 
+## Project Structure
+
+```
+orbit-core/
+├── cmd/
+│   └── orbit-core/          # Main application entry point
+├── internal/
+│   ├── gateway/             # Gateway Service (routing, rate limiting)
+│   ├── auth/                # Authentication Service (JWT, Argon2id)
+│   ├── calendar/            # Calendar & Task Service
+│   ├── location/            # Location Service
+│   ├── integration/         # Integration Service
+│   └── shared/
+│       ├── models/          # Shared data models
+│       └── database/        # Database utilities
+├── pkg/
+│   ├── config/              # Configuration management
+│   ├── logger/              # Logging utilities
+│   └── middleware/          # HTTP middleware (rate limiting, etc.)
+├── go.mod
+└── README.md
+```
+
+## Getting Started
+
+### Quick Start
+See the [Quick Start Guide](QUICKSTART.md) for step-by-step instructions to get up and running quickly.
+
 ## Getting Started
 
 ### Prerequisites
@@ -52,4 +80,115 @@ To maintain clear boundaries and accommodate different technology stacks and dep
 ### Installation
 1. Clone the repository:
    ```bash
+   git clone https://github.com/waydxd/Orbit-core.git
+   cd Orbit-core
+   ```
+
+2. Install dependencies:
+   ```bash
+   go mod download
+   ```
+
+3. Set up environment variables (create a `.env` file):
+   ```bash
+   # Server Configuration
+   SERVER_PORT=8080
+   SERVER_HOST=0.0.0.0
+
+   # PostgreSQL Configuration
+   DB_HOST=localhost
+   DB_PORT=5432
+   DB_USER=postgres
+   DB_PASSWORD=postgres
+   DB_NAME=orbit
+   DB_SSLMODE=disable
+
+   # Redis Configuration
+   REDIS_HOST=localhost
+   REDIS_PORT=6379
+   REDIS_PASSWORD=
+   REDIS_DB=0
+
+   # Authentication Configuration
+   JWT_SECRET=your-secret-key-change-in-production
+   JWT_EXPIRATION_HOURS=24
+   ```
+
+4. Run the application:
+   ```bash
+   go run cmd/orbit-core/main.go
+   ```
+
+### Development
+
+#### Build the application:
+```bash
+go build -o bin/orbit-core cmd/orbit-core/main.go
+```
+
+#### Run tests:
+```bash
+go test ./...
+```
+
+#### Run with Docker Compose (coming soon):
+```bash
+docker-compose up
+```
+
+## API Endpoints
+
+### Gateway Service
+- `GET /health` - Health check endpoint
+
+### Authentication Service
+- `POST /api/v1/auth/register` - Register a new user
+- `POST /api/v1/auth/login` - User login
+- `POST /api/v1/auth/verify` - Verify JWT token
+
+### Calendar & Task Service
+- `GET /api/v1/calendar/events` - List events
+- `POST /api/v1/calendar/events` - Create event
+- `GET /api/v1/calendar/events/{id}` - Get event
+- `PUT /api/v1/calendar/events/{id}` - Update event
+- `DELETE /api/v1/calendar/events/{id}` - Delete event
+- `GET /api/v1/calendar/tasks` - List tasks
+- `POST /api/v1/calendar/tasks` - Create task
+- `GET /api/v1/calendar/tasks/{id}` - Get task
+- `PUT /api/v1/calendar/tasks/{id}` - Update task
+- `DELETE /api/v1/calendar/tasks/{id}` - Delete task
+
+### Location Service
+- `POST /api/v1/location/track` - Track location
+- `GET /api/v1/location/history` - Get location history
+- `GET /api/v1/location/current` - Get current location
+- `GET /api/v1/location/nearby` - Find nearby locations
+
+### Integration Service
+- `POST /api/v1/integration/sync` - Sync data with external APIs
+- `POST /api/v1/integration/webhooks` - Handle webhooks
+- `POST /api/v1/integration/external/connect` - Connect external service
+- `POST /api/v1/integration/external/disconnect` - Disconnect external service
+- `GET /api/v1/integration/external/status` - Get integration status
+
+## Documentation
+
+- **[Quick Start Guide](QUICKSTART.md)** - Get started in minutes
+- **[API Documentation](API.md)** - Complete API reference
+- **[Database Schema](DATABASE.md)** - Database structure and migrations
+- **[Architecture Overview](ARCHITECTURE.md)** - System design and architecture
+- **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to the project
+
+## Technology Stack
+
+- **Language**: Go 1.21+
+- **Web Framework**: gorilla/mux for routing
+- **Database**: PostgreSQL 15+
+- **Cache/Rate Limiting**: Redis
+- **Authentication**: JWT (golang-jwt), Argon2id password hashing
+- **Logging**: slog (standard library)
+
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) - see the [LICENSE](LICENSE) file for details.
    git clone https://github.com/your-org/orbit-core.git
