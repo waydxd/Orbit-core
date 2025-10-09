@@ -56,7 +56,10 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 		if count > int64(rl.limit) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"error":"rate limit exceeded"}`))
+			_, err := w.Write([]byte(`{"error":"rate limit exceeded"}`))
+			if err != nil {
+				return
+			}
 			return
 		}
 

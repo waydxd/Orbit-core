@@ -100,5 +100,12 @@ func (s *Service) Router() http.Handler {
 func (s *Service) healthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"healthy","service":"gateway"}`))
+
+	s.logger.Info("Health check requested", "method", r.Method, "url", r.URL.String())
+
+	_, err := w.Write([]byte(`{"status":"healthy","service":"gateway"}`))
+	if err != nil {
+		s.logger.Error("Error writing health check response", "err", err)
+		return
+	}
 }

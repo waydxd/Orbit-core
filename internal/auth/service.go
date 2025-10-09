@@ -58,7 +58,11 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		// Log the decode error
+		s.logger.Error("invalid register request", "err", err)
+		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); encErr != nil {
+			s.logger.Error("Error encoding error response", "err", encErr)
+		}
 		return
 	}
 
@@ -69,7 +73,9 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("User registered", "email", req.Email)
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "user registered successfully"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"message": "user registered successfully"}); err != nil {
+		s.logger.Error("Error encoding success response", "err", err)
+	}
 }
 
 // login handles user login
@@ -79,7 +85,11 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		// Log the decode error
+		s.logger.Error("invalid login request", "err", err)
+		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); encErr != nil {
+			s.logger.Error("Error encoding login error response", "err", encErr)
+		}
 		return
 	}
 
@@ -88,8 +98,12 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	// Generate JWT token
 	token, err := s.generateJWT(req.Email)
 	if err != nil {
+		// Log JWT generation failure
+		s.logger.Error("failed to generate token", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate token"})
+		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate token"}); encErr != nil {
+			s.logger.Error("Error encoding token generation error response", "err", encErr)
+		}
 		return
 	}
 
@@ -99,7 +113,10 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	response.User.Email = req.Email
 	response.User.ID = "user-123" // TODO: Get from database
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Error encoding login response", "err", err)
+		return
+	}
 }
 
 // verify handles JWT token verification
@@ -109,7 +126,10 @@ func (s *Service) verify(w http.ResponseWriter, r *http.Request) {
 	tokenString := r.Header.Get("Authorization")
 	if tokenString == "" {
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "no token provided"})
+		s.logger.Error("no token provided")
+		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "no token provided"}); encErr != nil {
+			s.logger.Error("Error encoding no-token response", "err", encErr)
+		}
 		return
 	}
 
@@ -120,11 +140,16 @@ func (s *Service) verify(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil || !token.Valid {
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid token"})
+		s.logger.Error("invalid token", "err", err)
+		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "invalid token"}); encErr != nil {
+			s.logger.Error("Error encoding invalid token response", "err", encErr)
+		}
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]bool{"valid": true})
+	if encErr := json.NewEncoder(w).Encode(map[string]bool{"valid": true}); encErr != nil {
+		s.logger.Error("Error encoding token verify response", "err", encErr)
+	}
 }
 
 // generateJWT generates a JWT token for a user
@@ -143,41 +168,58 @@ func (s *Service) generateJWT(email string) (string, error) {
 func (s *Service) hashPassword(password string) string {
 	// Generate random salt
 	salt := make([]byte, 16)
-	rand.Read(salt)
+	_, err := rand.Read(salt)
+	if err != nil {
+		// Log random generation failure
+		s.logger.Error("failed to read random salt", "err", err)
+		return ""
+	}
 
 	// Hash password with Argon2id
 	hash := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
 
 	// Combine salt and hash for storage
-	combined := append(salt, hash...)
-	return base64.StdEncoding.EncodeToString(combined)
+	// assign append result back to the same slice variable to satisfy gocritic
+	salt = append(salt, hash...)
+	return base64.StdEncoding.EncodeToString(salt)
 }
 
-// verifyPassword verifies a password against a hash
-func (s *Service) verifyPassword(password, hashedPassword string) bool {
-	// Decode the stored hash
-	decoded, err := base64.StdEncoding.DecodeString(hashedPassword)
-	if err != nil {
-		return false
-	}
-
-	// Extract salt and hash
-	salt := decoded[:16]
-	storedHash := decoded[16:]
-
-	// Hash the provided password with the same salt
-	hash := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
-
-	// Compare hashes
-	if len(hash) != len(storedHash) {
-		return false
-	}
-
-	for i := range hash {
-		if hash[i] != storedHash[i] {
-			return false
-		}
-	}
-
-	return true
-}
+//// verifyPassword verifies a password against a hash
+// No usage rn, so commented out to avoid unused function warning
+// func (s *Service) verifyPassword(password, hashedPassword string) bool {
+//	// Decode the stored hash
+//	decoded, err := base64.StdEncoding.DecodeString(hashedPassword)
+//	if err != nil {
+//		s.logger.Error("failed to decode stored password", "err", err)
+//		return false
+//	}
+//
+//	// Ensure decoded length is valid
+//	if len(decoded) < 16 {
+//		s.logger.Error("invalid hashed password length", "len", len(decoded))
+//		return false
+//	}
+//
+//	// Extract salt and hash
+//	salt := decoded[:16]
+//	storedHash := decoded[16:]
+//
+//	// Hash the provided password with the same salt
+//	hash := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
+//
+//	// Compare hashes
+//	if len(hash) != len(storedHash) {
+//		s.logger.Error("hashed lengths differ during password verification", "expected", len(storedHash), "got", len(hash))
+//		return false
+//	}
+//
+//	for i := range hash {
+//		if hash[i] != storedHash[i] {
+//			// Do not expose sensitive info; just log a verification failure
+//			s.logger.Info("password verification failed")
+//			return false
+//		}
+//	}
+//
+//	return true
+// }

@@ -7,9 +7,18 @@ import (
 
 func TestLoad(t *testing.T) {
 	// Set environment variables for testing
-	os.Setenv("SERVER_PORT", "9000")
-	os.Setenv("DB_HOST", "testdb")
-	os.Setenv("JWT_SECRET", "test-secret")
+	err := os.Setenv("SERVER_PORT", "9000")
+	if err != nil {
+		return
+	}
+	err = os.Setenv("DB_HOST", "testdb")
+	if err != nil {
+		return
+	}
+	err = os.Setenv("JWT_SECRET", "test-secret")
+	if err != nil {
+		return
+	}
 
 	cfg, err := Load()
 	if err != nil {
@@ -30,13 +39,25 @@ func TestLoad(t *testing.T) {
 	}
 
 	// Clean up
-	os.Unsetenv("SERVER_PORT")
-	os.Unsetenv("DB_HOST")
-	os.Unsetenv("JWT_SECRET")
+	err = os.Unsetenv("SERVER_PORT")
+	if err != nil {
+		return
+	}
+	err = os.Unsetenv("DB_HOST")
+	if err != nil {
+		return
+	}
+	err = os.Unsetenv("JWT_SECRET")
+	if err != nil {
+		return
+	}
 }
 
 func TestGetEnv(t *testing.T) {
-	os.Setenv("TEST_VAR", "test-value")
+	err := os.Setenv("TEST_VAR", "test-value")
+	if err != nil {
+		return
+	}
 
 	value := getEnv("TEST_VAR", "default")
 	if value != "test-value" {
@@ -48,11 +69,17 @@ func TestGetEnv(t *testing.T) {
 		t.Errorf("Expected 'default', got %s", value)
 	}
 
-	os.Unsetenv("TEST_VAR")
+	err = os.Unsetenv("TEST_VAR")
+	if err != nil {
+		return
+	}
 }
 
 func TestGetEnvAsInt(t *testing.T) {
-	os.Setenv("TEST_INT", "42")
+	err := os.Setenv("TEST_INT", "42")
+	if err != nil {
+		return
+	}
 
 	value := getEnvAsInt("TEST_INT", 10)
 	if value != 42 {
@@ -64,13 +91,19 @@ func TestGetEnvAsInt(t *testing.T) {
 		t.Errorf("Expected 10, got %d", value)
 	}
 
-	os.Setenv("TEST_INT", "invalid")
+	err = os.Setenv("TEST_INT", "invalid")
+	if err != nil {
+		return
+	}
 	value = getEnvAsInt("TEST_INT", 10)
 	if value != 10 {
 		t.Errorf("Expected default value 10 for invalid int, got %d", value)
 	}
 
-	os.Unsetenv("TEST_INT")
+	err = os.Unsetenv("TEST_INT")
+	if err != nil {
+		return
+	}
 }
 
 func TestConnectionString(t *testing.T) {

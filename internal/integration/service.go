@@ -47,8 +47,12 @@ func (s *Service) syncData(w http.ResponseWriter, r *http.Request) {
 
 	var req SyncRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error("failed to decode sync request", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+			s.logger.Error("failed to write sync error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -56,7 +60,10 @@ func (s *Service) syncData(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("Data sync initiated", "source", req.Source, "target", req.Target)
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "sync completed"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"message": "sync completed"}); err != nil {
+		s.logger.Error("failed to write sync success response", "error", err)
+		return
+	}
 }
 
 // handleWebhook processes incoming webhooks from external services
@@ -65,8 +72,12 @@ func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	var payload map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		s.logger.Error("failed to decode webhook payload", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid webhook payload"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid webhook payload"}); err != nil {
+			s.logger.Error("failed to write webhook error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -74,7 +85,10 @@ func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("Webhook received", "payload", payload)
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "webhook processed"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"message": "webhook processed"}); err != nil {
+		s.logger.Error("failed to write webhook success response", "error", err)
+		return
+	}
 }
 
 // connectExternal connects to an external API
@@ -87,8 +101,12 @@ func (s *Service) connectExternal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error("failed to decode connect request", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+			s.logger.Error("failed to write connect error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -96,7 +114,10 @@ func (s *Service) connectExternal(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("External service connected", "service", req.Service)
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "external service connected"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"message": "external service connected"}); err != nil {
+		s.logger.Error("failed to write connect success response", "error", err)
+		return
+	}
 }
 
 // disconnectExternal disconnects from an external API
@@ -108,8 +129,12 @@ func (s *Service) disconnectExternal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error("failed to decode disconnect request", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+			s.logger.Error("failed to write disconnect error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -117,11 +142,14 @@ func (s *Service) disconnectExternal(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("External service disconnected", "service", req.Service)
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "external service disconnected"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"message": "external service disconnected"}); err != nil {
+		s.logger.Error("failed to write disconnect success response", "error", err)
+		return
+	}
 }
 
 // getExternalStatus retrieves status of external integrations
-func (s *Service) getExternalStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Service) getExternalStatus(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// TODO: Fetch integration status from database
@@ -129,5 +157,8 @@ func (s *Service) getExternalStatus(w http.ResponseWriter, r *http.Request) {
 		"integrations": []map[string]interface{}{},
 	}
 
-	json.NewEncoder(w).Encode(status)
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		s.logger.Error("failed to write external status response", "error", err)
+		return
+	}
 }
