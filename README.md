@@ -72,7 +72,7 @@ See the [Quick Start Guide](QUICKSTART.md) for step-by-step instructions to get 
 ## Getting Started
 
 ### Prerequisites
-- **Go**: Version 1.21 or higher
+- **Go**: Version 1.25 or higher
 - **PostgreSQL**: Version 15 or higher
 - **Redis**: For rate limiting in the Gateway Service
 - **Docker**: For local development and testing
@@ -191,4 +191,3 @@ docker-compose up
 ## License
 
 This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) - see the [LICENSE](LICENSE) file for details.
-   git clone https://github.com/your-org/orbit-core.git

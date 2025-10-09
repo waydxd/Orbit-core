@@ -48,8 +48,12 @@ func (s *Service) trackLocation(w http.ResponseWriter, r *http.Request) {
 
 	var req LocationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.logger.Error("failed to decode track location request", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+			s.logger.Error("failed to write track location error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -61,7 +65,10 @@ func (s *Service) trackLocation(w http.ResponseWriter, r *http.Request) {
 	)
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "location tracked successfully"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"message": "location tracked successfully"}); err != nil {
+		s.logger.Error("failed to write track location success response", "error", err)
+		return
+	}
 }
 
 // getLocationHistory retrieves location history for a user
@@ -70,15 +77,22 @@ func (s *Service) getLocationHistory(w http.ResponseWriter, r *http.Request) {
 
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
+		s.logger.Error("missing user_id in getLocationHistory")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
+			s.logger.Error("failed to write getLocationHistory error response", "error", err)
+			return
+		}
 		return
 	}
 
 	// TODO: Fetch location history from PostgreSQL
 	locations := []models.Location{}
 
-	json.NewEncoder(w).Encode(locations)
+	if err := json.NewEncoder(w).Encode(locations); err != nil {
+		s.logger.Error("failed to write getLocationHistory response", "error", err)
+		return
+	}
 }
 
 // getCurrentLocation retrieves current location for a user
@@ -87,8 +101,12 @@ func (s *Service) getCurrentLocation(w http.ResponseWriter, r *http.Request) {
 
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
+		s.logger.Error("missing user_id in getCurrentLocation")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
+			s.logger.Error("failed to write getCurrentLocation error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -96,11 +114,14 @@ func (s *Service) getCurrentLocation(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("Fetching current location", "user_id", userID)
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"user_id":   userID,
 		"latitude":  0.0,
 		"longitude": 0.0,
-	})
+	}); err != nil {
+		s.logger.Error("failed to write getCurrentLocation response", "error", err)
+		return
+	}
 }
 
 // findNearby finds nearby locations/places
@@ -111,8 +132,12 @@ func (s *Service) findNearby(w http.ResponseWriter, r *http.Request) {
 	lng := r.URL.Query().Get("lng")
 
 	if lat == "" || lng == "" {
+		s.logger.Error("missing lat or lng in findNearby")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "lat and lng required"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "lat and lng required"}); err != nil {
+			s.logger.Error("failed to write findNearby error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -120,5 +145,8 @@ func (s *Service) findNearby(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("Finding nearby locations", "lat", lat, "lng", lng)
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode([]interface{}{})
+	if err := json.NewEncoder(w).Encode([]interface{}{}); err != nil {
+		s.logger.Error("failed to write findNearby response", "error", err)
+		return
+	}
 }
