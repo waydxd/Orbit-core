@@ -1,13 +1,40 @@
 openapi: 3.0.3
 info:
   title: Orbit Core API
+  description: A comprehensive personal productivity API with calendar, tasks, location tracking, and integration capabilities
   version: 1.0.0
+  contact:
+    name: Orbit Core Team
 servers:
   - url: http://localhost:8080
+    description: Development server
+
 paths:
+  /health:
+    get:
+      summary: Health check endpoint
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  service:
+                    type: string
+                    example: gateway
+
   /api/v1/auth/register:
     post:
       summary: Register a new user
+      tags:
+        - Authentication
       requestBody:
         required: true
         content:
@@ -16,18 +43,854 @@ paths:
               $ref: '#/components/schemas/RegisterRequest'
       responses:
         '201':
-          description: User registered
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: user registered successfully
         '400':
           description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/login:
+    post:
+      summary: Login user
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to generate token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/auth/verify:
+    post:
+      summary: Verify JWT token
+      tags:
+        - Authentication
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Token is valid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                    example: true
+        '401':
+          description: Invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/calendar/events:
+    get:
+      summary: List all events
+      tags:
+        - Calendar
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+    post:
+      summary: Create a new event
+      tags:
+        - Calendar
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventInput'
+      responses:
+        '201':
+          description: Event created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/calendar/events/{id}:
+    get:
+      summary: Get event by ID
+      tags:
+        - Calendar
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Event ID
+      responses:
+        '200':
+          description: Event details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+    put:
+      summary: Update event
+      tags:
+        - Calendar
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Event ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventInput'
+      responses:
+        '200':
+          description: Event updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete event
+      tags:
+        - Calendar
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Event ID
+      responses:
+        '204':
+          description: Event deleted successfully
+
+  /api/v1/calendar/tasks:
+    get:
+      summary: List all tasks
+      tags:
+        - Tasks
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Task'
+    post:
+      summary: Create a new task
+      tags:
+        - Tasks
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskInput'
+      responses:
+        '201':
+          description: Task created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/calendar/tasks/{id}:
+    get:
+      summary: Get task by ID
+      tags:
+        - Tasks
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Task ID
+      responses:
+        '200':
+          description: Task details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+    put:
+      summary: Update task
+      tags:
+        - Tasks
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Task ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskInput'
+      responses:
+        '200':
+          description: Task updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete task
+      tags:
+        - Tasks
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Task ID
+      responses:
+        '204':
+          description: Task deleted successfully
+
+  /api/v1/location/track:
+    post:
+      summary: Track user location
+      tags:
+        - Location
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationRequest'
+      responses:
+        '201':
+          description: Location tracked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: location tracked successfully
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/location/history:
+    get:
+      summary: Get location history for a user
+      tags:
+        - Location
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: User ID
+      responses:
+        '200':
+          description: Location history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Location'
+        '400':
+          description: Missing user_id parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/location/current:
+    get:
+      summary: Get current location for a user
+      tags:
+        - Location
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: User ID
+      responses:
+        '200':
+          description: Current location
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                  latitude:
+                    type: number
+                    format: double
+                  longitude:
+                    type: number
+                    format: double
+        '400':
+          description: Missing user_id parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/location/nearby:
+    get:
+      summary: Find nearby locations/places
+      tags:
+        - Location
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+          description: Latitude
+        - name: lng
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+          description: Longitude
+      responses:
+        '200':
+          description: Nearby locations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '400':
+          description: Missing lat or lng parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/sync:
+    post:
+      summary: Synchronize data between external APIs
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncRequest'
+      responses:
+        '200':
+          description: Sync completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: sync completed
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/webhooks:
+    post:
+      summary: Handle incoming webhooks from external services
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: webhook processed
+        '400':
+          description: Invalid webhook payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/external/connect:
+    post:
+      summary: Connect to an external API service
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExternalConnectRequest'
+      responses:
+        '200':
+          description: External service connected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: external service connected
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/external/disconnect:
+    post:
+      summary: Disconnect from an external API service
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExternalDisconnectRequest'
+      responses:
+        '200':
+          description: External service disconnected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: external service disconnected
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/external/status:
+    get:
+      summary: Get status of external integrations
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Integration status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  integrations:
+                    type: array
+                    items:
+                      type: object
+
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from the login endpoint
+
   schemas:
     RegisterRequest:
       type: object
+      required:
+        - email
+        - password
       properties:
-        username:
+        email:
           type: string
+          format: email
+          example: user@example.com
         password:
           type: string
+          format: password
+          example: securepassword123
+
+    LoginRequest:
+      type: object
       required:
-        - username
+        - email
         - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        password:
+          type: string
+          format: password
+          example: securepassword123
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+              example: user-123
+            email:
+              type: string
+              example: user@example.com
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          example: event-1
+        user_id:
+          type: string
+          example: user-123
+        title:
+          type: string
+          example: Team Meeting
+        description:
+          type: string
+          example: Weekly sync meeting
+        start_time:
+          type: string
+          format: date-time
+          example: 2024-01-15T10:00:00Z
+        end_time:
+          type: string
+          format: date-time
+          example: 2024-01-15T11:00:00Z
+        location:
+          type: string
+          example: Conference Room A
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    EventInput:
+      type: object
+      required:
+        - user_id
+        - title
+        - start_time
+        - end_time
+      properties:
+        user_id:
+          type: string
+          example: user-123
+        title:
+          type: string
+          example: Team Meeting
+        description:
+          type: string
+          example: Weekly sync meeting
+        start_time:
+          type: string
+          format: date-time
+          example: 2024-01-15T10:00:00Z
+        end_time:
+          type: string
+          format: date-time
+          example: 2024-01-15T11:00:00Z
+        location:
+          type: string
+          example: Conference Room A
+
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+          example: task-1
+        user_id:
+          type: string
+          example: user-123
+        title:
+          type: string
+          example: Complete project documentation
+        description:
+          type: string
+          example: Write comprehensive docs
+        due_date:
+          type: string
+          format: date-time
+          example: 2024-01-20T17:00:00Z
+        completed:
+          type: boolean
+          example: false
+        priority:
+          type: string
+          enum: [low, medium, high]
+          example: high
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TaskInput:
+      type: object
+      required:
+        - user_id
+        - title
+        - due_date
+      properties:
+        user_id:
+          type: string
+          example: user-123
+        title:
+          type: string
+          example: Complete project documentation
+        description:
+          type: string
+          example: Write comprehensive docs
+        due_date:
+          type: string
+          format: date-time
+          example: 2024-01-20T17:00:00Z
+        priority:
+          type: string
+          enum: [low, medium, high]
+          example: high
+
+    Location:
+      type: object
+      properties:
+        id:
+          type: string
+          example: loc-1
+        user_id:
+          type: string
+          example: user-123
+        latitude:
+          type: number
+          format: double
+          example: 22.3193
+        longitude:
+          type: number
+          format: double
+          example: 114.1694
+        address:
+          type: string
+          example: Hong Kong University of Science and Technology
+        timestamp:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    LocationRequest:
+      type: object
+      required:
+        - user_id
+        - latitude
+        - longitude
+      properties:
+        user_id:
+          type: string
+          example: user-123
+        latitude:
+          type: number
+          format: double
+          example: 22.3193
+        longitude:
+          type: number
+          format: double
+          example: 114.1694
+        address:
+          type: string
+          example: Hong Kong University of Science and Technology
+
+    SyncRequest:
+      type: object
+      required:
+        - source
+        - target
+      properties:
+        source:
+          type: string
+          example: google-calendar
+        target:
+          type: string
+          example: orbit-calendar
+        data:
+          type: object
+          additionalProperties: true
+
+    ExternalConnectRequest:
+      type: object
+      required:
+        - service
+        - api_key
+      properties:
+        service:
+          type: string
+          example: google-calendar
+        api_key:
+          type: string
+          example: your-api-key
+
+    ExternalDisconnectRequest:
+      type: object
+      required:
+        - service
+      properties:
+        service:
+          type: string
+          example: google-calendar
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: invalid request
