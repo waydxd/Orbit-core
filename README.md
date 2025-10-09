@@ -72,7 +72,7 @@ See the [Quick Start Guide](QUICKSTART.md) for step-by-step instructions to get 
 ## Getting Started
 
 ### Prerequisites
-- **Go**: Version 1.21 or higher
+- **Go**: Version 1.25 or higher
 - **PostgreSQL**: Version 15 or higher
 - **Redis**: For rate limiting in the Gateway Service
 - **Docker**: For local development and testing
