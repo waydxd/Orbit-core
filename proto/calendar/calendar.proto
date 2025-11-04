@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package calendar;
+
+option go_package = "github.com/waydxd/Orbit-Orbi/proto/calendar";
+
+// CalendarService defines the gRPC service for calendar operations
+service CalendarService {
+  // CreateEvent creates a new calendar event
+  rpc CreateEvent(CreateEventRequest) returns (CreateEventResponse);
+  
+  // GetEvents retrieves events within a time range
+  rpc GetEvents(GetEventsRequest) returns (GetEventsResponse);
+  
+  // UpdateEvent updates an existing event
+  rpc UpdateEvent(UpdateEventRequest) returns (UpdateEventResponse);
+  
+  // DeleteEvent deletes an event
+  rpc DeleteEvent(DeleteEventRequest) returns (DeleteEventResponse);
+  
+  // GetAvailableSlots finds available time slots
+  rpc GetAvailableSlots(GetAvailableSlotsRequest) returns (GetAvailableSlotsResponse);
+}
+
+// Event represents a calendar event
+message Event {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  int64 start_time = 4;  // Unix timestamp
+  int64 end_time = 5;    // Unix timestamp
+  string location = 6;
+  repeated string attendees = 7;
+  string status = 8;
+}
+
+// CreateEventRequest contains the details for creating an event
+message CreateEventRequest {
+  string title = 1;
+  string description = 2;
+  int64 start_time = 3;
+  int64 end_time = 4;
+  string location = 5;
+  repeated string attendees = 6;
+}
+
+// CreateEventResponse contains the created event
+message CreateEventResponse {
+  Event event = 1;
+  bool success = 2;
+  string message = 3;
+}
+
+// GetEventsRequest specifies the time range for events
+message GetEventsRequest {
+  int64 start_time = 1;
+  int64 end_time = 2;
+  string status = 3;  // Optional filter by status
+}
+
+// GetEventsResponse contains the list of events
+message GetEventsResponse {
+  repeated Event events = 1;
+  bool success = 2;
+  string message = 3;
+}
+
+// UpdateEventRequest contains the event updates
+message UpdateEventRequest {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+  int64 start_time = 4;
+  int64 end_time = 5;
+  string location = 6;
+  repeated string attendees = 7;
+  string status = 8;
+}
+
+// UpdateEventResponse contains the updated event
+message UpdateEventResponse {
+  Event event = 1;
+  bool success = 2;
+  string message = 3;
+}
+
+// DeleteEventRequest specifies which event to delete
+message DeleteEventRequest {
+  string id = 1;
+}
+
+// DeleteEventResponse confirms the deletion
+message DeleteEventResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// GetAvailableSlotsRequest specifies parameters for finding free slots
+message GetAvailableSlotsRequest {
+  int64 start_time = 1;
+  int64 end_time = 2;
+  int64 duration = 3;  // Duration in seconds
+}
+
+// TimeSlot represents an available time slot
+message TimeSlot {
+  int64 start_time = 1;
+  int64 end_time = 2;
+}
+
+// GetAvailableSlotsResponse contains available time slots
+message GetAvailableSlotsResponse {
+  repeated TimeSlot slots = 1;
+  bool success = 2;
+  string message = 3;
+}

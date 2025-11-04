@@ -9,12 +9,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/waydxd/Orbit-core/internal/agent"
 	"github.com/waydxd/Orbit-core/internal/auth"
 	"github.com/waydxd/Orbit-core/internal/calendar"
 	"github.com/waydxd/Orbit-core/internal/gateway"
 	"github.com/waydxd/Orbit-core/internal/integration"
 	"github.com/waydxd/Orbit-core/internal/location"
+	pb "github.com/waydxd/Orbit-Orbi/proto/calendar"
 	"github.com/waydxd/Orbit-core/pkg/config"
+	"github.com/waydxd/Orbit-core/pkg/grpc"
 	"github.com/waydxd/Orbit-core/pkg/logger"
 )
 
@@ -29,12 +32,42 @@ func main() {
 		log.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
 	}
-
 	// Initialize services
 	authService := auth.NewService(cfg, log)
 	calendarService := calendar.NewService(cfg, log)
 	locationService := location.NewService(cfg, log)
 	integrationService := integration.NewService(cfg, log)
+	// Initialize gRPC client for Orbi agent
+	grpcClient, err := grpc.NewCalendarGRPCClient(cfg, log)
+	if err != nil {
+		log.Error("Failed to initialize gRPC client", "error", err)
+		os.Exit(1)
+	}
+	defer grpcClient.Close()
+
+	// Initialize agent service for AI interactions
+	agentService := agent.NewService(cfg, log, grpcClient, calendarService)
+
+	// Initialize gRPC server to expose CalendarDataService to Agent
+	grpcServer, err := grpc.NewServer(grpc.ServerConfig{
+		Port: cfg.GRPCServer.Port,
+	}, log)
+	if err != nil {
+		log.Error("Failed to initialize gRPC server", "error", err)
+		os.Exit(1)
+	}
+
+	// Register CalendarDataService with gRPC server
+	pb.RegisterCalendarDataServiceServer(grpcServer, calendarService)
+
+	// Start gRPC server in a goroutine
+	go func() {
+		if err := grpcServer.Start(); err != nil && err != grpc.ErrServerClosed {
+			log.Error("gRPC server failed to start", "error", err)
+			os.Exit(1)
+		}
+	}()
+	defer grpcServer.Stop()
 
 	// Initialize gateway (API Gateway/Router)
 	gatewayService := gateway.NewService(cfg, log, gateway.ServiceConfig{
@@ -42,6 +75,7 @@ func main() {
 		CalendarService:    calendarService,
 		LocationService:    locationService,
 		IntegrationService: integrationService,
+		AgentService:       agentService,
 	})
 
 	// Start HTTP server

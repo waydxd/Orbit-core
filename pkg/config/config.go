@@ -12,6 +12,8 @@ type Config struct {
 	Database DatabaseConfig
 	Redis    RedisConfig
 	Auth     AuthConfig
+	Orbi     OrbiConfig
+	GRPCServer GRPCServerConfig
 }
 
 // ServerConfig holds server configuration
@@ -44,6 +46,17 @@ type AuthConfig struct {
 	JWTExpiration int // in hours
 }
 
+// OrbiConfig holds Orbi agent gRPC connection configuration
+type OrbiConfig struct {
+	Host string
+	Port int
+}
+
+// GRPCServerConfig holds gRPC server configuration for Core
+type GRPCServerConfig struct {
+	Port int
+}
+
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
 	cfg := &Config{
@@ -68,6 +81,13 @@ func Load() (*Config, error) {
 		Auth: AuthConfig{
 			JWTSecret:     getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
 			JWTExpiration: getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
+		},
+		Orbi: OrbiConfig{
+			Host: getEnv("ORBI_HOST", "localhost"),
+			Port: getEnvAsInt("ORBI_PORT", 50051),
+		},
+		GRPCServer: GRPCServerConfig{
+			Port: getEnvAsInt("GRPC_SERVER_PORT", 50052),
 		},
 	}
 

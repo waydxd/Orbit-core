@@ -1,10 +1,12 @@
 package calendar
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
 	"github.com/gorilla/mux"
+	pb "github.com/waydxd/Orbit-Orbi/proto/calendar"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/logger"
@@ -41,6 +43,62 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	calendarRouter.HandleFunc("/tasks/{id}", s.getTask).Methods("GET")
 	calendarRouter.HandleFunc("/tasks/{id}", s.updateTask).Methods("PUT")
 	calendarRouter.HandleFunc("/tasks/{id}", s.deleteTask).Methods("DELETE")
+}
+
+// ==== gRPC Server Implementation for CalendarDataService ====
+// This allows Agent to call Core and fetch calendar data
+
+// GetCalendarData implements CalendarDataService.GetCalendarData
+// Called by Agent to retrieve calendar events for a user
+func (s *Service) GetCalendarData(ctx context.Context, req *pb.GetCalendarDataRequest) (*pb.GetCalendarDataResponse, error) {
+	s.logger.Info("GetCalendarData called by Agent", "user_id", req.UserId, "start_time", req.StartTime, "end_time", req.EndTime)
+
+	// TODO: Fetch events from database based on user_id and time range
+	// For now, returning empty list
+	events := []*pb.Event{}
+
+	return &pb.GetCalendarDataResponse{
+		Events:  events,
+		Success: true,
+		Message: "Calendar data retrieved successfully",
+	}, nil
+}
+
+// GetUserAvailability implements CalendarDataService.GetUserAvailability
+// Called by Agent to check if a user is available during a specific time slot
+func (s *Service) GetUserAvailability(ctx context.Context, req *pb.GetUserAvailabilityRequest) (*pb.GetUserAvailabilityResponse, error) {
+	s.logger.Info("GetUserAvailability called by Agent", "user_id", req.UserId, "start_time", req.StartTime, "end_time", req.EndTime)
+
+	// TODO: Check for conflicts in database
+	// For now, assuming user is available
+	status := &pb.AvailabilityStatus{
+		Available:          true,
+		Reason:             "No conflicts found",
+		ConflictingEvents:  []*pb.Event{},
+	}
+
+	return &pb.GetUserAvailabilityResponse{
+		Status:  status,
+		Success: true,
+		Message: "Availability check completed",
+	}, nil
+}
+
+// QueryEvents implements CalendarDataService.QueryEvents
+// Called by Agent to perform complex queries on calendar events
+func (s *Service) QueryEvents(ctx context.Context, req *pb.QueryEventsRequest) (*pb.QueryEventsResponse, error) {
+	s.logger.Info("QueryEvents called by Agent", "user_id", req.UserId, "query", req.Query)
+
+	// TODO: Implement query logic to search for events matching the query string
+	// For now, returning empty list
+	events := []*pb.Event{}
+
+	return &pb.QueryEventsResponse{
+		Events:     events,
+		TotalCount: 0,
+		Success:    true,
+		Message:    "Query executed successfully",
+	}, nil
 }
 
 // Event handlers
