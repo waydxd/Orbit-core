@@ -4,15 +4,17 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+
+	"github.com/joho/godotenv"
 )
 
 // Config holds all configuration for the application
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	Auth     AuthConfig
-	Orbi     OrbiConfig
+	Server     ServerConfig
+	Database   DatabaseConfig
+	Redis      RedisConfig
+	Auth       AuthConfig
+	Orbi       OrbiConfig
 	GRPCServer GRPCServerConfig
 }
 
@@ -59,6 +61,17 @@ type GRPCServerConfig struct {
 
 // Load loads configuration from environment variables
 func Load() (*Config, error) {
+	// Detect and load a dotenv file if present. By default we look for `.env`.
+	// The path can be overridden by setting the ENV_FILE environment variable.
+	envFile := os.Getenv("ENV_FILE")
+	if envFile == "" {
+		envFile = ".env"
+	}
+	if _, err := os.Stat(envFile); err == nil {
+		// Attempt to load the env file (ignore error — if keys conflict, os.Getenv still takes precedence)
+		_ = godotenv.Load(envFile)
+	}
+
 	cfg := &Config{
 		Server: ServerConfig{
 			Port: getEnvAsInt("SERVER_PORT", 8080),

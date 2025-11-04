@@ -15,10 +15,11 @@ import (
 	"github.com/waydxd/Orbit-core/internal/gateway"
 	"github.com/waydxd/Orbit-core/internal/integration"
 	"github.com/waydxd/Orbit-core/internal/location"
-	pb "github.com/waydxd/Orbit-Orbi/proto/calendar"
+	"github.com/waydxd/Orbit-core/internal/shared/database"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/grpc"
 	"github.com/waydxd/Orbit-core/pkg/logger"
+	pb "github.com/waydxd/Orbit-core/proto/calendar"
 )
 
 func main() {
@@ -32,11 +33,27 @@ func main() {
 		log.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
 	}
-	// Initialize services
-	authService := auth.NewService(cfg, log)
-	calendarService := calendar.NewService(cfg, log)
-	locationService := location.NewService(cfg, log)
+
+	// Connect to database
+	db, err := database.Connect(cfg.Database.ConnectionString())
+	if err != nil {
+		log.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// Initialize repositories
+	authRepo := auth.NewSQLRepository(db)
+	eventRepo := calendar.NewSQLEventRepository(db)
+	taskRepo := calendar.NewSQLTaskRepository(db)
+	locationRepo := location.NewSQLRepository(db)
+
+	// Initialize services with repositories
+	authService := auth.NewService(cfg, log, authRepo)
+	calendarService := calendar.NewService(cfg, log, eventRepo, taskRepo)
+	locationService := location.NewService(cfg, log, locationRepo)
 	integrationService := integration.NewService(cfg, log)
+
 	// Initialize gRPC client for Orbi agent
 	grpcClient, err := grpc.NewCalendarGRPCClient(cfg, log)
 	if err != nil {
@@ -58,11 +75,11 @@ func main() {
 	}
 
 	// Register CalendarDataService with gRPC server
-	pb.RegisterCalendarDataServiceServer(grpcServer, calendarService)
+	pb.RegisterCalendarDataServiceServer(grpcServer.Underlying(), calendarService)
 
 	// Start gRPC server in a goroutine
 	go func() {
-		if err := grpcServer.Start(); err != nil && err != grpc.ErrServerClosed {
+		if err := grpcServer.Start(); err != nil {
 			log.Error("gRPC server failed to start", "error", err)
 			os.Exit(1)
 		}

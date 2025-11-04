@@ -2,7 +2,9 @@ syntax = "proto3";
 
 package calendar;
 
-option go_package = "github.com/waydxd/Orbit-Orbi/proto/calendar";
+import "proto/calendar/calendar.proto";
+
+option go_package = "github.com/waydxd/Orbit-core/proto/calendar";
 
 // CalendarDataService defines the gRPC service for Core to expose calendar data to Agent
 // Agent calls this service to fetch calendar data while processing user requests

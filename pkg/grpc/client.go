@@ -3,11 +3,13 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"time"
 
-	pb "github.com/waydxd/Orbit-Orbi/proto/calendar"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/logger"
+	pb "github.com/waydxd/Orbit-core/proto/calendar"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 )
 
 // CalendarGRPCClient wraps the gRPC client for calendar service
@@ -21,7 +23,7 @@ type CalendarGRPCClient struct {
 func NewCalendarGRPCClient(cfg *config.Config, log *logger.Logger) (*CalendarGRPCClient, error) {
 	// Connect to Orbi agent gRPC server
 	addr := fmt.Sprintf("%s:%d", cfg.Orbi.Host, cfg.Orbi.Port)
-	
+
 	conn, err := grpc.Dial(
 		addr,
 		grpc.WithInsecure(),
@@ -87,7 +89,39 @@ func (c *CalendarGRPCClient) GetAvailableSlots(ctx context.Context, req *pb.GetA
 
 // HealthCheck verifies the connection to the Orbi agent
 func (c *CalendarGRPCClient) HealthCheck(ctx context.Context) error {
-	_, err := c.conn.State()
-	return err
-}
+	if c.conn == nil {
+		return fmt.Errorf("grpc connection is nil")
+	}
 
+	// Fast path: already ready
+	if c.conn.GetState() == connectivity.Ready {
+		return nil
+	}
+
+	// Wait a short time (bounded by ctx) for the connection to become Ready
+	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	state := c.conn.GetState()
+	for {
+		// If already ready after updates
+		if c.conn.GetState() == connectivity.Ready {
+			return nil
+		}
+
+		// Wait for a state change or context timeout/cancel
+		ok := c.conn.WaitForStateChange(waitCtx, state)
+		if !ok {
+			// context done or timeout
+			if err := waitCtx.Err(); err != nil {
+				return fmt.Errorf("grpc health check timeout or canceled: %w", err)
+			}
+			break
+		}
+
+		// update observed state and loop
+		state = c.conn.GetState()
+	}
+
+	return fmt.Errorf("grpc connection not ready: state=%v", c.conn.GetState())
+}

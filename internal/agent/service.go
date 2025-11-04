@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
-	pb "github.com/waydxd/Orbit-Orbi/proto/calendar"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/grpc"
 	"github.com/waydxd/Orbit-core/pkg/logger"
+	pb "github.com/waydxd/Orbit-core/proto/calendar"
 )
 
 // Service represents the Agent Service for AI interactions
@@ -33,17 +32,17 @@ type CalendarServiceInterface interface {
 // PromptRequest represents the user prompt for the AI agent
 type PromptRequest struct {
 	Prompt    string `json:"prompt"`
-	StartTime int64  `json:"start_time,omitempty"`  // Unix timestamp
-	EndTime   int64  `json:"end_time,omitempty"`    // Unix timestamp
-	Context   string `json:"context,omitempty"`     // Additional context
+	StartTime int64  `json:"start_time,omitempty"` // Unix timestamp
+	EndTime   int64  `json:"end_time,omitempty"`   // Unix timestamp
+	Context   string `json:"context,omitempty"`    // Additional context
 }
 
 // AgentResponse represents the AI agent's response
 type AgentResponse struct {
 	Success        bool        `json:"success"`
 	Message        string      `json:"message"`
-	Action         string      `json:"action,omitempty"`        // e.g., "create_event", "get_events"
-	Data           interface{} `json:"data,omitempty"`          // Response data
+	Action         string      `json:"action,omitempty"`          // e.g., "create_event", "get_events"
+	Data           interface{} `json:"data,omitempty"`            // Response data
 	CalendarEvents interface{} `json:"calendar_events,omitempty"` // Context events sent to agent
 	Timestamp      int64       `json:"timestamp"`
 }

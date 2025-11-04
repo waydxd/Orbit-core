@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/logger"
 	"google.golang.org/grpc"
 )
@@ -43,6 +42,11 @@ func NewServer(cfg ServerConfig, log *logger.Logger) (*Server, error) {
 // RegisterService registers a gRPC service with the server
 func (s *Server) RegisterService(desc *grpc.ServiceDesc, impl interface{}) {
 	s.server.RegisterService(desc, impl)
+}
+
+// Underlying returns the underlying *grpc.Server from google.golang.org/grpc
+func (s *Server) Underlying() *grpc.Server {
+	return s.server
 }
 
 // Start starts the gRPC server

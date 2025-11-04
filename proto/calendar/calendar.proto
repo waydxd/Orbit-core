@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package calendar;
 
-option go_package = "github.com/waydxd/Orbit-Orbi/proto/calendar";
+option go_package = "github.com/waydxd/Orbit-core/proto/calendar";
 
 // CalendarService defines the gRPC service for calendar operations
 service CalendarService {
