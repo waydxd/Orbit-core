@@ -174,7 +174,7 @@ jobs:
 
       - name: Run updated container
         run: |
-          podman run --rm -d \
+          podman run -d \
             -p 8080:8080 \
             --env-file ~/orbit-core/.env \
             --name orbit-core \
