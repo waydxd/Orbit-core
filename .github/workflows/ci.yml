@@ -142,7 +142,7 @@ jobs:
       uses: docker/login-action@v3
       with:
         registry: ghcr.io
-        username: ${{ github.actor }}
+        username: ${{ github.repository_owner }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Build and push Docker image
@@ -156,3 +156,26 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
+  deploy:
+    name: Deploy to Self-Hosted
+    runs-on: self-hosted
+    needs: docker
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Log in to GHCR
+        run: echo "${{ secrets.ACCESS_TOKEN }}" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+
+      - name: Pull latest image
+        run: docker pull ghcr.io/${{ github.repository_owner }}/orbit-core:latest
+
+      - name: Stop and remove old container
+        run: docker stop orbit-core || true && docker rm orbit-core || true
+
+      - name: Run updated container
+        run: |
+          docker run --rm -d \
+            -p 8080:8080 \
+            --env-file ~/orbit-core/.env \
+            --name orbit-core \
+            ghcr.io/${{ github.repository_owner }}/orbit-core:latest

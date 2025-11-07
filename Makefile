@@ -1,9 +1,16 @@
-.PHONY: build run test clean docker-build docker-up docker-down help
+.PHONY: build run test clean docker-build docker-up docker-down help install-protoc install-protoc-gen proto generate clean-proto
 
 # Variables
 BINARY_NAME=orbit-core
 BINARY_PATH=bin/$(BINARY_NAME)
 DOCKER_IMAGE=orbit-core:latest
+
+# Protobuf / protoc generation settings
+PROTOC_GEN_GO := google.golang.org/protobuf/cmd/protoc-gen-go@latest
+PROTOC_GEN_GO_GRPC := google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+PROTO_DIRS := proto
+PROTO_FILES := $(shell find $(PROTO_DIRS) -name '*.proto')
+GOBIN ?= $(shell go env GOPATH)/bin
 
 help: ## Display this help message
 	@echo "Available targets:"
@@ -64,6 +71,34 @@ lint: ## Run linter
 	@echo "Running linter..."
 	@golangci-lint run ./...
 	@echo "Linting complete"
+
+install-protoc: ## Install protoc (macOS/Homebrew) - or install manually on Linux/Windows
+	@echo "Installing protoc (macOS/Homebrew)..."
+	@if command -v brew >/dev/null 2>&1; then \
+		brew install protobuf; \
+	else \
+		echo "brew not found: please install protoc manually: https://github.com/protocolbuffers/protobuf/releases"; exit 1; \
+	fi
+
+install-protoc-gen: ## Install Go protoc plugins (protoc-gen-go, protoc-gen-go-grpc)
+	@echo "Installing protoc-gen-go and protoc-gen-go-grpc to $(GOBIN)"
+	@export PATH=$$PATH:$(GOBIN):$(HOME)/go/bin; \
+	go install $(PROTOC_GEN_GO); \
+	go install $(PROTOC_GEN_GO_GRPC);
+
+proto:
+	@echo "Generating protobuf code..."
+	@export PATH=$$PATH:$$(go env GOPATH)/bin && \
+	protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		proto/calendar/calendar.proto proto/calendar/calendar_data.proto
+	@echo "Protobuf code generated successfully"
+
+generate: proto ## Alias for proto (generate protobuf Go code)
+
+clean-proto: ## Remove generated proto Go files
+	@echo "Removing generated proto Go files..."
+	@find . -type f \( -name '*_pb.go' -o -name '*_grpc.pb.go' \) -print -exec rm -f {} +
 
 all: clean build ## Clean and build
 	@echo "Build pipeline complete"

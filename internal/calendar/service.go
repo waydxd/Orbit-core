@@ -1,26 +1,36 @@
 package calendar
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/logger"
+	pb "github.com/waydxd/Orbit-core/proto/calendar"
 )
 
 // Service represents the Calendar & Task Service
 type Service struct {
-	config *config.Config
-	logger *logger.Logger
+	pb.UnimplementedCalendarDataServiceServer
+	config    *config.Config
+	logger    *logger.Logger
+	eventRepo EventRepository
+	taskRepo  TaskRepository
 }
 
 // NewService creates a new Calendar Service
-func NewService(cfg *config.Config, log *logger.Logger) *Service {
+func NewService(cfg *config.Config, log *logger.Logger, eventRepo EventRepository, taskRepo TaskRepository) *Service {
 	return &Service{
-		config: cfg,
-		logger: log,
+		config:    cfg,
+		logger:    log,
+		eventRepo: eventRepo,
+		taskRepo:  taskRepo,
 	}
 }
 
@@ -43,182 +53,766 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	calendarRouter.HandleFunc("/tasks/{id}", s.deleteTask).Methods("DELETE")
 }
 
-// Event handlers
-func (s *Service) listEvents(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = w
+// ===== Event HTTP Handlers =====
 
-	// TODO: Fetch events from PostgreSQL
-	var events []models.Event
+// listEvents retrieves events for a user
+func (s *Service) listEvents(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
+			s.logger.Error("failed to write listEvents error response", "error", err)
+			return
+		}
+		return
+	}
+
+	startTimeStr := r.URL.Query().Get("start_time")
+	endTimeStr := r.URL.Query().Get("end_time")
+
+	startTime := time.Now()
+	endTime := time.Now().AddDate(0, 0, 30)
+
+	if startTimeStr != "" {
+		if t, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
+			startTime = t
+		}
+	}
+	if endTimeStr != "" {
+		if t, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
+			endTime = t
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	events, err := s.eventRepo.ListEvents(ctx, userID, startTime, endTime)
+	if err != nil {
+		s.logger.Error("failed to list events", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to list events"}); err != nil {
+			s.logger.Error("failed to write listEvents error response", "error", err)
+			return
+		}
+		return
+	}
 
 	if err := json.NewEncoder(w).Encode(events); err != nil {
-		s.logger.Error("Error encoding listEvents response", "err", err)
+		s.logger.Error("failed to write listEvents response", "error", err)
 		return
 	}
 }
 
+// createEvent creates a new event
 func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	var event models.Event
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+	var req struct {
+		UserID      string `json:"user_id"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		StartTime   string `json:"start_time"`
+		EndTime     string `json:"end_time"`
+		Location    string `json:"location"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		s.logger.Error("invalid createEvent request", "err", err)
-		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); encErr != nil {
-			s.logger.Error("Error encoding createEvent error response", "err", encErr)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+			s.logger.Error("failed to write createEvent error response", "error", err)
+			return
 		}
 		return
 	}
 
-	// TODO: Store event in PostgreSQL
-	s.logger.Info("Event created", "title", event.Title)
+	startTime, err := time.Parse(time.RFC3339, req.StartTime)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid start_time format"}); err != nil {
+			s.logger.Error("failed to write createEvent error response", "error", err)
+			return
+		}
+		return
+	}
+
+	endTime, err := time.Parse(time.RFC3339, req.EndTime)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid end_time format"}); err != nil {
+			s.logger.Error("failed to write createEvent error response", "error", err)
+			return
+		}
+		return
+	}
+
+	event := &models.Event{
+		ID:          uuid.New().String(),
+		UserID:      req.UserID,
+		Title:       req.Title,
+		Description: req.Description,
+		StartTime:   startTime,
+		EndTime:     endTime,
+		Location:    req.Location,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	if err := s.eventRepo.CreateEvent(ctx, event); err != nil {
+		s.logger.Error("failed to create event", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to create event"}); err != nil {
+			s.logger.Error("failed to write createEvent error response", "error", err)
+			return
+		}
+		return
+	}
 
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(event); err != nil {
-		s.logger.Error("Error encoding createEvent response", "err", err)
+		s.logger.Error("failed to write createEvent success response", "error", err)
 		return
 	}
 }
 
+// getEvent retrieves an event by ID
 func (s *Service) getEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	vars := mux.Vars(r)
-	eventID := vars["id"]
+	id := mux.Vars(r)["id"]
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
 
-	// TODO: Fetch event from PostgreSQL
-	s.logger.Info("Fetching event", "id", eventID)
+	event, err := s.eventRepo.GetEventByID(ctx, id)
+	if err != nil {
+		s.logger.Error("failed to get event", "err", err)
+		w.WriteHeader(http.StatusNotFound)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "event not found"}); err != nil {
+			s.logger.Error("failed to write getEvent error response", "error", err)
+			return
+		}
+		return
+	}
 
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(map[string]string{"id": eventID}); err != nil {
-		s.logger.Error("Error encoding getEvent response", "err", err)
+	if err := json.NewEncoder(w).Encode(event); err != nil {
+		s.logger.Error("failed to write getEvent response", "error", err)
 		return
 	}
 }
 
+// updateEvent updates an existing event
 func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	vars := mux.Vars(r)
-	eventID := vars["id"]
+	id := mux.Vars(r)["id"]
 
-	var event models.Event
-	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+	var req struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		StartTime   string `json:"start_time"`
+		EndTime     string `json:"end_time"`
+		Location    string `json:"location"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		s.logger.Error("invalid updateEvent request", "err", err)
-		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); encErr != nil {
-			s.logger.Error("Error encoding updateEvent error response", "err", encErr)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+			s.logger.Error("failed to write updateEvent error response", "error", err)
+			return
 		}
 		return
 	}
 
-	// TODO: Update event in PostgreSQL
-	s.logger.Info("Event updated", "id", eventID)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	event, err := s.eventRepo.GetEventByID(ctx, id)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "event not found"}); err != nil {
+			s.logger.Error("failed to write updateEvent error response", "error", err)
+			return
+		}
+		return
+	}
+
+	if req.Title != "" {
+		event.Title = req.Title
+	}
+	if req.Description != "" {
+		event.Description = req.Description
+	}
+	if req.Location != "" {
+		event.Location = req.Location
+	}
+	if req.StartTime != "" {
+		if t, err := time.Parse(time.RFC3339, req.StartTime); err == nil {
+			event.StartTime = t
+		}
+	}
+	if req.EndTime != "" {
+		if t, err := time.Parse(time.RFC3339, req.EndTime); err == nil {
+			event.EndTime = t
+		}
+	}
+
+	if err := s.eventRepo.UpdateEvent(ctx, event); err != nil {
+		s.logger.Error("failed to update event", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to update event"}); err != nil {
+			s.logger.Error("failed to write updateEvent error response", "error", err)
+			return
+		}
+		return
+	}
 
 	if err := json.NewEncoder(w).Encode(event); err != nil {
-		s.logger.Error("Error encoding updateEvent response", "err", err)
+		s.logger.Error("failed to write updateEvent response", "error", err)
 		return
 	}
 }
 
+// deleteEvent deletes an event
 func (s *Service) deleteEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	vars := mux.Vars(r)
-	eventID := vars["id"]
+	id := mux.Vars(r)["id"]
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
 
-	// TODO: Delete event from PostgreSQL
-	s.logger.Info("Event deleted", "id", eventID)
+	if err := s.eventRepo.DeleteEvent(ctx, id); err != nil {
+		s.logger.Error("failed to delete event", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete event"}); err != nil {
+			s.logger.Error("failed to write deleteEvent error response", "error", err)
+			return
+		}
+		return
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Task handlers
-func (s *Service) listTasks(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = w
+// ===== Task HTTP Handlers =====
 
-	// TODO: Fetch tasks from PostgreSQL
-	var tasks []models.Task
+// listTasks retrieves tasks for a user
+func (s *Service) listTasks(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
+			s.logger.Error("failed to write listTasks error response", "error", err)
+			return
+		}
+		return
+	}
+
+	completedStr := r.URL.Query().Get("completed")
+	var completed *bool
+	if completedStr != "" {
+		val := completedStr == "true"
+		completed = &val
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	tasks, err := s.taskRepo.ListTasks(ctx, userID, completed)
+	if err != nil {
+		s.logger.Error("failed to list tasks", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to list tasks"}); err != nil {
+			s.logger.Error("failed to write listTasks error response", "error", err)
+			return
+		}
+		return
+	}
 
 	if err := json.NewEncoder(w).Encode(tasks); err != nil {
-		s.logger.Error("Error encoding listTasks response", "err", err)
+		s.logger.Error("failed to write listTasks response", "error", err)
 		return
 	}
 }
 
+// createTask creates a new task
 func (s *Service) createTask(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	var task models.Task
-	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
+	var req struct {
+		UserID      string `json:"user_id"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		DueDate     string `json:"due_date"`
+		Priority    string `json:"priority"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		s.logger.Error("invalid createTask request", "err", err)
-		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); encErr != nil {
-			s.logger.Error("Error encoding createTask error response", "err", encErr)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+			s.logger.Error("failed to write createTask error response", "error", err)
+			return
 		}
 		return
 	}
 
-	// TODO: Store task in PostgreSQL
-	s.logger.Info("Task created", "title", task.Title)
+	dueDate := time.Time{}
+	if req.DueDate != "" {
+		if t, err := time.Parse(time.RFC3339, req.DueDate); err == nil {
+			dueDate = t
+		}
+	}
+
+	task := &models.Task{
+		ID:          uuid.New().String(),
+		UserID:      req.UserID,
+		Title:       req.Title,
+		Description: req.Description,
+		DueDate:     dueDate,
+		Priority:    req.Priority,
+		Completed:   false,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	if err := s.taskRepo.CreateTask(ctx, task); err != nil {
+		s.logger.Error("failed to create task", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to create task"}); err != nil {
+			s.logger.Error("failed to write createTask error response", "error", err)
+			return
+		}
+		return
+	}
 
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(task); err != nil {
-		s.logger.Error("Error encoding createTask response", "err", err)
+		s.logger.Error("failed to write createTask success response", "error", err)
 		return
 	}
 }
 
+// getTask retrieves a task by ID
 func (s *Service) getTask(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	vars := mux.Vars(r)
-	taskID := vars["id"]
+	id := mux.Vars(r)["id"]
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
 
-	// TODO: Fetch task from PostgreSQL
-	s.logger.Info("Fetching task", "id", taskID)
-
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(map[string]string{"id": taskID}); err != nil {
-		s.logger.Error("Error encoding getTask response", "err", err)
-		return
-	}
-}
-
-func (s *Service) updateTask(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	vars := mux.Vars(r)
-	taskID := vars["id"]
-
-	var task models.Task
-	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		s.logger.Error("invalid updateTask request", "err", err)
-		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); encErr != nil {
-			s.logger.Error("Error encoding updateTask error response", "err", encErr)
+	task, err := s.taskRepo.GetTaskByID(ctx, id)
+	if err != nil {
+		s.logger.Error("failed to get task", "err", err)
+		w.WriteHeader(http.StatusNotFound)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "task not found"}); err != nil {
+			s.logger.Error("failed to write getTask error response", "error", err)
+			return
 		}
 		return
 	}
 
-	// TODO: Update task in PostgreSQL
-	s.logger.Info("Task updated", "id", taskID)
-
 	if err := json.NewEncoder(w).Encode(task); err != nil {
-		s.logger.Error("Error encoding updateTask response", "err", err)
+		s.logger.Error("failed to write getTask response", "error", err)
 		return
 	}
 }
 
+// updateTask updates an existing task
+func (s *Service) updateTask(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	id := mux.Vars(r)["id"]
+
+	var req struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		DueDate     string `json:"due_date"`
+		Completed   *bool  `json:"completed"`
+		Priority    string `json:"priority"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+			s.logger.Error("failed to write updateTask error response", "error", err)
+			return
+		}
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	task, err := s.taskRepo.GetTaskByID(ctx, id)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "task not found"}); err != nil {
+			s.logger.Error("failed to write updateTask error response", "error", err)
+			return
+		}
+		return
+	}
+
+	if req.Title != "" {
+		task.Title = req.Title
+	}
+	if req.Description != "" {
+		task.Description = req.Description
+	}
+	if req.Priority != "" {
+		task.Priority = req.Priority
+	}
+	if req.DueDate != "" {
+		if t, err := time.Parse(time.RFC3339, req.DueDate); err == nil {
+			task.DueDate = t
+		}
+	}
+	if req.Completed != nil {
+		task.Completed = *req.Completed
+	}
+
+	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
+		s.logger.Error("failed to update task", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to update task"}); err != nil {
+			s.logger.Error("failed to write updateTask error response", "error", err)
+			return
+		}
+		return
+	}
+
+	if err := json.NewEncoder(w).Encode(task); err != nil {
+		s.logger.Error("failed to write updateTask response", "error", err)
+		return
+	}
+}
+
+// deleteTask deletes a task
 func (s *Service) deleteTask(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	vars := mux.Vars(r)
-	taskID := vars["id"]
+	id := mux.Vars(r)["id"]
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
 
-	// TODO: Delete task from PostgreSQL
-	s.logger.Info("Task deleted", "id", taskID)
+	if err := s.taskRepo.DeleteTask(ctx, id); err != nil {
+		s.logger.Error("failed to delete task", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete task"}); err != nil {
+			s.logger.Error("failed to write deleteTask error response", "error", err)
+			return
+		}
+		return
+	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ===== gRPC Server Implementation =====
+
+// GetCalendarData implements CalendarDataService.GetCalendarData
+func (s *Service) GetCalendarData(ctx context.Context, req *pb.GetCalendarDataRequest) (*pb.GetCalendarDataResponse, error) {
+	s.logger.Info("GetCalendarData called by Agent", "user_id", req.UserId)
+
+	startTime := time.Unix(req.StartTime, 0)
+	endTime := time.Unix(req.EndTime, 0)
+
+	events, err := s.eventRepo.ListEvents(ctx, req.UserId, startTime, endTime)
+	if err != nil {
+		s.logger.Error("failed to get calendar data", "err", err)
+		return &pb.GetCalendarDataResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to get calendar data: %v", err),
+		}, nil
+	}
+
+	pbEvents := make([]*pb.Event, len(events))
+	for i, event := range events {
+		pbEvents[i] = &pb.Event{
+			Id:          event.ID,
+			Title:       event.Title,
+			Description: event.Description,
+			StartTime:   event.StartTime.Unix(),
+			EndTime:     event.EndTime.Unix(),
+			Location:    event.Location,
+		}
+	}
+
+	return &pb.GetCalendarDataResponse{
+		Events:  pbEvents,
+		Success: true,
+		Message: "Calendar data retrieved successfully",
+	}, nil
+}
+
+// GetUserAvailability implements CalendarDataService.GetUserAvailability
+func (s *Service) GetUserAvailability(ctx context.Context, req *pb.GetUserAvailabilityRequest) (*pb.GetUserAvailabilityResponse, error) {
+	s.logger.Info("GetUserAvailability called by Agent", "user_id", req.UserId)
+
+	startTime := time.Unix(req.StartTime, 0)
+	endTime := time.Unix(req.EndTime, 0)
+
+	events, err := s.eventRepo.ListEvents(ctx, req.UserId, startTime, endTime)
+	if err != nil {
+		s.logger.Error("failed to check availability", "err", err)
+		return &pb.GetUserAvailabilityResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to check availability: %v", err),
+		}, nil
+	}
+
+	available := len(events) == 0
+	reason := "No conflicts found"
+	if !available {
+		reason = fmt.Sprintf("%d conflicting events found", len(events))
+	}
+
+	pbEvents := make([]*pb.Event, len(events))
+	for i, event := range events {
+		pbEvents[i] = &pb.Event{
+			Id:          event.ID,
+			Title:       event.Title,
+			Description: event.Description,
+			StartTime:   event.StartTime.Unix(),
+			EndTime:     event.EndTime.Unix(),
+			Location:    event.Location,
+		}
+	}
+
+	status := &pb.AvailabilityStatus{
+		Available:         available,
+		Reason:            reason,
+		ConflictingEvents: pbEvents,
+	}
+
+	return &pb.GetUserAvailabilityResponse{
+		Status:  status,
+		Success: true,
+		Message: "Availability check completed",
+	}, nil
+}
+
+// QueryEvents implements CalendarDataService.QueryEvents
+func (s *Service) QueryEvents(ctx context.Context, req *pb.QueryEventsRequest) (*pb.QueryEventsResponse, error) {
+	s.logger.Info("QueryEvents called by Agent", "user_id", req.UserId)
+
+	startTime := time.Unix(req.StartTime, 0)
+	endTime := time.Unix(req.EndTime, 0)
+
+	events, err := s.eventRepo.ListEvents(ctx, req.UserId, startTime, endTime)
+	if err != nil {
+		s.logger.Error("failed to query events", "err", err)
+		return &pb.QueryEventsResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to query events: %v", err),
+		}, nil
+	}
+
+	pbEvents := make([]*pb.Event, len(events))
+	for i, event := range events {
+		pbEvents[i] = &pb.Event{
+			Id:          event.ID,
+			Title:       event.Title,
+			Description: event.Description,
+			StartTime:   event.StartTime.Unix(),
+			EndTime:     event.EndTime.Unix(),
+			Location:    event.Location,
+		}
+	}
+
+	// Safely convert length to int32 avoiding overflow
+	var totalCount int32
+	if len(pbEvents) > int(^uint32(0)>>1) { // larger than max int32
+		totalCount = -1 // indicate overflow
+	} else {
+		// #nosec G115 -- len(pbEvents) is guaranteed to be within int32 range
+		totalCount = int32(len(pbEvents))
+	}
+
+	return &pb.QueryEventsResponse{
+		Events:     pbEvents,
+		TotalCount: totalCount,
+		Success:    true,
+		Message:    "Query executed successfully",
+	}, nil
+}
+
+// Adapter methods to satisfy agent.CalendarServiceInterface and gateway.CalendarServiceInterface
+
+// ListEvents returns events across users (userID omitted) or can be extended to filter by status.
+func (s *Service) ListEvents(ctx context.Context, startTime, endTime int64, status string) ([]interface{}, error) {
+	_ = status // mark as used until filtering is implemented
+	st := time.Unix(startTime, 0)
+	en := time.Unix(endTime, 0)
+
+	events, err := s.eventRepo.ListEvents(ctx, "", st, en)
+	if err != nil {
+		s.logger.Error("failed to list events (adapter)", "err", err)
+		return nil, err
+	}
+
+	out := make([]interface{}, len(events))
+	for i, e := range events {
+		out[i] = e
+	}
+	return out, nil
+}
+
+// CreateEvent accepts flexible payloads (map[string]interface{}, *models.Event, pb.Event) and creates an event
+func (s *Service) CreateEvent(ctx context.Context, event interface{}) (interface{}, error) {
+	// Delegate parsing to a helper to keep cyclomatic complexity low
+	ev, err := parseEventPayload(event)
+	if err != nil {
+		s.logger.Error("failed to parse event payload (adapter)", "err", err)
+		return nil, err
+	}
+
+	if ev.ID == "" {
+		ev.ID = uuid.New().String()
+	}
+	if ev.CreatedAt.IsZero() {
+		ev.CreatedAt = time.Now()
+	}
+	ev.UpdatedAt = time.Now()
+
+	if err := s.eventRepo.CreateEvent(ctx, &ev); err != nil {
+		s.logger.Error("failed to create event (adapter)", "err", err)
+		return nil, err
+	}
+	return &ev, nil
+}
+
+// parseEventPayload converts supported input types into a models.Event value.
+// Supported input types: map[string]interface{}, *models.Event, models.Event, *pb.Event
+func parseEventPayload(event interface{}) (models.Event, error) {
+	var ev models.Event
+	switch v := event.(type) {
+	case map[string]interface{}:
+		if id, ok := v["user_id"].(string); ok {
+			ev.UserID = id
+		}
+		if title, ok := v["title"].(string); ok {
+			ev.Title = title
+		}
+		if desc, ok := v["description"].(string); ok {
+			ev.Description = desc
+		}
+		if loc, ok := v["location"].(string); ok {
+			ev.Location = loc
+		}
+		// Parse start_time and end_time using helper
+		if st, ok := v["start_time"]; ok {
+			if t, err := parseTimeFromInterface(st); err == nil {
+				ev.StartTime = t
+			}
+		}
+		if et, ok := v["end_time"]; ok {
+			if t, err := parseTimeFromInterface(et); err == nil {
+				ev.EndTime = t
+			}
+		}
+	case *models.Event:
+		ev = *v
+	case models.Event:
+		ev = v
+	case *pb.Event:
+		ev.ID = v.Id
+		ev.Title = v.Title
+		ev.Description = v.Description
+		ev.StartTime = time.Unix(v.StartTime, 0)
+		ev.EndTime = time.Unix(v.EndTime, 0)
+		ev.Location = v.Location
+	default:
+		return models.Event{}, fmt.Errorf("unsupported event type")
+	}
+	return ev, nil
+}
+
+// parseTimeFromInterface parses time from various interface{} types (int64, float64, string)
+func parseTimeFromInterface(v interface{}) (time.Time, error) {
+	switch tv := v.(type) {
+	case int64:
+		return time.Unix(tv, 0), nil
+	case float64:
+		return time.Unix(int64(tv), 0), nil
+	case string:
+		return time.Parse(time.RFC3339, tv)
+	default:
+		return time.Time{}, fmt.Errorf("unsupported time type")
+	}
+}
+
+// UpdateEvent updates an event by id using flexible payloads
+func (s *Service) UpdateEvent(ctx context.Context, id string, event interface{}) (interface{}, error) {
+	existing, err := s.eventRepo.GetEventByID(ctx, id)
+	if err != nil {
+		s.logger.Error("failed to get event for update", "id", id, "err", err)
+		return nil, err
+	}
+
+	switch v := event.(type) {
+	case map[string]interface{}:
+		if title, ok := v["title"].(string); ok {
+			existing.Title = title
+		}
+		if desc, ok := v["description"].(string); ok {
+			existing.Description = desc
+		}
+		if loc, ok := v["location"].(string); ok {
+			existing.Location = loc
+		}
+		if sts, ok := v["start_time"].(string); ok {
+			if t, err := time.Parse(time.RFC3339, sts); err == nil {
+				existing.StartTime = t
+			}
+		}
+		if ets, ok := v["end_time"].(string); ok {
+			if t, err := time.Parse(time.RFC3339, ets); err == nil {
+				existing.EndTime = t
+			}
+		}
+	case *models.Event:
+		// Replace the existing pointer with provided pointer
+		existing = v
+	case models.Event:
+		// Copy fields from value into existing pointer
+		existing.Title = v.Title
+		existing.Description = v.Description
+		existing.StartTime = v.StartTime
+		existing.EndTime = v.EndTime
+		existing.Location = v.Location
+	case *pb.Event:
+		existing.Title = v.Title
+		existing.Description = v.Description
+		existing.StartTime = time.Unix(v.StartTime, 0)
+		existing.EndTime = time.Unix(v.EndTime, 0)
+		existing.Location = v.Location
+	default:
+		return nil, fmt.Errorf("unsupported event type for update")
+	}
+
+	existing.UpdatedAt = time.Now()
+	if err := s.eventRepo.UpdateEvent(ctx, existing); err != nil {
+		s.logger.Error("failed to update event (adapter)", "err", err)
+		return nil, err
+	}
+	return existing, nil
+}
+
+// DeleteEvent deletes an event by id
+func (s *Service) DeleteEvent(ctx context.Context, id string) error {
+	if err := s.eventRepo.DeleteEvent(ctx, id); err != nil {
+		s.logger.Error("failed to delete event (adapter)", "id", id, "err", err)
+		return err
+	}
+	return nil
 }

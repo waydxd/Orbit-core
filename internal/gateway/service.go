@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -25,6 +26,7 @@ type ServiceConfig struct {
 	CalendarService    CalendarServiceInterface
 	LocationService    LocationServiceInterface
 	IntegrationService IntegrationServiceInterface
+	AgentService       AgentServiceInterface
 }
 
 // AuthServiceInterface defines methods for auth service
@@ -35,6 +37,10 @@ type AuthServiceInterface interface {
 // CalendarServiceInterface defines methods for calendar service
 type CalendarServiceInterface interface {
 	RegisterRoutes(router *mux.Router)
+	ListEvents(ctx context.Context, startTime, endTime int64, status string) ([]interface{}, error)
+	CreateEvent(ctx context.Context, event interface{}) (interface{}, error)
+	UpdateEvent(ctx context.Context, id string, event interface{}) (interface{}, error)
+	DeleteEvent(ctx context.Context, id string) error
 }
 
 // LocationServiceInterface defines methods for location service
@@ -44,6 +50,11 @@ type LocationServiceInterface interface {
 
 // IntegrationServiceInterface defines methods for integration service
 type IntegrationServiceInterface interface {
+	RegisterRoutes(router *mux.Router)
+}
+
+// AgentServiceInterface defines methods for agent service
+type AgentServiceInterface interface {
 	RegisterRoutes(router *mux.Router)
 }
 
@@ -89,6 +100,7 @@ func (s *Service) setupRoutes() {
 	s.services.CalendarService.RegisterRoutes(apiRouter)
 	s.services.LocationService.RegisterRoutes(apiRouter)
 	s.services.IntegrationService.RegisterRoutes(apiRouter)
+	s.services.AgentService.RegisterRoutes(apiRouter)
 }
 
 // Router returns the configured router

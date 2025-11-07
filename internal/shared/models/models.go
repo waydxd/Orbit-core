@@ -49,3 +49,24 @@ type Location struct {
 	Timestamp time.Time `json:"timestamp" db:"timestamp"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
+
+// Session represents an authentication session
+type Session struct {
+	ID        string    `json:"id" db:"id"`
+	UserID    string    `json:"user_id" db:"user_id"`
+	TokenHash string    `json:"-" db:"token_hash"`
+	ExpiresAt time.Time `json:"expires_at" db:"expires_at"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
+// Integration represents an external service integration
+type Integration struct {
+	ID              string    `json:"id" db:"id"`
+	UserID          string    `json:"user_id" db:"user_id"`
+	ServiceName     string    `json:"service_name" db:"service_name"`
+	APIKeyEncrypted string    `json:"-" db:"api_key_encrypted"`
+	Status          string    `json:"status" db:"status"`
+	LastSync        time.Time `json:"last_sync" db:"last_sync"`
+	CreatedAt       time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
+}
