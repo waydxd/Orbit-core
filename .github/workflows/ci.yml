@@ -164,17 +164,17 @@ jobs:
 
     steps:
       - name: Log in to GHCR
-        run: echo "${{ secrets.ACCESS_TOKEN }}" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+        run: echo "${{ secrets.ACCESS_TOKEN }}" | podman login ghcr.io -u ${{ github.repository_owner }} --password-stdin
 
       - name: Pull latest image
-        run: docker pull ghcr.io/${{ github.repository_owner }}/orbit-core:latest
+        run: podman pull ghcr.io/${{ github.repository_owner }}/orbit-core:latest
 
       - name: Stop and remove old container
-        run: docker stop orbit-core || true && docker rm orbit-core || true
+        run: podman stop orbit-core || true && podman rm orbit-core || true
 
       - name: Run updated container
         run: |
-          docker run --rm -d \
+          podman run --rm -d \
             -p 8080:8080 \
             --env-file ~/orbit-core/.env \
             --name orbit-core \
