@@ -10,6 +10,7 @@ import (
 	pb "github.com/waydxd/Orbit-core/proto/calendar"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // CalendarGRPCClient wraps the gRPC client for calendar service
@@ -24,9 +25,10 @@ func NewCalendarGRPCClient(cfg *config.Config, log *logger.Logger) (*CalendarGRP
 	// Connect to Orbi agent gRPC server
 	addr := fmt.Sprintf("%s:%d", cfg.Orbi.Host, cfg.Orbi.Port)
 
-	conn, err := grpc.Dial(
+	conn, err := grpc.NewClient(
 		addr,
-		grpc.WithInsecure(),
+		// Consider using grpc.WithTransportCredentials() with TLS credentials for production.
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
 		log.Error("Failed to connect to Orbi agent", "address", addr, "error", err)

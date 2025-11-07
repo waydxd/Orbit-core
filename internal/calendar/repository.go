@@ -104,16 +104,21 @@ func (r *SQLEventRepository) GetEventByID(ctx context.Context, id string) (*mode
 func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, startTime, endTime time.Time) ([]*models.Event, error) {
 	// If userID is empty, return events for all users
 	query := `
-		SELECT id, user_id, title, description, start_time, end_time, location, created_at, updated_at
-		FROM events
-		WHERE ($1 = '' OR user_id = $1) AND start_time >= $2 AND end_time <= $3
-		ORDER BY start_time ASC
-	`
+			SELECT id, user_id, title, description, start_time, end_time, location, created_at, updated_at
+			FROM events
+			WHERE ($1 = '' OR user_id = $1) AND start_time >= $2 AND end_time <= $3
+			ORDER BY start_time
+		`
 	rows, err := r.db.QueryContext(ctx, query, userID, startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list events: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			fmt.Printf("failed to close rows: %v\n", err)
+		}
+	}(rows)
 
 	var events []*models.Event
 	for rows.Next() {
@@ -246,7 +251,12 @@ func (r *SQLTaskRepository) ListTasks(ctx context.Context, userID string, comple
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tasks: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			fmt.Printf("failed to close rows: %v\n", err)
+		}
+	}(rows)
 
 	var tasks []*models.Task
 	for rows.Next() {

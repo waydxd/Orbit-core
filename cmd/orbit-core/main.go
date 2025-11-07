@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -40,7 +41,12 @@ func main() {
 		log.Error("Failed to connect to database", "error", err)
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func(db *database.DB) {
+		err := db.Close()
+		if err != nil {
+			log.Error("Failed to close database connection", "error", err)
+		}
+	}(db)
 
 	// Initialize repositories
 	authRepo := auth.NewSQLRepository(db)
@@ -58,9 +64,14 @@ func main() {
 	grpcClient, err := grpc.NewCalendarGRPCClient(cfg, log)
 	if err != nil {
 		log.Error("Failed to initialize gRPC client", "error", err)
-		os.Exit(1)
+		return
 	}
-	defer grpcClient.Close()
+	defer func(grpcClient *grpc.CalendarGRPCClient) {
+		err := grpcClient.Close()
+		if err != nil {
+			log.Error("Failed to close gRPC client", "error", err)
+		}
+	}(grpcClient)
 
 	// Initialize agent service for AI interactions
 	agentService := agent.NewService(cfg, log, grpcClient, calendarService)
@@ -71,7 +82,7 @@ func main() {
 	}, log)
 	if err != nil {
 		log.Error("Failed to initialize gRPC server", "error", err)
-		os.Exit(1)
+		return
 	}
 
 	// Register CalendarDataService with gRPC server
@@ -107,13 +118,13 @@ func main() {
 	// Start server in goroutine
 	go func() {
 		log.Info("Server starting", "port", cfg.Server.Port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("Server failed to start", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	// Wait for interrupt signal to gracefully shutdown the server
+	// Wait for interrupt signal to gracefully shut down the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

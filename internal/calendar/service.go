@@ -62,7 +62,10 @@ func (s *Service) listEvents(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
+			s.logger.Error("failed to write listEvents error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -90,11 +93,17 @@ func (s *Service) listEvents(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("failed to list events", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to list events"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to list events"}); err != nil {
+			s.logger.Error("failed to write listEvents error response", "error", err)
+			return
+		}
 		return
 	}
 
-	json.NewEncoder(w).Encode(events)
+	if err := json.NewEncoder(w).Encode(events); err != nil {
+		s.logger.Error("failed to write listEvents response", "error", err)
+		return
+	}
 }
 
 // createEvent creates a new event
@@ -112,21 +121,30 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+			s.logger.Error("failed to write createEvent error response", "error", err)
+			return
+		}
 		return
 	}
 
 	startTime, err := time.Parse(time.RFC3339, req.StartTime)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid start_time format"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid start_time format"}); err != nil {
+			s.logger.Error("failed to write createEvent error response", "error", err)
+			return
+		}
 		return
 	}
 
 	endTime, err := time.Parse(time.RFC3339, req.EndTime)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid end_time format"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid end_time format"}); err != nil {
+			s.logger.Error("failed to write createEvent error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -148,12 +166,18 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 	if err := s.eventRepo.CreateEvent(ctx, event); err != nil {
 		s.logger.Error("failed to create event", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create event"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to create event"}); err != nil {
+			s.logger.Error("failed to write createEvent error response", "error", err)
+			return
+		}
 		return
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(event)
+	if err := json.NewEncoder(w).Encode(event); err != nil {
+		s.logger.Error("failed to write createEvent success response", "error", err)
+		return
+	}
 }
 
 // getEvent retrieves an event by ID
@@ -168,11 +192,17 @@ func (s *Service) getEvent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("failed to get event", "err", err)
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "event not found"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "event not found"}); err != nil {
+			s.logger.Error("failed to write getEvent error response", "error", err)
+			return
+		}
 		return
 	}
 
-	json.NewEncoder(w).Encode(event)
+	if err := json.NewEncoder(w).Encode(event); err != nil {
+		s.logger.Error("failed to write getEvent response", "error", err)
+		return
+	}
 }
 
 // updateEvent updates an existing event
@@ -191,7 +221,10 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+			s.logger.Error("failed to write updateEvent error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -201,7 +234,10 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 	event, err := s.eventRepo.GetEventByID(ctx, id)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "event not found"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "event not found"}); err != nil {
+			s.logger.Error("failed to write updateEvent error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -228,11 +264,17 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 	if err := s.eventRepo.UpdateEvent(ctx, event); err != nil {
 		s.logger.Error("failed to update event", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to update event"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to update event"}); err != nil {
+			s.logger.Error("failed to write updateEvent error response", "error", err)
+			return
+		}
 		return
 	}
 
-	json.NewEncoder(w).Encode(event)
+	if err := json.NewEncoder(w).Encode(event); err != nil {
+		s.logger.Error("failed to write updateEvent response", "error", err)
+		return
+	}
 }
 
 // deleteEvent deletes an event
@@ -246,7 +288,10 @@ func (s *Service) deleteEvent(w http.ResponseWriter, r *http.Request) {
 	if err := s.eventRepo.DeleteEvent(ctx, id); err != nil {
 		s.logger.Error("failed to delete event", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete event"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete event"}); err != nil {
+			s.logger.Error("failed to write deleteEvent error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -262,7 +307,10 @@ func (s *Service) listTasks(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
+			s.logger.Error("failed to write listTasks error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -280,11 +328,17 @@ func (s *Service) listTasks(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("failed to list tasks", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to list tasks"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to list tasks"}); err != nil {
+			s.logger.Error("failed to write listTasks error response", "error", err)
+			return
+		}
 		return
 	}
 
-	json.NewEncoder(w).Encode(tasks)
+	if err := json.NewEncoder(w).Encode(tasks); err != nil {
+		s.logger.Error("failed to write listTasks response", "error", err)
+		return
+	}
 }
 
 // createTask creates a new task
@@ -301,7 +355,10 @@ func (s *Service) createTask(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+			s.logger.Error("failed to write createTask error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -330,12 +387,18 @@ func (s *Service) createTask(w http.ResponseWriter, r *http.Request) {
 	if err := s.taskRepo.CreateTask(ctx, task); err != nil {
 		s.logger.Error("failed to create task", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create task"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to create task"}); err != nil {
+			s.logger.Error("failed to write createTask error response", "error", err)
+			return
+		}
 		return
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(task)
+	if err := json.NewEncoder(w).Encode(task); err != nil {
+		s.logger.Error("failed to write createTask success response", "error", err)
+		return
+	}
 }
 
 // getTask retrieves a task by ID
@@ -350,11 +413,17 @@ func (s *Service) getTask(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("failed to get task", "err", err)
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "task not found"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "task not found"}); err != nil {
+			s.logger.Error("failed to write getTask error response", "error", err)
+			return
+		}
 		return
 	}
 
-	json.NewEncoder(w).Encode(task)
+	if err := json.NewEncoder(w).Encode(task); err != nil {
+		s.logger.Error("failed to write getTask response", "error", err)
+		return
+	}
 }
 
 // updateTask updates an existing task
@@ -373,7 +442,10 @@ func (s *Service) updateTask(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+			s.logger.Error("failed to write updateTask error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -383,7 +455,10 @@ func (s *Service) updateTask(w http.ResponseWriter, r *http.Request) {
 	task, err := s.taskRepo.GetTaskByID(ctx, id)
 	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "task not found"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "task not found"}); err != nil {
+			s.logger.Error("failed to write updateTask error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -408,11 +483,17 @@ func (s *Service) updateTask(w http.ResponseWriter, r *http.Request) {
 	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
 		s.logger.Error("failed to update task", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to update task"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to update task"}); err != nil {
+			s.logger.Error("failed to write updateTask error response", "error", err)
+			return
+		}
 		return
 	}
 
-	json.NewEncoder(w).Encode(task)
+	if err := json.NewEncoder(w).Encode(task); err != nil {
+		s.logger.Error("failed to write updateTask response", "error", err)
+		return
+	}
 }
 
 // deleteTask deletes a task
@@ -426,7 +507,10 @@ func (s *Service) deleteTask(w http.ResponseWriter, r *http.Request) {
 	if err := s.taskRepo.DeleteTask(ctx, id); err != nil {
 		s.logger.Error("failed to delete task", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete task"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete task"}); err != nil {
+			s.logger.Error("failed to write deleteTask error response", "error", err)
+			return
+		}
 		return
 	}
 
@@ -545,9 +629,18 @@ func (s *Service) QueryEvents(ctx context.Context, req *pb.QueryEventsRequest) (
 		}
 	}
 
+	// Safely convert length to int32 avoiding overflow
+	var totalCount int32
+	if len(pbEvents) > int(^uint32(0)>>1) { // larger than max int32
+		totalCount = -1 // indicate overflow
+	} else {
+		// #nosec G115 -- len(pbEvents) is guaranteed to be within int32 range
+		totalCount = int32(len(pbEvents))
+	}
+
 	return &pb.QueryEventsResponse{
 		Events:     pbEvents,
-		TotalCount: int32(len(pbEvents)),
+		TotalCount: totalCount,
 		Success:    true,
 		Message:    "Query executed successfully",
 	}, nil
@@ -557,6 +650,7 @@ func (s *Service) QueryEvents(ctx context.Context, req *pb.QueryEventsRequest) (
 
 // ListEvents returns events across users (userID omitted) or can be extended to filter by status.
 func (s *Service) ListEvents(ctx context.Context, startTime, endTime int64, status string) ([]interface{}, error) {
+	_ = status // mark as used until filtering is implemented
 	st := time.Unix(startTime, 0)
 	en := time.Unix(endTime, 0)
 
@@ -575,52 +669,11 @@ func (s *Service) ListEvents(ctx context.Context, startTime, endTime int64, stat
 
 // CreateEvent accepts flexible payloads (map[string]interface{}, *models.Event, pb.Event) and creates an event
 func (s *Service) CreateEvent(ctx context.Context, event interface{}) (interface{}, error) {
-	var ev models.Event
-	switch v := event.(type) {
-	case map[string]interface{}:
-		if id, ok := v["user_id"].(string); ok {
-			ev.UserID = id
-		}
-		if title, ok := v["title"].(string); ok {
-			ev.Title = title
-		}
-		if desc, ok := v["description"].(string); ok {
-			ev.Description = desc
-		}
-		if loc, ok := v["location"].(string); ok {
-			ev.Location = loc
-		}
-		if st, ok := v["start_time"].(int64); ok {
-			ev.StartTime = time.Unix(st, 0)
-		} else if stf, ok := v["start_time"].(float64); ok {
-			ev.StartTime = time.Unix(int64(stf), 0)
-		} else if sts, ok := v["start_time"].(string); ok {
-			if t, err := time.Parse(time.RFC3339, sts); err == nil {
-				ev.StartTime = t
-			}
-		}
-		if et, ok := v["end_time"].(int64); ok {
-			ev.EndTime = time.Unix(et, 0)
-		} else if etf, ok := v["end_time"].(float64); ok {
-			ev.EndTime = time.Unix(int64(etf), 0)
-		} else if ets, ok := v["end_time"].(string); ok {
-			if t, err := time.Parse(time.RFC3339, ets); err == nil {
-				ev.EndTime = t
-			}
-		}
-	case *models.Event:
-		ev = *v
-	case models.Event:
-		ev = v
-	case *pb.Event:
-		ev.ID = v.Id
-		ev.Title = v.Title
-		ev.Description = v.Description
-		ev.StartTime = time.Unix(v.StartTime, 0)
-		ev.EndTime = time.Unix(v.EndTime, 0)
-		ev.Location = v.Location
-	default:
-		return nil, fmt.Errorf("unsupported event type")
+	// Delegate parsing to a helper to keep cyclomatic complexity low
+	ev, err := parseEventPayload(event)
+	if err != nil {
+		s.logger.Error("failed to parse event payload (adapter)", "err", err)
+		return nil, err
 	}
 
 	if ev.ID == "" {
@@ -636,6 +689,66 @@ func (s *Service) CreateEvent(ctx context.Context, event interface{}) (interface
 		return nil, err
 	}
 	return &ev, nil
+}
+
+// parseEventPayload converts supported input types into a models.Event value.
+// Supported input types: map[string]interface{}, *models.Event, models.Event, *pb.Event
+func parseEventPayload(event interface{}) (models.Event, error) {
+	var ev models.Event
+	switch v := event.(type) {
+	case map[string]interface{}:
+		if id, ok := v["user_id"].(string); ok {
+			ev.UserID = id
+		}
+		if title, ok := v["title"].(string); ok {
+			ev.Title = title
+		}
+		if desc, ok := v["description"].(string); ok {
+			ev.Description = desc
+		}
+		if loc, ok := v["location"].(string); ok {
+			ev.Location = loc
+		}
+		// Parse start_time and end_time using helper
+		if st, ok := v["start_time"]; ok {
+			if t, err := parseTimeFromInterface(st); err == nil {
+				ev.StartTime = t
+			}
+		}
+		if et, ok := v["end_time"]; ok {
+			if t, err := parseTimeFromInterface(et); err == nil {
+				ev.EndTime = t
+			}
+		}
+	case *models.Event:
+		ev = *v
+	case models.Event:
+		ev = v
+	case *pb.Event:
+		ev.ID = v.Id
+		ev.Title = v.Title
+		ev.Description = v.Description
+		ev.StartTime = time.Unix(v.StartTime, 0)
+		ev.EndTime = time.Unix(v.EndTime, 0)
+		ev.Location = v.Location
+	default:
+		return models.Event{}, fmt.Errorf("unsupported event type")
+	}
+	return ev, nil
+}
+
+// parseTimeFromInterface parses time from various interface{} types (int64, float64, string)
+func parseTimeFromInterface(v interface{}) (time.Time, error) {
+	switch tv := v.(type) {
+	case int64:
+		return time.Unix(tv, 0), nil
+	case float64:
+		return time.Unix(int64(tv), 0), nil
+	case string:
+		return time.Parse(time.RFC3339, tv)
+	default:
+		return time.Time{}, fmt.Errorf("unsupported time type")
+	}
 }
 
 // UpdateEvent updates an event by id using flexible payloads

@@ -116,7 +116,12 @@ func (r *SQLRepository) ListIntegrations(ctx context.Context, userID string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("failed to list integrations: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			fmt.Printf("failed to close rows: %v\n", err)
+		}
+	}(rows)
 
 	var integrations []*models.Integration
 	for rows.Next() {

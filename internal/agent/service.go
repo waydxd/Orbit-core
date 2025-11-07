@@ -168,14 +168,20 @@ func (s *Service) healthCheck(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("Agent service health check failed", "error", err)
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"status": "unhealthy",
 			"error":  err.Error(),
-		})
+		}); err != nil {
+			s.logger.Error("failed to write healthCheck error response", "error", err)
+			return
+		}
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status": "healthy",
-	})
+	}); err != nil {
+		s.logger.Error("failed to write healthCheck success response", "error", err)
+		return
+	}
 }

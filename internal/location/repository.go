@@ -3,6 +3,7 @@ package location
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/waydxd/Orbit-core/internal/shared/database"
@@ -66,7 +67,7 @@ func (r *SQLRepository) GetLocationByID(ctx context.Context, id string) (*models
 		&location.CreatedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("location not found")
 		}
 		return nil, fmt.Errorf("failed to get location: %w", err)
@@ -90,7 +91,12 @@ func (r *SQLRepository) GetLocationHistory(ctx context.Context, userID string, l
 	if err != nil {
 		return nil, fmt.Errorf("failed to get location history: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			fmt.Printf("failed to close rows: %v\n", err)
+		}
+	}(rows)
 
 	var locations []*models.Location
 	for rows.Next() {
@@ -137,7 +143,7 @@ func (r *SQLRepository) GetCurrentLocation(ctx context.Context, userID string) (
 		&location.CreatedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("no location found for user")
 		}
 		return nil, fmt.Errorf("failed to get current location: %w", err)
@@ -155,7 +161,7 @@ func (r *SQLRepository) FindNearby(ctx context.Context, latitude, longitude, rad
 		FROM locations
 		WHERE ACOS(
 			SIN(RADIANS(latitude)) * SIN(RADIANS($1)) +
-			COS(RADIANS(latitude)) * COS(RADIANS($1)) * COS(RADIANS($3 - longitude))
+			COS(RADIANS(latitude)) * COS(RADIANS($1)) * COS(RADIANS(longitude - $3))
 		) * 6371 <= $2
 		ORDER BY timestamp DESC
 		LIMIT 100
@@ -164,7 +170,12 @@ func (r *SQLRepository) FindNearby(ctx context.Context, latitude, longitude, rad
 	if err != nil {
 		return nil, fmt.Errorf("failed to find nearby locations: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			fmt.Printf("failed to close rows: %v\n", err)
+		}
+	}(rows)
 
 	var locations []*models.Location
 	for rows.Next() {

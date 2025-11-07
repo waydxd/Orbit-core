@@ -201,14 +201,18 @@ func (s *Service) findNearby(w http.ResponseWriter, r *http.Request) {
 	lat, err := strconv.ParseFloat(latStr, 64)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid latitude"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid latitude"}); err != nil {
+			s.logger.Error("failed to write findNearby error response", "error", err)
+		}
 		return
 	}
 
 	lng, err := strconv.ParseFloat(lngStr, 64)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid longitude"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid longitude"}); err != nil {
+			s.logger.Error("failed to write findNearby error response", "error", err)
+		}
 		return
 	}
 
