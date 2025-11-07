@@ -120,7 +120,7 @@ type UnsafeCalendarDataServiceServer interface {
 }
 
 func RegisterCalendarDataServiceServer(s grpc.ServiceRegistrar, srv CalendarDataServiceServer) {
-	// If the following call pancis, it indicates UnimplementedCalendarDataServiceServer was
+	// If the following call panics, it indicates UnimplementedCalendarDataServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
