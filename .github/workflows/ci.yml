@@ -156,26 +156,3 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-  deploy:
-    name: Deploy to Self-Hosted
-    runs-on: self-hosted
-    needs: docker
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Log in to GHCR
-        run: echo "${{ secrets.ACCESS_TOKEN }}" | podman login ghcr.io -u ${{ github.repository_owner }} --password-stdin
-
-      - name: Pull latest image
-        run: podman pull ghcr.io/${{ github.repository_owner }}/orbit-core:latest
-
-      - name: Stop and remove old container
-        run: podman stop orbit-core || true && podman rm orbit-core || true
-
-      - name: Run updated container
-        run: |
-          podman run -d \
-            -p 8080:8080 \
-            --env-file /home/wayd/orbit-core/.env \
-            --name orbit-core \
-            ghcr.io/${{ github.repository_owner }}/orbit-core:latest
