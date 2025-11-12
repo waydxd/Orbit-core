@@ -22,6 +22,7 @@ type Event struct {
 	StartTime   time.Time `json:"start_time" db:"start_time"`
 	EndTime     time.Time `json:"end_time" db:"end_time"`
 	Location    string    `json:"location" db:"location"`
+	Hashtags    []string  `json:"hashtags" db:"hashtags"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }

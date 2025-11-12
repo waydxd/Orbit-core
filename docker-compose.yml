@@ -39,6 +39,7 @@ services:
     container_name: orbit-core
     ports:
       - "8080:8080"
+      - "50054:50054"
     environment:
       SERVER_PORT: 8080
       SERVER_HOST: 0.0.0.0
@@ -54,11 +55,43 @@ services:
       REDIS_DB: 0
       JWT_SECRET: change-this-in-production
       JWT_EXPIRATION_HOURS: 24
+      GRPC_SERVER_PORT: 50054
+      HASHTAG_ENABLED: true
+      HASHTAG_GRPC_HOST: orbit-hashtag
+      HASHTAG_GRPC_PORT: 50051
+      HASHTAG_GRPC_TIMEOUT: 5
+      HASHTAG_GRPC_MAX_RETRIES: 3
+      HASHTAG_GRPC_KEEP_ALIVE: 30
+      HASHTAG_GRPC_KEEP_ALIVE_TIMEOUT: 10
+      HASHTAG_CACHE_ENABLED: true
+      HASHTAG_CACHE_TTL: 5
+      HASHTAG_CACHE_MAX_SIZE: 1000
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      orbit-hashtag:
+        condition: service_started
+
+  orbit-hashtag:
+    image: waydxd/orbit-hashtag:latest
+    container_name: orbit-hashtag
+    ports:
+      - "50051:50051"
+      - "8000:8000"
+    environment:
+      GRPC_PORT: 50051
+      HTTP_PORT: 8000
+      MODEL_PATH: /app/models
+      DEVICE: cpu
+    healthcheck:
+      test: ["CMD", "grpcurl", "-plaintext", "localhost:50051", "hashtag.HashtagService/HealthCheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 
 volumes:
   postgres_data:

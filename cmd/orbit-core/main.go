@@ -14,6 +14,7 @@ import (
 	"github.com/waydxd/Orbit-core/internal/auth"
 	"github.com/waydxd/Orbit-core/internal/calendar"
 	"github.com/waydxd/Orbit-core/internal/gateway"
+	"github.com/waydxd/Orbit-core/internal/hashtag"
 	"github.com/waydxd/Orbit-core/internal/integration"
 	"github.com/waydxd/Orbit-core/internal/location"
 	"github.com/waydxd/Orbit-core/internal/shared/database"
@@ -54,9 +55,32 @@ func main() {
 	taskRepo := calendar.NewSQLTaskRepository(db)
 	locationRepo := location.NewSQLRepository(db)
 
+	// Initialize hashtag client and service
+	hashtagClient, err := hashtag.NewClient(&cfg.Hashtag, log)
+	if err != nil {
+		log.Warn("Failed to initialize hashtag client, continuing without hashtag service", "error", err)
+		hashtagClient = nil
+	}
+	if hashtagClient != nil {
+		defer func(hashtagClient *hashtag.Client) {
+			err := hashtagClient.Close()
+			if err != nil {
+				log.Error("Failed to close hashtag client", "error", err)
+			}
+		}(hashtagClient)
+	}
+
+	var hashtagService *hashtag.Service
+	if hashtagClient != nil {
+		hashtagService = hashtag.NewService(&cfg.Hashtag, log, hashtagClient)
+		log.Info("Hashtag service initialized successfully")
+	} else {
+		log.Warn("Hashtag service not available - running in degraded mode")
+	}
+
 	// Initialize services with repositories
 	authService := auth.NewService(cfg, log, authRepo)
-	calendarService := calendar.NewService(cfg, log, eventRepo, taskRepo)
+	calendarService := calendar.NewService(cfg, log, eventRepo, taskRepo, hashtagService)
 	locationService := location.NewService(cfg, log, locationRepo)
 	integrationService := integration.NewService(cfg, log)
 

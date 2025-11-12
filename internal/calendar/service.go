@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/waydxd/Orbit-core/internal/hashtag"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/logger"
@@ -18,19 +20,21 @@ import (
 // Service represents the Calendar & Task Service
 type Service struct {
 	pb.UnimplementedCalendarDataServiceServer
-	config    *config.Config
-	logger    *logger.Logger
-	eventRepo EventRepository
-	taskRepo  TaskRepository
+	config         *config.Config
+	logger         *logger.Logger
+	eventRepo      EventRepository
+	taskRepo       TaskRepository
+	hashtagService *hashtag.Service
 }
 
 // NewService creates a new Calendar Service
-func NewService(cfg *config.Config, log *logger.Logger, eventRepo EventRepository, taskRepo TaskRepository) *Service {
+func NewService(cfg *config.Config, log *logger.Logger, eventRepo EventRepository, taskRepo TaskRepository, hashtagService *hashtag.Service) *Service {
 	return &Service{
-		config:    cfg,
-		logger:    log,
-		eventRepo: eventRepo,
-		taskRepo:  taskRepo,
+		config:         cfg,
+		logger:         log,
+		eventRepo:      eventRepo,
+		taskRepo:       taskRepo,
+		hashtagService: hashtagService,
 	}
 }
 
@@ -38,12 +42,16 @@ func NewService(cfg *config.Config, log *logger.Logger, eventRepo EventRepositor
 func (s *Service) RegisterRoutes(router *mux.Router) {
 	calendarRouter := router.PathPrefix("/calendar").Subrouter()
 
+	// Hashtag suggestions endpoint
+	calendarRouter.HandleFunc("/hashtag-suggestions", s.getHashtagSuggestions).Methods("GET")
+
 	// Event routes
 	calendarRouter.HandleFunc("/events", s.listEvents).Methods("GET")
 	calendarRouter.HandleFunc("/events", s.createEvent).Methods("POST")
 	calendarRouter.HandleFunc("/events/{id}", s.getEvent).Methods("GET")
 	calendarRouter.HandleFunc("/events/{id}", s.updateEvent).Methods("PUT")
 	calendarRouter.HandleFunc("/events/{id}", s.deleteEvent).Methods("DELETE")
+	calendarRouter.HandleFunc("/events/{id}/predict-hashtags", s.predictHashtagsForEvent).Methods("POST")
 
 	// Task routes
 	calendarRouter.HandleFunc("/tasks", s.listTasks).Methods("GET")
@@ -51,6 +59,140 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	calendarRouter.HandleFunc("/tasks/{id}", s.getTask).Methods("GET")
 	calendarRouter.HandleFunc("/tasks/{id}", s.updateTask).Methods("PUT")
 	calendarRouter.HandleFunc("/tasks/{id}", s.deleteTask).Methods("DELETE")
+}
+
+// ===== Hashtag Handler =====
+
+// getHashtagSuggestions handles GET /calendar/hashtag-suggestions
+func (s *Service) getHashtagSuggestions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	eventText := r.URL.Query().Get("eventText")
+	if eventText == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "eventText parameter is required"}); err != nil {
+			s.logger.Error("failed to write getHashtagSuggestions error response", "error", err)
+			return
+		}
+		return
+	}
+
+	useBart := r.URL.Query().Get("useBart") == "true"
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Check if hashtag service is available
+	if s.hashtagService == nil || !s.hashtagService.IsServiceAvailable() {
+		s.logger.Warn("Hashtag service not available, returning empty suggestions")
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"suggested": []string{},
+			"top5":      []interface{}{},
+		}); err != nil {
+			s.logger.Error("failed to write empty suggestions response", "error", err)
+		}
+		return
+	}
+
+	// Get suggestions
+	suggestions, err := s.hashtagService.GetSuggestions(ctx, eventText, useBart)
+	if err != nil {
+		s.logger.Error("failed to get hashtag suggestions", "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to get suggestions"}); err != nil {
+			s.logger.Error("failed to write getHashtagSuggestions error response", "error", err)
+			return
+		}
+		return
+	}
+
+	// Return JSON response
+	if err := json.NewEncoder(w).Encode(suggestions); err != nil {
+		s.logger.Error("failed to write getHashtagSuggestions response", "error", err)
+		return
+	}
+}
+
+// predictHashtagsForEvent handles POST /calendar/events/{id}/predict-hashtags
+func (s *Service) predictHashtagsForEvent(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	eventID := mux.Vars(r)["id"]
+	if eventID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "event ID is required"}); err != nil {
+			s.logger.Error("failed to write predictHashtagsForEvent error response", "error", err)
+			return
+		}
+		return
+	}
+
+	// Parse request body for optional parameters
+	var req struct {
+		UseBart   *bool    `json:"use_bart"`
+		Threshold *float64 `json:"threshold"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	useBart := false
+	if req.UseBart != nil {
+		useBart = *req.UseBart
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Get the event
+	event, err := s.eventRepo.GetEventByID(ctx, eventID)
+	if err != nil {
+		s.logger.Error("failed to get event", "error", err, "event_id", eventID)
+		w.WriteHeader(http.StatusNotFound)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "event not found"}); err != nil {
+			s.logger.Error("failed to write predictHashtagsForEvent error response", "error", err)
+			return
+		}
+		return
+	}
+
+	// Build event text from title and description
+	eventText := event.Title
+	if event.Description != "" {
+		eventText += " " + event.Description
+	}
+
+	// Check if hashtag service is available
+	if s.hashtagService == nil {
+		s.logger.Warn("Hashtag service not available, returning empty suggestions")
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"suggested": []string{},
+			"top_5":     []interface{}{},
+		}); err != nil {
+			s.logger.Error("failed to write empty suggestions response", "error", err)
+		}
+		return
+	}
+
+	// Get suggestions
+	suggestions, err := s.hashtagService.GetSuggestions(ctx, eventText, useBart)
+	if err != nil {
+		s.logger.Error("failed to get hashtag suggestions", "error", err)
+		// Return empty suggestions instead of error (graceful degradation)
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"suggested": []string{},
+			"top_5":     []interface{}{},
+		}); err != nil {
+			s.logger.Error("failed to write empty suggestions response", "error", err)
+		}
+		return
+	}
+
+	// Return JSON response
+	if err := json.NewEncoder(w).Encode(suggestions); err != nil {
+		s.logger.Error("failed to write predictHashtagsForEvent response", "error", err)
+		return
+	}
 }
 
 // ===== Event HTTP Handlers =====
@@ -111,12 +253,13 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var req struct {
-		UserID      string `json:"user_id"`
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		StartTime   string `json:"start_time"`
-		EndTime     string `json:"end_time"`
-		Location    string `json:"location"`
+		UserID      string   `json:"user_id"`
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		StartTime   string   `json:"start_time"`
+		EndTime     string   `json:"end_time"`
+		Location    string   `json:"location"`
+		Hashtags    []string `json:"hashtags"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -156,6 +299,7 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 		StartTime:   startTime,
 		EndTime:     endTime,
 		Location:    req.Location,
+		Hashtags:    req.Hashtags,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
@@ -171,6 +315,14 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		return
+	}
+
+	// Record hashtag selection for ML improvement (async, non-blocking)
+	if s.hashtagService != nil && len(req.Hashtags) > 0 {
+		// Parse user ID to int32
+		if userIDInt, err := strconv.ParseInt(req.UserID, 10, 32); err == nil {
+			s.hashtagService.RecordSelection(int32(userIDInt), req.Title, req.Hashtags)
+		}
 	}
 
 	w.WriteHeader(http.StatusCreated)
@@ -212,11 +364,12 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 
 	var req struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		StartTime   string `json:"start_time"`
-		EndTime     string `json:"end_time"`
-		Location    string `json:"location"`
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		StartTime   string   `json:"start_time"`
+		EndTime     string   `json:"end_time"`
+		Location    string   `json:"location"`
+		Hashtags    []string `json:"hashtags"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -260,6 +413,9 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 			event.EndTime = t
 		}
 	}
+	if req.Hashtags != nil {
+		event.Hashtags = req.Hashtags
+	}
 
 	if err := s.eventRepo.UpdateEvent(ctx, event); err != nil {
 		s.logger.Error("failed to update event", "err", err)
@@ -269,6 +425,13 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		return
+	}
+
+	// Record hashtag changes if provided
+	if s.hashtagService != nil && len(req.Hashtags) > 0 {
+		if userIDInt, err := strconv.ParseInt(event.UserID, 10, 32); err == nil {
+			s.hashtagService.RecordSelection(int32(userIDInt), event.Title, req.Hashtags)
+		}
 	}
 
 	if err := json.NewEncoder(w).Encode(event); err != nil {

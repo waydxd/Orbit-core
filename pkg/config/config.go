@@ -16,6 +16,7 @@ type Config struct {
 	Auth       AuthConfig
 	Orbi       OrbiConfig
 	GRPCServer GRPCServerConfig
+	Hashtag    HashtagConfig
 }
 
 // ServerConfig holds server configuration
@@ -57,6 +58,30 @@ type OrbiConfig struct {
 // GRPCServerConfig holds gRPC server configuration for Core
 type GRPCServerConfig struct {
 	Port int
+}
+
+// HashtagConfig holds hashtag service configuration
+type HashtagConfig struct {
+	Enabled bool
+	GRPC    HashtagGRPCConfig
+	Cache   HashtagCacheConfig
+}
+
+// HashtagGRPCConfig holds gRPC connection settings for hashtag service
+type HashtagGRPCConfig struct {
+	Host             string
+	Port             int
+	Timeout          int // in seconds
+	MaxRetries       int
+	KeepAlive        int // in seconds
+	KeepAliveTimeout int // in seconds
+}
+
+// HashtagCacheConfig holds cache settings for hashtag predictions
+type HashtagCacheConfig struct {
+	Enabled bool
+	TTL     int // in minutes
+	MaxSize int
 }
 
 // Load loads configuration from environment variables
@@ -102,6 +127,22 @@ func Load() (*Config, error) {
 		GRPCServer: GRPCServerConfig{
 			Port: getEnvAsInt("GRPC_SERVER_PORT", 50052),
 		},
+		Hashtag: HashtagConfig{
+			Enabled: getEnvAsBool("HASHTAG_ENABLED", true),
+			GRPC: HashtagGRPCConfig{
+				Host:             getEnv("HASHTAG_GRPC_HOST", "localhost"),
+				Port:             getEnvAsInt("HASHTAG_GRPC_PORT", 50051),
+				Timeout:          getEnvAsInt("HASHTAG_GRPC_TIMEOUT", 5),
+				MaxRetries:       getEnvAsInt("HASHTAG_GRPC_MAX_RETRIES", 3),
+				KeepAlive:        getEnvAsInt("HASHTAG_GRPC_KEEP_ALIVE", 30),
+				KeepAliveTimeout: getEnvAsInt("HASHTAG_GRPC_KEEP_ALIVE_TIMEOUT", 10),
+			},
+			Cache: HashtagCacheConfig{
+				Enabled: getEnvAsBool("HASHTAG_CACHE_ENABLED", true),
+				TTL:     getEnvAsInt("HASHTAG_CACHE_TTL", 5),
+				MaxSize: getEnvAsInt("HASHTAG_CACHE_MAX_SIZE", 1000),
+			},
+		},
 	}
 
 	return cfg, nil
@@ -123,6 +164,21 @@ func getEnvAsInt(key string, defaultValue int) int {
 	}
 
 	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return defaultValue
+	}
+
+	return value
+}
+
+// getEnvAsBool gets an environment variable as bool or returns a default value
+func getEnvAsBool(key string, defaultValue bool) bool {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return defaultValue
+	}
+
+	value, err := strconv.ParseBool(valueStr)
 	if err != nil {
 		return defaultValue
 	}
