@@ -97,34 +97,34 @@ type ChatMessage struct {
 
 // PendingAction represents an action proposed by the agent awaiting user confirmation
 type PendingAction struct {
-	ID              string          `json:"id" db:"id"`
-	ActionID        string          `json:"action_id" db:"action_id"`
-	UserID          string          `json:"user_id" db:"user_id"`
-	ConversationID  string          `json:"conversation_id" db:"conversation_id"`
-	ProposedAction  json.RawMessage `json:"proposed_action" db:"proposed_action"`
-	ActionType      string          `json:"action_type" db:"action_type"`
-	IdempotencyKey  string          `json:"idempotency_key" db:"idempotency_key"`
-	Status          string          `json:"status" db:"status"`
-	Version         int             `json:"version" db:"version"`
-	CorrelationID   string          `json:"correlation_id" db:"correlation_id"`
-	AgentMetadata   json.RawMessage `json:"agent_metadata,omitempty" db:"agent_metadata"`
-	ErrorMessage    string          `json:"error_message,omitempty" db:"error_message"`
-	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
-	ExpiresAt       time.Time       `json:"expires_at" db:"expires_at"`
+	ID             string          `json:"id" db:"id"`
+	ActionID       string          `json:"action_id" db:"action_id"`
+	UserID         string          `json:"user_id" db:"user_id"`
+	ConversationID string          `json:"conversation_id" db:"conversation_id"`
+	ProposedAction json.RawMessage `json:"proposed_action" db:"proposed_action"`
+	ActionType     string          `json:"action_type" db:"action_type"`
+	IdempotencyKey string          `json:"idempotency_key" db:"idempotency_key"`
+	Status         string          `json:"status" db:"status"`
+	Version        int             `json:"version" db:"version"`
+	CorrelationID  string          `json:"correlation_id" db:"correlation_id"`
+	AgentMetadata  json.RawMessage `json:"agent_metadata,omitempty" db:"agent_metadata"`
+	ErrorMessage   string          `json:"error_message,omitempty" db:"error_message"`
+	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at" db:"updated_at"`
+	ExpiresAt      time.Time       `json:"expires_at" db:"expires_at"`
 }
 
 // AgentToolLog represents an audit log of agent tool calls
 type AgentToolLog struct {
-	ID               string          `json:"id" db:"id"`
-	PendingActionID  *string         `json:"pending_action_id,omitempty" db:"pending_action_id"`
-	ConversationID   string          `json:"conversation_id" db:"conversation_id"`
-	UserID           string          `json:"user_id" db:"user_id"`
-	ToolName         string          `json:"tool_name" db:"tool_name"`
-	ToolInput        json.RawMessage `json:"tool_input" db:"tool_input"`
-	ToolOutput       json.RawMessage `json:"tool_output,omitempty" db:"tool_output"`
-	Status           string          `json:"status" db:"status"`
-	ErrorMessage     string          `json:"error_message,omitempty" db:"error_message"`
-	CorrelationID    string          `json:"correlation_id" db:"correlation_id"`
-	CreatedAt        time.Time       `json:"created_at" db:"created_at"`
+	ID              string          `json:"id" db:"id"`
+	PendingActionID *string         `json:"pending_action_id,omitempty" db:"pending_action_id"`
+	ConversationID  string          `json:"conversation_id" db:"conversation_id"`
+	UserID          string          `json:"user_id" db:"user_id"`
+	ToolName        string          `json:"tool_name" db:"tool_name"`
+	ToolInput       json.RawMessage `json:"tool_input" db:"tool_input"`
+	ToolOutput      json.RawMessage `json:"tool_output,omitempty" db:"tool_output"`
+	Status          string          `json:"status" db:"status"`
+	ErrorMessage    string          `json:"error_message,omitempty" db:"error_message"`
+	CorrelationID   string          `json:"correlation_id" db:"correlation_id"`
+	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
 }

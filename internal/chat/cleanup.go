@@ -51,7 +51,7 @@ func (j *CleanupJob) Start(ctx context.Context) {
 			j.logger.Info("Cleanup job stopped")
 			return
 		case <-ctx.Done():
-			j.logger.Info("Cleanup job stopped (context cancelled)")
+			j.logger.Info("Cleanup job stopped (context canceled)")
 			return
 		}
 	}

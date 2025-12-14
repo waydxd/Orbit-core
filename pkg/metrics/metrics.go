@@ -8,32 +8,32 @@ import (
 // Metrics holds application metrics
 type Metrics struct {
 	mu sync.RWMutex
-	
+
 	// Chat metrics
-	TotalMessages          int64
-	TotalConversations     int64
-	TotalPendingActions    int64
-	TotalConfirmedActions  int64
-	TotalCancelledActions  int64
-	TotalExpiredActions    int64
-	TotalFailedActions     int64
-	
+	TotalMessages         int64
+	TotalConversations    int64
+	TotalPendingActions   int64
+	TotalConfirmedActions int64
+	TotalCancelledActions int64
+	TotalExpiredActions   int64
+	TotalFailedActions    int64
+
 	// Latency tracking
-	MessageLatencyTotal    time.Duration
-	MessageLatencyCount    int64
-	ActionLatencyTotal     time.Duration
-	ActionLatencyCount     int64
-	
+	MessageLatencyTotal time.Duration
+	MessageLatencyCount int64
+	ActionLatencyTotal  time.Duration
+	ActionLatencyCount  int64
+
 	// Error tracking
-	TotalErrors            int64
-	ValidationErrors       int64
-	PolicyViolations       int64
-	ConflictErrors         int64
-	
+	TotalErrors      int64
+	ValidationErrors int64
+	PolicyViolations int64
+	ConflictErrors   int64
+
 	// Rate tracking
-	LastResetTime          time.Time
-	MessagesPerMinute      float64
-	ActionsPerMinute       float64
+	LastResetTime     time.Time
+	MessagesPerMinute float64
+	ActionsPerMinute  float64
 }
 
 var (
@@ -81,7 +81,7 @@ func (m *Metrics) IncrementConfirmedActions() {
 	m.TotalConfirmedActions++
 }
 
-// IncrementCancelledActions increments the cancelled action count
+// IncrementCancelledActions increments the canceled action count
 func (m *Metrics) IncrementCancelledActions() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -201,25 +201,25 @@ func (m *Metrics) updateRate() {
 func (m *Metrics) GetSnapshot() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	return map[string]interface{}{
-		"total_messages":           m.TotalMessages,
-		"total_conversations":      m.TotalConversations,
-		"total_pending_actions":    m.TotalPendingActions,
-		"total_confirmed_actions":  m.TotalConfirmedActions,
-		"total_cancelled_actions":  m.TotalCancelledActions,
-		"total_expired_actions":    m.TotalExpiredActions,
-		"total_failed_actions":     m.TotalFailedActions,
-		"avg_message_latency_ms":   m.GetAverageMessageLatency().Milliseconds(),
-		"avg_action_latency_ms":    m.GetAverageActionLatency().Milliseconds(),
-		"confirmation_rate_pct":    m.GetConfirmationRate(),
-		"success_rate_pct":         m.GetSuccessRate(),
-		"total_errors":             m.TotalErrors,
-		"validation_errors":        m.ValidationErrors,
-		"policy_violations":        m.PolicyViolations,
-		"conflict_errors":          m.ConflictErrors,
-		"messages_per_minute":      m.MessagesPerMinute,
-		"actions_per_minute":       m.ActionsPerMinute,
+		"total_messages":          m.TotalMessages,
+		"total_conversations":     m.TotalConversations,
+		"total_pending_actions":   m.TotalPendingActions,
+		"total_confirmed_actions": m.TotalConfirmedActions,
+		"total_canceled_actions":  m.TotalCancelledActions,
+		"total_expired_actions":   m.TotalExpiredActions,
+		"total_failed_actions":    m.TotalFailedActions,
+		"avg_message_latency_ms":  m.GetAverageMessageLatency().Milliseconds(),
+		"avg_action_latency_ms":   m.GetAverageActionLatency().Milliseconds(),
+		"confirmation_rate_pct":   m.GetConfirmationRate(),
+		"success_rate_pct":        m.GetSuccessRate(),
+		"total_errors":            m.TotalErrors,
+		"validation_errors":       m.ValidationErrors,
+		"policy_violations":       m.PolicyViolations,
+		"conflict_errors":         m.ConflictErrors,
+		"messages_per_minute":     m.MessagesPerMinute,
+		"actions_per_minute":      m.ActionsPerMinute,
 	}
 }
 
@@ -227,7 +227,7 @@ func (m *Metrics) GetSnapshot() map[string]interface{} {
 func (m *Metrics) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.TotalMessages = 0
 	m.TotalConversations = 0
 	m.TotalPendingActions = 0

@@ -18,12 +18,12 @@ import (
 
 // Service represents the Chat Service for chatbot functionality
 type Service struct {
-	config             *config.Config
-	logger             *logger.Logger
-	repo               Repository
-	grpcClient         *grpc.CalendarGRPCClient
-	policyValidator    *PolicyValidator
-	actionExpiryHours  int
+	config            *config.Config
+	logger            *logger.Logger
+	repo              Repository
+	grpcClient        *grpc.CalendarGRPCClient
+	policyValidator   *PolicyValidator
+	actionExpiryHours int
 }
 
 // NewService creates a new Chat Service
@@ -60,20 +60,20 @@ type PostMessageRequest struct {
 }
 
 type PostMessageResponse struct {
-	ConversationID          string                 `json:"conversation_id"`
-	Reply                   string                 `json:"reply"`
-	ProposedActionSummary   string                 `json:"proposed_action_summary,omitempty"`
-	ActionID                string                 `json:"action_id,omitempty"`
-	CorrelationID           string                 `json:"correlation_id"`
-	Metadata                map[string]interface{} `json:"metadata,omitempty"`
+	ConversationID        string                 `json:"conversation_id"`
+	Reply                 string                 `json:"reply"`
+	ProposedActionSummary string                 `json:"proposed_action_summary,omitempty"`
+	ActionID              string                 `json:"action_id,omitempty"`
+	CorrelationID         string                 `json:"correlation_id"`
+	Metadata              map[string]interface{} `json:"metadata,omitempty"`
 }
 
 type ConversationResponse struct {
-	ConversationID string                `json:"conversation_id"`
-	UserID         string                `json:"user_id"`
-	Messages       []*models.ChatMessage `json:"messages"`
+	ConversationID string                  `json:"conversation_id"`
+	UserID         string                  `json:"user_id"`
+	Messages       []*models.ChatMessage   `json:"messages"`
 	PendingActions []*models.PendingAction `json:"pending_actions"`
-	Status         string                `json:"status"`
+	Status         string                  `json:"status"`
 }
 
 type ActionResponse struct {
@@ -90,10 +90,10 @@ type ConfirmActionRequest struct {
 }
 
 type ConfirmActionResponse struct {
-	Success   bool                   `json:"success"`
-	Message   string                 `json:"message"`
-	Result    map[string]interface{} `json:"result,omitempty"`
-	OperationID string               `json:"operation_id,omitempty"`
+	Success     bool                   `json:"success"`
+	Message     string                 `json:"message"`
+	Result      map[string]interface{} `json:"result,omitempty"`
+	OperationID string                 `json:"operation_id,omitempty"`
 }
 
 type ErrorResponse struct {
@@ -135,50 +135,15 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("Processing chat message", "correlation_id", correlationID, "user_id", req.UserID)
 
 	// Get or create conversation
-	var conv *models.Conversation
-	var err error
-	
-	if req.ConversationID != "" {
-		conv, err = s.repo.GetConversationByID(ctx, req.ConversationID)
-		if err != nil {
-			s.logger.Warn("Conversation not found, creating new", "conversation_id", req.ConversationID, "error", err)
-			conv, err = s.repo.CreateConversation(ctx, req.UserID, correlationID)
-			if err != nil {
-				s.respondError(w, http.StatusInternalServerError, "conversation_error", "Failed to create conversation", err.Error())
-				m.IncrementErrors()
-				return
-			}
-			m.IncrementConversations()
-		}
-	} else {
-		conv, err = s.repo.CreateConversation(ctx, req.UserID, correlationID)
-		if err != nil {
-			s.respondError(w, http.StatusInternalServerError, "conversation_error", "Failed to create conversation", err.Error())
-			m.IncrementErrors()
-			return
-		}
-		m.IncrementConversations()
+	conv, err := s.getOrCreateConversation(ctx, &req, correlationID)
+	if err != nil {
+		s.respondError(w, http.StatusInternalServerError, "conversation_error", "Failed to get or create conversation", err.Error())
+		m.IncrementErrors()
+		return
 	}
 
 	// Persist user message
-	userMsg := &models.ChatMessage{
-		ConversationID: conv.ID,
-		UserID:         req.UserID,
-		Role:           "user",
-		Content:        req.Message,
-	}
-	
-	if req.Context != nil {
-		metadata, err := MarshalJSON(req.Context)
-		if err == nil {
-			userMsg.Metadata = metadata
-		}
-	}
-
-	_, err = s.repo.CreateMessage(ctx, userMsg)
-	if err != nil {
-		s.logger.Error("Failed to persist user message", "error", err)
-	}
+	s.persistUserMessage(ctx, conv.ID, req.UserID, req.Message, req.Context)
 
 	// Forward to Agent Runner via gRPC
 	agentReply, proposedAction, err := s.forwardToAgent(ctx, req.UserID, req.Message, correlationID, conv.ID)
@@ -188,16 +153,7 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist agent reply
-	assistantMsg := &models.ChatMessage{
-		ConversationID: conv.ID,
-		UserID:         req.UserID,
-		Role:           "assistant",
-		Content:        agentReply,
-	}
-	_, err = s.repo.CreateMessage(ctx, assistantMsg)
-	if err != nil {
-		s.logger.Error("Failed to persist agent reply", "error", err)
-	}
+	s.persistAssistantMessage(ctx, conv.ID, req.UserID, agentReply)
 
 	response := PostMessageResponse{
 		ConversationID: conv.ID,
@@ -207,68 +163,129 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 
 	// If agent proposed an action, store it
 	if proposedAction != nil {
-		actionID := GenerateActionID()
-		// Use nanosecond timestamp + UUID for better uniqueness
-		idempotencyKey := GenerateIdempotencyKey(req.UserID, conv.ID, proposedAction.ActionType, time.Now().UnixNano())
-		
-		actionJSON, err := MarshalJSON(proposedAction.Action)
-		if err != nil {
-			s.logger.Error("Failed to marshal proposed action", "error", err)
-		} else {
-			// Validate the proposed action
-			if err := s.policyValidator.ValidateAction(proposedAction.ActionType, actionJSON); err != nil {
-				s.logger.Warn("Proposed action failed validation", "error", err, "action_type", proposedAction.ActionType)
-				m.IncrementValidationErrors()
-				// Still store it but mark with validation error in metadata
-				response.Metadata = map[string]interface{}{
-					"validation_error": err.Error(),
-				}
-			}
-			
-			// Check for bulk action violations
-			if err := s.policyValidator.ValidateBulkAction(proposedAction.ActionType, actionJSON); err != nil {
-				s.logger.Warn("Proposed action violates bulk operation policy", "error", err)
-				m.IncrementPolicyViolations()
-				response.Metadata = map[string]interface{}{
-					"policy_violation": err.Error(),
-				}
-			} else {
-				pendingAction := &models.PendingAction{
-					ActionID:       actionID,
-					UserID:         req.UserID,
-					ConversationID: conv.ID,
-					ProposedAction: actionJSON,
-					ActionType:     proposedAction.ActionType,
-					IdempotencyKey: idempotencyKey,
-					Status:         "pending",
-					CorrelationID:  correlationID,
-					ExpiresAt:      time.Now().Add(time.Duration(s.actionExpiryHours) * time.Hour),
-				}
-
-				if proposedAction.Metadata != nil {
-					metadata, err := MarshalJSON(proposedAction.Metadata)
-					if err == nil {
-						pendingAction.AgentMetadata = metadata
-					}
-				}
-
-				_, err = s.repo.CreatePendingAction(ctx, pendingAction)
-				if err != nil {
-					s.logger.Error("Failed to create pending action", "error", err)
-					m.IncrementErrors()
-				} else {
-					response.ActionID = actionID
-					response.ProposedActionSummary = proposedAction.Summary
-					m.IncrementPendingActions()
-				}
-			}
-		}
+		s.handleProposedAction(ctx, conv, proposedAction, &response)
 	}
 
 	// Record latency
 	m.RecordMessageLatency(time.Since(startTime))
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode response", "error", err)
+	}
+}
+
+func (s *Service) handleProposedAction(ctx context.Context, conv *models.Conversation, proposedAction *ProposedAction, response *PostMessageResponse) {
+	m := metrics.GetInstance()
+	actionID := GenerateActionID()
+	// Use nanosecond timestamp + UUID for better uniqueness
+	idempotencyKey := GenerateIdempotencyKey(conv.UserID, conv.ID, proposedAction.ActionType, time.Now().UnixNano())
+
+	actionJSON, err := MarshalJSON(proposedAction.Action)
+	if err != nil {
+		s.logger.Error("Failed to marshal proposed action", "error", err)
+		return
+	}
+
+	// Validate the proposed action
+	if err := s.policyValidator.ValidateAction(proposedAction.ActionType, actionJSON); err != nil {
+		s.logger.Warn("Proposed action failed validation", "error", err, "action_type", proposedAction.ActionType)
+		m.IncrementValidationErrors()
+		// Still store it but mark with validation error in metadata
+		response.Metadata = map[string]interface{}{
+			"validation_error": err.Error(),
+		}
+	}
+
+	// Check for bulk action violations
+	if err := s.policyValidator.ValidateBulkAction(proposedAction.ActionType, actionJSON); err != nil {
+		s.logger.Warn("Proposed action violates bulk operation policy", "error", err)
+		m.IncrementPolicyViolations()
+		response.Metadata = map[string]interface{}{
+			"policy_violation": err.Error(),
+		}
+		return
+	}
+
+	pendingAction := &models.PendingAction{
+		ActionID:       actionID,
+		UserID:         conv.UserID,
+		ConversationID: conv.ID,
+		ProposedAction: actionJSON,
+		ActionType:     proposedAction.ActionType,
+		IdempotencyKey: idempotencyKey,
+		Status:         "pending",
+		CorrelationID:  response.CorrelationID,
+		ExpiresAt:      time.Now().Add(time.Duration(s.actionExpiryHours) * time.Hour),
+	}
+
+	if proposedAction.Metadata != nil {
+		metadata, err := MarshalJSON(proposedAction.Metadata)
+		if err == nil {
+			pendingAction.AgentMetadata = metadata
+		}
+	}
+
+	_, err = s.repo.CreatePendingAction(ctx, pendingAction)
+	if err != nil {
+		s.logger.Error("Failed to create pending action", "error", err)
+		m.IncrementErrors()
+	} else {
+		response.ActionID = actionID
+		response.ProposedActionSummary = proposedAction.Summary
+		m.IncrementPendingActions()
+	}
+}
+
+func (s *Service) getOrCreateConversation(ctx context.Context, req *PostMessageRequest, correlationID string) (*models.Conversation, error) {
+	m := metrics.GetInstance()
+	if req.ConversationID != "" {
+		conv, err := s.repo.GetConversationByID(ctx, req.ConversationID)
+		if err == nil {
+			return conv, nil
+		}
+		s.logger.Warn("Conversation not found, creating new", "conversation_id", req.ConversationID, "error", err)
+	}
+
+	conv, err := s.repo.CreateConversation(ctx, req.UserID, correlationID)
+	if err != nil {
+		return nil, err
+	}
+	m.IncrementConversations()
+	return conv, nil
+}
+
+func (s *Service) persistUserMessage(ctx context.Context, convID, userID, message string, context map[string]interface{}) {
+	userMsg := &models.ChatMessage{
+		ConversationID: convID,
+		UserID:         userID,
+		Role:           "user",
+		Content:        message,
+	}
+
+	if context != nil {
+		metadata, err := MarshalJSON(context)
+		if err == nil {
+			userMsg.Metadata = metadata
+		}
+	}
+
+	_, err := s.repo.CreateMessage(ctx, userMsg)
+	if err != nil {
+		s.logger.Error("Failed to persist user message", "error", err)
+	}
+}
+
+func (s *Service) persistAssistantMessage(ctx context.Context, convID, userID, message string) {
+	assistantMsg := &models.ChatMessage{
+		ConversationID: convID,
+		UserID:         userID,
+		Role:           "assistant",
+		Content:        message,
+	}
+	_, err := s.repo.CreateMessage(ctx, assistantMsg)
+	if err != nil {
+		s.logger.Error("Failed to persist agent reply", "error", err)
+	}
 }
 
 // GET /chat/conversations/{conversation_id} - Get conversation history
@@ -313,7 +330,9 @@ func (s *Service) handleGetConversation(w http.ResponseWriter, r *http.Request) 
 		Status:         conv.Status,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode response", "error", err)
+	}
 }
 
 // POST /chat/actions/{action_id}/confirm - Confirm and execute action
@@ -358,7 +377,9 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 
 	// Check if action has expired
 	if time.Now().After(action.ExpiresAt) {
-		s.repo.UpdatePendingActionStatus(ctx, actionID, "expired", action.Version, "Action expired")
+		if err := s.repo.UpdatePendingActionStatus(ctx, actionID, "expired", action.Version, "Action expired"); err != nil {
+			s.logger.Error("Failed to update action status to expired", "error", err)
+		}
 		s.respondError(w, http.StatusGone, "action_expired", "Action has expired", "")
 		m.IncrementExpiredActions()
 		return
@@ -367,7 +388,9 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	// Re-validate action before execution
 	if err := s.policyValidator.ValidateAction(action.ActionType, action.ProposedAction); err != nil {
 		s.logger.Error("Action failed validation on confirmation", "error", err, "action_id", actionID)
-		s.repo.UpdatePendingActionStatus(ctx, actionID, "failed", action.Version, fmt.Sprintf("Validation failed: %v", err))
+		if err := s.repo.UpdatePendingActionStatus(ctx, actionID, "failed", action.Version, fmt.Sprintf("Validation failed: %v", err)); err != nil {
+			s.logger.Error("Failed to update action status to failed", "error", err)
+		}
 		s.respondError(w, http.StatusBadRequest, "validation_failed", "Action validation failed", err.Error())
 		m.IncrementValidationErrors()
 		m.IncrementFailedActions()
@@ -387,7 +410,9 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	result, operationID, err := s.executeAction(ctx, action)
 	if err != nil {
 		s.logger.Error("Failed to execute action", "error", err, "action_id", actionID)
-		s.repo.UpdatePendingActionStatus(ctx, actionID, "failed", action.Version, err.Error())
+		if err := s.repo.UpdatePendingActionStatus(ctx, actionID, "failed", action.Version, err.Error()); err != nil {
+			s.logger.Error("Failed to update action status to failed", "error", err)
+		}
 		s.respondError(w, http.StatusInternalServerError, "execution_failed", "Failed to execute action", err.Error())
 		m.IncrementFailedActions()
 		return
@@ -409,7 +434,9 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 		OperationID: operationID,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode response", "error", err)
+	}
 }
 
 // POST /chat/actions/{action_id}/cancel - Cancel pending action
@@ -430,15 +457,15 @@ func (s *Service) handleCancelAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if action can be cancelled
+	// Check if action can be canceled
 	if action.Status != "pending" {
-		s.respondError(w, http.StatusConflict, "action_not_pending", fmt.Sprintf("Action is %s and cannot be cancelled", action.Status), "")
+		s.respondError(w, http.StatusConflict, "action_not_pending", fmt.Sprintf("Action is %s and cannot be canceled", action.Status), "")
 		m.IncrementErrors()
 		return
 	}
 
-	// Update action status to cancelled
-	err = s.repo.UpdatePendingActionStatus(ctx, actionID, "cancelled", action.Version, "Cancelled by user")
+	// Update action status to canceled
+	err = s.repo.UpdatePendingActionStatus(ctx, actionID, "canceled", action.Version, "Canceled by user")
 	if err != nil {
 		s.logger.Error("Failed to cancel action", "error", err)
 		s.respondError(w, http.StatusInternalServerError, "cancel_failed", "Failed to cancel action", err.Error())
@@ -446,15 +473,17 @@ func (s *Service) handleCancelAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.logger.Info("Action cancelled", "action_id", actionID, "user_id", action.UserID)
+	s.logger.Info("Action canceled", "action_id", actionID, "user_id", action.UserID)
 	m.IncrementCancelledActions()
 
 	response := map[string]interface{}{
 		"success": true,
-		"message": "Action cancelled successfully",
+		"message": "Action canceled successfully",
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode response", "error", err)
+	}
 }
 
 // GET /chat/actions/{action_id} - Get action details
@@ -481,7 +510,9 @@ func (s *Service) handleGetAction(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt:      action.ExpiresAt,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode response", "error", err)
+	}
 }
 
 // Helper functions
@@ -496,15 +527,15 @@ type ProposedAction struct {
 func (s *Service) forwardToAgent(ctx context.Context, userID, message, correlationID, conversationID string) (string, *ProposedAction, error) {
 	// This is a simplified implementation
 	// In production, this would call the Agent Runner gRPC service
-	
+
 	// For now, return a mock response
 	// TODO: Implement actual gRPC call to Agent Runner
-	
+
 	s.logger.Info("Forwarding to agent", "correlation_id", correlationID, "user_id", userID)
-	
+
 	// Mock agent response
 	reply := "I've received your message. How can I help you with your calendar?"
-	
+
 	// No proposed action in this mock implementation
 	return reply, nil, nil
 }
@@ -569,14 +600,14 @@ func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]
 func extractTimeFields(actionData map[string]interface{}) (startTime int64, endTime int64, hasStart bool, hasEnd bool) {
 	startFloat, hasStart := actionData["start_time"].(float64)
 	endFloat, hasEnd := actionData["end_time"].(float64)
-	
+
 	if hasStart {
 		startTime = int64(startFloat)
 	}
 	if hasEnd {
 		endTime = int64(endFloat)
 	}
-	
+
 	return startTime, endTime, hasStart, hasEnd
 }
 
@@ -649,7 +680,9 @@ func (s *Service) respondError(w http.ResponseWriter, statusCode int, code, mess
 		Code:    code,
 		Details: details,
 	}
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode error response", "error", err)
+	}
 }
 
 // CleanupExpiredActions is a background job to expire stale pending actions
@@ -682,28 +715,28 @@ func (s *Service) checkConflicts(ctx context.Context, action *models.PendingActi
 	// 2. Check for concurrent modifications
 	// 3. Validate resource availability
 	// 4. Check user permissions
-	
+
 	if action.ActionType == "create_event" || action.ActionType == "update_event" {
 		var eventData map[string]interface{}
 		if err := json.Unmarshal(action.ProposedAction, &eventData); err != nil {
 			return fmt.Errorf("failed to parse event data: %w", err)
 		}
-		
+
 		// Example: Check if the time slot would conflict with existing events
 		// This is a placeholder - actual implementation would query the calendar service
 		startTime, endTime, hasStart, hasEnd := extractTimeFields(eventData)
-		
+
 		if hasStart && hasEnd {
 			// In production, query calendar events in this time range
 			// and check for overlaps
-			s.logger.Info("Conflict check", 
+			s.logger.Info("Conflict check",
 				"action_id", action.ActionID,
 				"start_time", time.Unix(startTime, 0),
 				"end_time", time.Unix(endTime, 0),
 			)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -714,5 +747,7 @@ func (s *Service) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 	m := metrics.GetInstance()
 	snapshot := m.GetSnapshot()
 
-	json.NewEncoder(w).Encode(snapshot)
+	if err := json.NewEncoder(w).Encode(snapshot); err != nil {
+		s.logger.Error("Failed to encode response", "error", err)
+	}
 }

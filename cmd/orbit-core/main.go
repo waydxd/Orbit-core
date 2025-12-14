@@ -49,12 +49,16 @@ func main() {
 		}
 	}(db)
 
+	// Initialize MongoDB
+	database.InitMongoDB(cfg.MongoDB.URI)
+	defer database.DisconnectMongoDB()
+
 	// Initialize repositories
 	authRepo := auth.NewSQLRepository(db)
 	eventRepo := calendar.NewSQLEventRepository(db)
 	taskRepo := calendar.NewSQLTaskRepository(db)
 	locationRepo := location.NewSQLRepository(db)
-	chatRepo := chat.NewSQLRepository(db)
+	chatRepo := chat.NewMongoRepository(database.MongoClient, cfg.Database.DBName)
 
 	// Initialize services with repositories
 	authService := auth.NewService(cfg, log, authRepo)

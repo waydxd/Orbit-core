@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Server     ServerConfig
 	Database   DatabaseConfig
+	MongoDB    MongoDBConfig
 	Redis      RedisConfig
 	Auth       AuthConfig
 	Orbi       OrbiConfig
@@ -32,6 +33,11 @@ type DatabaseConfig struct {
 	Password string
 	DBName   string
 	SSLMode  string
+}
+
+// MongoDBConfig holds MongoDB configuration
+type MongoDBConfig struct {
+	URI string
 }
 
 // RedisConfig holds Redis configuration for rate limiting
@@ -84,6 +90,9 @@ func Load() (*Config, error) {
 			Password: getEnv("DB_PASSWORD", "postgres"),
 			DBName:   getEnv("DB_NAME", "orbit"),
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
+		},
+		MongoDB: MongoDBConfig{
+			URI: getEnv("MONGODB_URI", "mongodb://localhost:27017"),
 		},
 		Redis: RedisConfig{
 			Host:     getEnv("REDIS_HOST", "localhost"),
