@@ -13,6 +13,7 @@ import (
 	"github.com/waydxd/Orbit-core/internal/agent"
 	"github.com/waydxd/Orbit-core/internal/auth"
 	"github.com/waydxd/Orbit-core/internal/calendar"
+	"github.com/waydxd/Orbit-core/internal/chat"
 	"github.com/waydxd/Orbit-core/internal/gateway"
 	"github.com/waydxd/Orbit-core/internal/integration"
 	"github.com/waydxd/Orbit-core/internal/location"
@@ -53,6 +54,7 @@ func main() {
 	eventRepo := calendar.NewSQLEventRepository(db)
 	taskRepo := calendar.NewSQLTaskRepository(db)
 	locationRepo := location.NewSQLRepository(db)
+	chatRepo := chat.NewSQLRepository(db)
 
 	// Initialize services with repositories
 	authService := auth.NewService(cfg, log, authRepo)
@@ -75,6 +77,9 @@ func main() {
 
 	// Initialize agent service for AI interactions
 	agentService := agent.NewService(cfg, log, grpcClient, calendarService)
+
+	// Initialize chat service for chatbot functionality
+	chatService := chat.NewService(cfg, log, chatRepo, grpcClient)
 
 	// Initialize gRPC server to expose CalendarDataService to Agent
 	grpcServer, err := grpc.NewServer(grpc.ServerConfig{
@@ -104,6 +109,7 @@ func main() {
 		LocationService:    locationService,
 		IntegrationService: integrationService,
 		AgentService:       agentService,
+		ChatService:        chatService,
 	})
 
 	// Start HTTP server

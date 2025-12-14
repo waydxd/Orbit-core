@@ -1,0 +1,583 @@
+package chat
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/waydxd/Orbit-core/internal/shared/models"
+	"github.com/waydxd/Orbit-core/pkg/config"
+	"github.com/waydxd/Orbit-core/pkg/grpc"
+	"github.com/waydxd/Orbit-core/pkg/logger"
+	pb "github.com/waydxd/Orbit-core/proto/calendar"
+)
+
+// Service represents the Chat Service for chatbot functionality
+type Service struct {
+	config     *config.Config
+	logger     *logger.Logger
+	repo       Repository
+	grpcClient *grpc.CalendarGRPCClient
+}
+
+// NewService creates a new Chat Service
+func NewService(cfg *config.Config, log *logger.Logger, repo Repository, grpcClient *grpc.CalendarGRPCClient) *Service {
+	return &Service{
+		config:     cfg,
+		logger:     log,
+		repo:       repo,
+		grpcClient: grpcClient,
+	}
+}
+
+// RegisterRoutes registers chat routes
+func (s *Service) RegisterRoutes(router *mux.Router) {
+	chatRouter := router.PathPrefix("/chat").Subrouter()
+
+	chatRouter.HandleFunc("/messages", s.handlePostMessage).Methods("POST")
+	chatRouter.HandleFunc("/conversations/{conversation_id}", s.handleGetConversation).Methods("GET")
+	chatRouter.HandleFunc("/actions/{action_id}/confirm", s.handleConfirmAction).Methods("POST")
+	chatRouter.HandleFunc("/actions/{action_id}/cancel", s.handleCancelAction).Methods("POST")
+	chatRouter.HandleFunc("/actions/{action_id}", s.handleGetAction).Methods("GET")
+}
+
+// Request/Response types
+
+type PostMessageRequest struct {
+	Message        string                 `json:"message"`
+	ConversationID string                 `json:"conversation_id,omitempty"`
+	UserID         string                 `json:"user_id"`
+	Context        map[string]interface{} `json:"context,omitempty"`
+}
+
+type PostMessageResponse struct {
+	ConversationID          string                 `json:"conversation_id"`
+	Reply                   string                 `json:"reply"`
+	ProposedActionSummary   string                 `json:"proposed_action_summary,omitempty"`
+	ActionID                string                 `json:"action_id,omitempty"`
+	CorrelationID           string                 `json:"correlation_id"`
+	Metadata                map[string]interface{} `json:"metadata,omitempty"`
+}
+
+type ConversationResponse struct {
+	ConversationID string                `json:"conversation_id"`
+	UserID         string                `json:"user_id"`
+	Messages       []*models.ChatMessage `json:"messages"`
+	PendingActions []*models.PendingAction `json:"pending_actions"`
+	Status         string                `json:"status"`
+}
+
+type ActionResponse struct {
+	ActionID       string          `json:"action_id"`
+	ActionType     string          `json:"action_type"`
+	ProposedAction json.RawMessage `json:"proposed_action"`
+	Status         string          `json:"status"`
+	CreatedAt      time.Time       `json:"created_at"`
+	ExpiresAt      time.Time       `json:"expires_at"`
+}
+
+type ConfirmActionRequest struct {
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+type ConfirmActionResponse struct {
+	Success   bool                   `json:"success"`
+	Message   string                 `json:"message"`
+	Result    map[string]interface{} `json:"result,omitempty"`
+	OperationID string               `json:"operation_id,omitempty"`
+}
+
+type ErrorResponse struct {
+	Error   string `json:"error"`
+	Code    string `json:"code,omitempty"`
+	Details string `json:"details,omitempty"`
+}
+
+// POST /chat/messages - Process user message
+func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	w.Header().Set("Content-Type", "application/json")
+
+	var req PostMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid_request", "Invalid request body", err.Error())
+		return
+	}
+
+	if req.Message == "" {
+		s.respondError(w, http.StatusBadRequest, "missing_message", "Message is required", "")
+		return
+	}
+
+	if req.UserID == "" {
+		s.respondError(w, http.StatusBadRequest, "missing_user_id", "User ID is required", "")
+		return
+	}
+
+	// Generate correlation ID
+	correlationID := GenerateCorrelationID()
+	s.logger.Info("Processing chat message", "correlation_id", correlationID, "user_id", req.UserID)
+
+	// Get or create conversation
+	var conv *models.Conversation
+	var err error
+	
+	if req.ConversationID != "" {
+		conv, err = s.repo.GetConversationByID(ctx, req.ConversationID)
+		if err != nil {
+			s.logger.Warn("Conversation not found, creating new", "conversation_id", req.ConversationID, "error", err)
+			conv, err = s.repo.CreateConversation(ctx, req.UserID, correlationID)
+			if err != nil {
+				s.respondError(w, http.StatusInternalServerError, "conversation_error", "Failed to create conversation", err.Error())
+				return
+			}
+		}
+	} else {
+		conv, err = s.repo.CreateConversation(ctx, req.UserID, correlationID)
+		if err != nil {
+			s.respondError(w, http.StatusInternalServerError, "conversation_error", "Failed to create conversation", err.Error())
+			return
+		}
+	}
+
+	// Persist user message
+	userMsg := &models.ChatMessage{
+		ConversationID: conv.ID,
+		UserID:         req.UserID,
+		Role:           "user",
+		Content:        req.Message,
+	}
+	
+	if req.Context != nil {
+		metadata, err := MarshalJSON(req.Context)
+		if err == nil {
+			userMsg.Metadata = metadata
+		}
+	}
+
+	_, err = s.repo.CreateMessage(ctx, userMsg)
+	if err != nil {
+		s.logger.Error("Failed to persist user message", "error", err)
+	}
+
+	// Forward to Agent Runner via gRPC
+	agentReply, proposedAction, err := s.forwardToAgent(ctx, req.UserID, req.Message, correlationID, conv.ID)
+	if err != nil {
+		s.logger.Error("Agent communication failed", "error", err, "correlation_id", correlationID)
+		agentReply = "I'm sorry, I'm having trouble processing your request right now. Please try again."
+	}
+
+	// Persist agent reply
+	assistantMsg := &models.ChatMessage{
+		ConversationID: conv.ID,
+		UserID:         req.UserID,
+		Role:           "assistant",
+		Content:        agentReply,
+	}
+	_, err = s.repo.CreateMessage(ctx, assistantMsg)
+	if err != nil {
+		s.logger.Error("Failed to persist agent reply", "error", err)
+	}
+
+	response := PostMessageResponse{
+		ConversationID: conv.ID,
+		Reply:          agentReply,
+		CorrelationID:  correlationID,
+	}
+
+	// If agent proposed an action, store it
+	if proposedAction != nil {
+		actionID := GenerateActionID()
+		idempotencyKey := GenerateIdempotencyKey(req.UserID, conv.ID, proposedAction.ActionType, time.Now().Unix())
+		
+		actionJSON, err := MarshalJSON(proposedAction.Action)
+		if err != nil {
+			s.logger.Error("Failed to marshal proposed action", "error", err)
+		} else {
+			pendingAction := &models.PendingAction{
+				ActionID:       actionID,
+				UserID:         req.UserID,
+				ConversationID: conv.ID,
+				ProposedAction: actionJSON,
+				ActionType:     proposedAction.ActionType,
+				IdempotencyKey: idempotencyKey,
+				Status:         "pending",
+				CorrelationID:  correlationID,
+				ExpiresAt:      time.Now().Add(24 * time.Hour), // 24 hour expiry
+			}
+
+			if proposedAction.Metadata != nil {
+				metadata, err := MarshalJSON(proposedAction.Metadata)
+				if err == nil {
+					pendingAction.AgentMetadata = metadata
+				}
+			}
+
+			_, err = s.repo.CreatePendingAction(ctx, pendingAction)
+			if err != nil {
+				s.logger.Error("Failed to create pending action", "error", err)
+			} else {
+				response.ActionID = actionID
+				response.ProposedActionSummary = proposedAction.Summary
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// GET /chat/conversations/{conversation_id} - Get conversation history
+func (s *Service) handleGetConversation(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	w.Header().Set("Content-Type", "application/json")
+
+	vars := mux.Vars(r)
+	conversationID := vars["conversation_id"]
+
+	if conversationID == "" {
+		s.respondError(w, http.StatusBadRequest, "missing_conversation_id", "Conversation ID is required", "")
+		return
+	}
+
+	// Get conversation
+	conv, err := s.repo.GetConversationByID(ctx, conversationID)
+	if err != nil {
+		s.respondError(w, http.StatusNotFound, "conversation_not_found", "Conversation not found", err.Error())
+		return
+	}
+
+	// Get messages
+	messages, err := s.repo.GetMessagesByConversation(ctx, conversationID)
+	if err != nil {
+		s.logger.Error("Failed to get messages", "error", err)
+		messages = []*models.ChatMessage{}
+	}
+
+	// Get pending actions
+	pendingActions, err := s.repo.GetPendingActionsByConversation(ctx, conversationID)
+	if err != nil {
+		s.logger.Error("Failed to get pending actions", "error", err)
+		pendingActions = []*models.PendingAction{}
+	}
+
+	response := ConversationResponse{
+		ConversationID: conv.ID,
+		UserID:         conv.UserID,
+		Messages:       messages,
+		PendingActions: pendingActions,
+		Status:         conv.Status,
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// POST /chat/actions/{action_id}/confirm - Confirm and execute action
+func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	w.Header().Set("Content-Type", "application/json")
+
+	vars := mux.Vars(r)
+	actionID := vars["action_id"]
+
+	var req ConfirmActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid_request", "Invalid request body", err.Error())
+		return
+	}
+
+	// Get pending action
+	action, err := s.repo.GetPendingActionByID(ctx, actionID)
+	if err != nil {
+		s.respondError(w, http.StatusNotFound, "action_not_found", "Action not found", err.Error())
+		return
+	}
+
+	// Validate idempotency key
+	if req.IdempotencyKey != action.IdempotencyKey {
+		s.respondError(w, http.StatusBadRequest, "invalid_idempotency_key", "Invalid idempotency key", "")
+		return
+	}
+
+	// Check if action is still pending
+	if action.Status != "pending" {
+		s.respondError(w, http.StatusConflict, "action_not_pending", fmt.Sprintf("Action is %s", action.Status), "")
+		return
+	}
+
+	// Check if action has expired
+	if time.Now().After(action.ExpiresAt) {
+		s.repo.UpdatePendingActionStatus(ctx, actionID, "expired", action.Version, "Action expired")
+		s.respondError(w, http.StatusGone, "action_expired", "Action has expired", "")
+		return
+	}
+
+	// Execute action via gRPC
+	result, operationID, err := s.executeAction(ctx, action)
+	if err != nil {
+		s.logger.Error("Failed to execute action", "error", err, "action_id", actionID)
+		s.repo.UpdatePendingActionStatus(ctx, actionID, "failed", action.Version, err.Error())
+		s.respondError(w, http.StatusInternalServerError, "execution_failed", "Failed to execute action", err.Error())
+		return
+	}
+
+	// Update action status to confirmed
+	err = s.repo.UpdatePendingActionStatus(ctx, actionID, "confirmed", action.Version, "")
+	if err != nil {
+		s.logger.Error("Failed to update action status", "error", err)
+	}
+
+	response := ConfirmActionResponse{
+		Success:     true,
+		Message:     "Action executed successfully",
+		Result:      result,
+		OperationID: operationID,
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// POST /chat/actions/{action_id}/cancel - Cancel pending action
+func (s *Service) handleCancelAction(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	w.Header().Set("Content-Type", "application/json")
+
+	vars := mux.Vars(r)
+	actionID := vars["action_id"]
+
+	// Get pending action
+	action, err := s.repo.GetPendingActionByID(ctx, actionID)
+	if err != nil {
+		s.respondError(w, http.StatusNotFound, "action_not_found", "Action not found", err.Error())
+		return
+	}
+
+	// Check if action can be cancelled
+	if action.Status != "pending" {
+		s.respondError(w, http.StatusConflict, "action_not_pending", fmt.Sprintf("Action is %s and cannot be cancelled", action.Status), "")
+		return
+	}
+
+	// Update action status to cancelled
+	err = s.repo.UpdatePendingActionStatus(ctx, actionID, "cancelled", action.Version, "Cancelled by user")
+	if err != nil {
+		s.logger.Error("Failed to cancel action", "error", err)
+		s.respondError(w, http.StatusInternalServerError, "cancel_failed", "Failed to cancel action", err.Error())
+		return
+	}
+
+	s.logger.Info("Action cancelled", "action_id", actionID, "user_id", action.UserID)
+
+	response := map[string]interface{}{
+		"success": true,
+		"message": "Action cancelled successfully",
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// GET /chat/actions/{action_id} - Get action details
+func (s *Service) handleGetAction(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	w.Header().Set("Content-Type", "application/json")
+
+	vars := mux.Vars(r)
+	actionID := vars["action_id"]
+
+	// Get pending action
+	action, err := s.repo.GetPendingActionByID(ctx, actionID)
+	if err != nil {
+		s.respondError(w, http.StatusNotFound, "action_not_found", "Action not found", err.Error())
+		return
+	}
+
+	response := ActionResponse{
+		ActionID:       action.ActionID,
+		ActionType:     action.ActionType,
+		ProposedAction: action.ProposedAction,
+		Status:         action.Status,
+		CreatedAt:      action.CreatedAt,
+		ExpiresAt:      action.ExpiresAt,
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
+// Helper functions
+
+type ProposedAction struct {
+	ActionType string                 `json:"action_type"`
+	Action     map[string]interface{} `json:"action"`
+	Summary    string                 `json:"summary"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+}
+
+func (s *Service) forwardToAgent(ctx context.Context, userID, message, correlationID, conversationID string) (string, *ProposedAction, error) {
+	// This is a simplified implementation
+	// In production, this would call the Agent Runner gRPC service
+	
+	// For now, return a mock response
+	// TODO: Implement actual gRPC call to Agent Runner
+	
+	s.logger.Info("Forwarding to agent", "correlation_id", correlationID, "user_id", userID)
+	
+	// Mock agent response
+	reply := "I've received your message. How can I help you with your calendar?"
+	
+	// No proposed action in this mock implementation
+	return reply, nil, nil
+}
+
+func (s *Service) executeAction(ctx context.Context, action *models.PendingAction) (map[string]interface{}, string, error) {
+	s.logger.Info("Executing action", "action_id", action.ActionID, "action_type", action.ActionType)
+
+	// Parse proposed action
+	var actionData map[string]interface{}
+	if err := json.Unmarshal(action.ProposedAction, &actionData); err != nil {
+		return nil, "", fmt.Errorf("failed to parse action data: %w", err)
+	}
+
+	// Execute based on action type
+	switch action.ActionType {
+	case "create_event":
+		return s.executeCreateEvent(ctx, actionData, action)
+	case "update_event":
+		return s.executeUpdateEvent(ctx, actionData, action)
+	case "delete_event":
+		return s.executeDeleteEvent(ctx, actionData, action)
+	default:
+		return nil, "", fmt.Errorf("unsupported action type: %s", action.ActionType)
+	}
+}
+
+func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]interface{}, action *models.PendingAction) (map[string]interface{}, string, error) {
+	client := s.grpcClient.GetCalendarServiceClient()
+
+	// Extract event data
+	title, _ := actionData["title"].(string)
+	description, _ := actionData["description"].(string)
+	location, _ := actionData["location"].(string)
+	startTime, _ := actionData["start_time"].(float64)
+	endTime, _ := actionData["end_time"].(float64)
+
+	req := &pb.CreateEventRequest{
+		Title:       title,
+		Description: description,
+		StartTime:   int64(startTime),
+		EndTime:     int64(endTime),
+		Location:    location,
+	}
+
+	res, err := client.CreateEvent(ctx, req)
+	if err != nil {
+		return nil, "", fmt.Errorf("gRPC CreateEvent failed: %w", err)
+	}
+
+	if !res.Success {
+		return nil, "", fmt.Errorf("create event failed: %s", res.Message)
+	}
+
+	result := map[string]interface{}{
+		"event_id": res.Event.Id,
+		"message":  res.Message,
+	}
+
+	return result, res.Event.Id, nil
+}
+
+func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]interface{}, action *models.PendingAction) (map[string]interface{}, string, error) {
+	client := s.grpcClient.GetCalendarServiceClient()
+
+	// Extract event data
+	eventID, _ := actionData["id"].(string)
+	title, _ := actionData["title"].(string)
+	description, _ := actionData["description"].(string)
+	location, _ := actionData["location"].(string)
+	startTime, _ := actionData["start_time"].(float64)
+	endTime, _ := actionData["end_time"].(float64)
+
+	req := &pb.UpdateEventRequest{
+		Id:          eventID,
+		Title:       title,
+		Description: description,
+		StartTime:   int64(startTime),
+		EndTime:     int64(endTime),
+		Location:    location,
+	}
+
+	res, err := client.UpdateEvent(ctx, req)
+	if err != nil {
+		return nil, "", fmt.Errorf("gRPC UpdateEvent failed: %w", err)
+	}
+
+	if !res.Success {
+		return nil, "", fmt.Errorf("update event failed: %s", res.Message)
+	}
+
+	result := map[string]interface{}{
+		"event_id": res.Event.Id,
+		"message":  res.Message,
+	}
+
+	return result, res.Event.Id, nil
+}
+
+func (s *Service) executeDeleteEvent(ctx context.Context, actionData map[string]interface{}, action *models.PendingAction) (map[string]interface{}, string, error) {
+	client := s.grpcClient.GetCalendarServiceClient()
+
+	// Extract event ID
+	eventID, _ := actionData["id"].(string)
+
+	req := &pb.DeleteEventRequest{
+		Id: eventID,
+	}
+
+	res, err := client.DeleteEvent(ctx, req)
+	if err != nil {
+		return nil, "", fmt.Errorf("gRPC DeleteEvent failed: %w", err)
+	}
+
+	if !res.Success {
+		return nil, "", fmt.Errorf("delete event failed: %s", res.Message)
+	}
+
+	result := map[string]interface{}{
+		"message": res.Message,
+	}
+
+	return result, eventID, nil
+}
+
+func (s *Service) respondError(w http.ResponseWriter, statusCode int, code, message, details string) {
+	w.WriteHeader(statusCode)
+	response := ErrorResponse{
+		Error:   message,
+		Code:    code,
+		Details: details,
+	}
+	json.NewEncoder(w).Encode(response)
+}
+
+// CleanupExpiredActions is a background job to expire stale pending actions
+func (s *Service) CleanupExpiredActions(ctx context.Context) error {
+	s.logger.Info("Running cleanup job for expired actions")
+
+	expiredActions, err := s.repo.GetExpiredActions(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get expired actions: %w", err)
+	}
+
+	for _, action := range expiredActions {
+		err := s.repo.UpdatePendingActionStatus(ctx, action.ActionID, "expired", action.Version, "Automatically expired due to TTL")
+		if err != nil {
+			s.logger.Error("Failed to expire action", "action_id", action.ActionID, "error", err)
+		} else {
+			s.logger.Info("Expired action", "action_id", action.ActionID, "user_id", action.UserID)
+		}
+	}
+
+	s.logger.Info("Cleanup job completed", "expired_count", len(expiredActions))
+	return nil
+}
