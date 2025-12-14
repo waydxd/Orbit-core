@@ -12,24 +12,27 @@ import (
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/grpc"
 	"github.com/waydxd/Orbit-core/pkg/logger"
+	"github.com/waydxd/Orbit-core/pkg/metrics"
 	pb "github.com/waydxd/Orbit-core/proto/calendar"
 )
 
 // Service represents the Chat Service for chatbot functionality
 type Service struct {
-	config     *config.Config
-	logger     *logger.Logger
-	repo       Repository
-	grpcClient *grpc.CalendarGRPCClient
+	config          *config.Config
+	logger          *logger.Logger
+	repo            Repository
+	grpcClient      *grpc.CalendarGRPCClient
+	policyValidator *PolicyValidator
 }
 
 // NewService creates a new Chat Service
 func NewService(cfg *config.Config, log *logger.Logger, repo Repository, grpcClient *grpc.CalendarGRPCClient) *Service {
 	return &Service{
-		config:     cfg,
-		logger:     log,
-		repo:       repo,
-		grpcClient: grpcClient,
+		config:          cfg,
+		logger:          log,
+		repo:            repo,
+		grpcClient:      grpcClient,
+		policyValidator: NewPolicyValidator(),
 	}
 }
 
@@ -42,6 +45,7 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	chatRouter.HandleFunc("/actions/{action_id}/confirm", s.handleConfirmAction).Methods("POST")
 	chatRouter.HandleFunc("/actions/{action_id}/cancel", s.handleCancelAction).Methods("POST")
 	chatRouter.HandleFunc("/actions/{action_id}", s.handleGetAction).Methods("GET")
+	chatRouter.HandleFunc("/metrics", s.handleGetMetrics).Methods("GET")
 }
 
 // Request/Response types
@@ -98,22 +102,29 @@ type ErrorResponse struct {
 
 // POST /chat/messages - Process user message
 func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
+	startTime := time.Now()
 	ctx := r.Context()
 	w.Header().Set("Content-Type", "application/json")
+
+	m := metrics.GetInstance()
+	m.IncrementMessages()
 
 	var req PostMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.respondError(w, http.StatusBadRequest, "invalid_request", "Invalid request body", err.Error())
+		m.IncrementErrors()
 		return
 	}
 
 	if req.Message == "" {
 		s.respondError(w, http.StatusBadRequest, "missing_message", "Message is required", "")
+		m.IncrementErrors()
 		return
 	}
 
 	if req.UserID == "" {
 		s.respondError(w, http.StatusBadRequest, "missing_user_id", "User ID is required", "")
+		m.IncrementErrors()
 		return
 	}
 
@@ -132,15 +143,19 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 			conv, err = s.repo.CreateConversation(ctx, req.UserID, correlationID)
 			if err != nil {
 				s.respondError(w, http.StatusInternalServerError, "conversation_error", "Failed to create conversation", err.Error())
+				m.IncrementErrors()
 				return
 			}
+			m.IncrementConversations()
 		}
 	} else {
 		conv, err = s.repo.CreateConversation(ctx, req.UserID, correlationID)
 		if err != nil {
 			s.respondError(w, http.StatusInternalServerError, "conversation_error", "Failed to create conversation", err.Error())
+			m.IncrementErrors()
 			return
 		}
+		m.IncrementConversations()
 	}
 
 	// Persist user message
@@ -197,34 +212,58 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Error("Failed to marshal proposed action", "error", err)
 		} else {
-			pendingAction := &models.PendingAction{
-				ActionID:       actionID,
-				UserID:         req.UserID,
-				ConversationID: conv.ID,
-				ProposedAction: actionJSON,
-				ActionType:     proposedAction.ActionType,
-				IdempotencyKey: idempotencyKey,
-				Status:         "pending",
-				CorrelationID:  correlationID,
-				ExpiresAt:      time.Now().Add(24 * time.Hour), // 24 hour expiry
-			}
-
-			if proposedAction.Metadata != nil {
-				metadata, err := MarshalJSON(proposedAction.Metadata)
-				if err == nil {
-					pendingAction.AgentMetadata = metadata
+			// Validate the proposed action
+			if err := s.policyValidator.ValidateAction(proposedAction.ActionType, actionJSON); err != nil {
+				s.logger.Warn("Proposed action failed validation", "error", err, "action_type", proposedAction.ActionType)
+				m.IncrementValidationErrors()
+				// Still store it but mark with validation error in metadata
+				response.Metadata = map[string]interface{}{
+					"validation_error": err.Error(),
 				}
 			}
-
-			_, err = s.repo.CreatePendingAction(ctx, pendingAction)
-			if err != nil {
-				s.logger.Error("Failed to create pending action", "error", err)
+			
+			// Check for bulk action violations
+			if err := s.policyValidator.ValidateBulkAction(proposedAction.ActionType, actionJSON); err != nil {
+				s.logger.Warn("Proposed action violates bulk operation policy", "error", err)
+				m.IncrementPolicyViolations()
+				response.Metadata = map[string]interface{}{
+					"policy_violation": err.Error(),
+				}
 			} else {
-				response.ActionID = actionID
-				response.ProposedActionSummary = proposedAction.Summary
+				pendingAction := &models.PendingAction{
+					ActionID:       actionID,
+					UserID:         req.UserID,
+					ConversationID: conv.ID,
+					ProposedAction: actionJSON,
+					ActionType:     proposedAction.ActionType,
+					IdempotencyKey: idempotencyKey,
+					Status:         "pending",
+					CorrelationID:  correlationID,
+					ExpiresAt:      time.Now().Add(24 * time.Hour), // 24 hour expiry
+				}
+
+				if proposedAction.Metadata != nil {
+					metadata, err := MarshalJSON(proposedAction.Metadata)
+					if err == nil {
+						pendingAction.AgentMetadata = metadata
+					}
+				}
+
+				_, err = s.repo.CreatePendingAction(ctx, pendingAction)
+				if err != nil {
+					s.logger.Error("Failed to create pending action", "error", err)
+					m.IncrementErrors()
+				} else {
+					response.ActionID = actionID
+					response.ProposedActionSummary = proposedAction.Summary
+					m.IncrementPendingActions()
+				}
 			}
 		}
 	}
+
+	// Record latency
+	m.RecordMessageLatency(time.Since(startTime))
 
 	json.NewEncoder(w).Encode(response)
 }
@@ -276,8 +315,11 @@ func (s *Service) handleGetConversation(w http.ResponseWriter, r *http.Request) 
 
 // POST /chat/actions/{action_id}/confirm - Confirm and execute action
 func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
+	startTime := time.Now()
 	ctx := r.Context()
 	w.Header().Set("Content-Type", "application/json")
+
+	m := metrics.GetInstance()
 
 	vars := mux.Vars(r)
 	actionID := vars["action_id"]
@@ -285,6 +327,7 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	var req ConfirmActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.respondError(w, http.StatusBadRequest, "invalid_request", "Invalid request body", err.Error())
+		m.IncrementErrors()
 		return
 	}
 
@@ -292,18 +335,21 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	action, err := s.repo.GetPendingActionByID(ctx, actionID)
 	if err != nil {
 		s.respondError(w, http.StatusNotFound, "action_not_found", "Action not found", err.Error())
+		m.IncrementErrors()
 		return
 	}
 
 	// Validate idempotency key
 	if req.IdempotencyKey != action.IdempotencyKey {
 		s.respondError(w, http.StatusBadRequest, "invalid_idempotency_key", "Invalid idempotency key", "")
+		m.IncrementErrors()
 		return
 	}
 
 	// Check if action is still pending
 	if action.Status != "pending" {
 		s.respondError(w, http.StatusConflict, "action_not_pending", fmt.Sprintf("Action is %s", action.Status), "")
+		m.IncrementErrors()
 		return
 	}
 
@@ -311,6 +357,26 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	if time.Now().After(action.ExpiresAt) {
 		s.repo.UpdatePendingActionStatus(ctx, actionID, "expired", action.Version, "Action expired")
 		s.respondError(w, http.StatusGone, "action_expired", "Action has expired", "")
+		m.IncrementExpiredActions()
+		return
+	}
+
+	// Re-validate action before execution
+	if err := s.policyValidator.ValidateAction(action.ActionType, action.ProposedAction); err != nil {
+		s.logger.Error("Action failed validation on confirmation", "error", err, "action_id", actionID)
+		s.repo.UpdatePendingActionStatus(ctx, actionID, "failed", action.Version, fmt.Sprintf("Validation failed: %v", err))
+		s.respondError(w, http.StatusBadRequest, "validation_failed", "Action validation failed", err.Error())
+		m.IncrementValidationErrors()
+		m.IncrementFailedActions()
+		return
+	}
+
+	// Check for conflicts (simplified - in production, check for overlapping events, etc.)
+	// This is a placeholder for more sophisticated conflict detection
+	if err := s.checkConflicts(ctx, action); err != nil {
+		s.logger.Warn("Conflict detected", "error", err, "action_id", actionID)
+		s.respondError(w, http.StatusConflict, "conflict_detected", "Action conflicts with existing data", err.Error())
+		m.IncrementConflictErrors()
 		return
 	}
 
@@ -320,6 +386,7 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("Failed to execute action", "error", err, "action_id", actionID)
 		s.repo.UpdatePendingActionStatus(ctx, actionID, "failed", action.Version, err.Error())
 		s.respondError(w, http.StatusInternalServerError, "execution_failed", "Failed to execute action", err.Error())
+		m.IncrementFailedActions()
 		return
 	}
 
@@ -328,6 +395,9 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("Failed to update action status", "error", err)
 	}
+
+	m.IncrementConfirmedActions()
+	m.RecordActionLatency(time.Since(startTime))
 
 	response := ConfirmActionResponse{
 		Success:     true,
@@ -344,6 +414,8 @@ func (s *Service) handleCancelAction(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	w.Header().Set("Content-Type", "application/json")
 
+	m := metrics.GetInstance()
+
 	vars := mux.Vars(r)
 	actionID := vars["action_id"]
 
@@ -351,12 +423,14 @@ func (s *Service) handleCancelAction(w http.ResponseWriter, r *http.Request) {
 	action, err := s.repo.GetPendingActionByID(ctx, actionID)
 	if err != nil {
 		s.respondError(w, http.StatusNotFound, "action_not_found", "Action not found", err.Error())
+		m.IncrementErrors()
 		return
 	}
 
 	// Check if action can be cancelled
 	if action.Status != "pending" {
 		s.respondError(w, http.StatusConflict, "action_not_pending", fmt.Sprintf("Action is %s and cannot be cancelled", action.Status), "")
+		m.IncrementErrors()
 		return
 	}
 
@@ -365,10 +439,12 @@ func (s *Service) handleCancelAction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("Failed to cancel action", "error", err)
 		s.respondError(w, http.StatusInternalServerError, "cancel_failed", "Failed to cancel action", err.Error())
+		m.IncrementErrors()
 		return
 	}
 
 	s.logger.Info("Action cancelled", "action_id", actionID, "user_id", action.UserID)
+	m.IncrementCancelledActions()
 
 	response := map[string]interface{}{
 		"success": true,
@@ -580,4 +656,48 @@ func (s *Service) CleanupExpiredActions(ctx context.Context) error {
 
 	s.logger.Info("Cleanup job completed", "expired_count", len(expiredActions))
 	return nil
+}
+
+// checkConflicts checks for conflicts before executing an action
+func (s *Service) checkConflicts(ctx context.Context, action *models.PendingAction) error {
+	// This is a simplified conflict check
+	// In production, this would:
+	// 1. Check for overlapping calendar events
+	// 2. Check for concurrent modifications
+	// 3. Validate resource availability
+	// 4. Check user permissions
+	
+	if action.ActionType == "create_event" || action.ActionType == "update_event" {
+		var eventData map[string]interface{}
+		if err := json.Unmarshal(action.ProposedAction, &eventData); err != nil {
+			return fmt.Errorf("failed to parse event data: %w", err)
+		}
+		
+		// Example: Check if the time slot would conflict with existing events
+		// This is a placeholder - actual implementation would query the calendar service
+		startTime, hasStart := eventData["start_time"].(float64)
+		endTime, hasEnd := eventData["end_time"].(float64)
+		
+		if hasStart && hasEnd {
+			// In production, query calendar events in this time range
+			// and check for overlaps
+			s.logger.Info("Conflict check", 
+				"action_id", action.ActionID,
+				"start_time", time.Unix(int64(startTime), 0),
+				"end_time", time.Unix(int64(endTime), 0),
+			)
+		}
+	}
+	
+	return nil
+}
+
+// GET /chat/metrics - Get chat metrics
+func (s *Service) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	m := metrics.GetInstance()
+	snapshot := m.GetSnapshot()
+
+	json.NewEncoder(w).Encode(snapshot)
 }
