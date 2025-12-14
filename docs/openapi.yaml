@@ -808,6 +808,56 @@ paths:
               schema:
                 $ref: '#/components/schemas/ChatError'
 
+  /api/v1/chat/metrics:
+    get:
+      summary: Get chat service metrics
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_messages:
+                    type: integer
+                  total_conversations:
+                    type: integer
+                  total_pending_actions:
+                    type: integer
+                  total_confirmed_actions:
+                    type: integer
+                  total_cancelled_actions:
+                    type: integer
+                  total_expired_actions:
+                    type: integer
+                  total_failed_actions:
+                    type: integer
+                  avg_message_latency_ms:
+                    type: integer
+                  avg_action_latency_ms:
+                    type: integer
+                  confirmation_rate_pct:
+                    type: number
+                  success_rate_pct:
+                    type: number
+                  total_errors:
+                    type: integer
+                  validation_errors:
+                    type: integer
+                  policy_violations:
+                    type: integer
+                  conflict_errors:
+                    type: integer
+                  messages_per_minute:
+                    type: number
+                  actions_per_minute:
+                    type: number
+
 components:
   securitySchemes:
     BearerAuth:

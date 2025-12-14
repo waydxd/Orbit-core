@@ -81,6 +81,10 @@ func main() {
 	// Initialize chat service for chatbot functionality
 	chatService := chat.NewService(cfg, log, chatRepo, grpcClient)
 
+	// Start cleanup job for expired actions
+	cleanupJob := chat.NewCleanupJob(chatService, log, 5*time.Minute)
+	go cleanupJob.Start(context.Background())
+
 	// Initialize gRPC server to expose CalendarDataService to Agent
 	grpcServer, err := grpc.NewServer(grpc.ServerConfig{
 		Port: cfg.GRPCServer.Port,
