@@ -8,19 +8,21 @@ import (
 
 // PolicyValidator validates proposed actions against business rules
 type PolicyValidator struct {
-	maxAttendeesPerEvent int
-	maxEventsPerDay      int
-	minEventDuration     time.Duration
-	maxEventDuration     time.Duration
+	maxAttendeesPerEvent  int
+	maxEventsPerDay       int
+	minEventDuration      time.Duration
+	maxEventDuration      time.Duration
+	pastEventToleranceHrs int
 }
 
 // NewPolicyValidator creates a new policy validator with default rules
 func NewPolicyValidator() *PolicyValidator {
 	return &PolicyValidator{
-		maxAttendeesPerEvent: 50,
-		maxEventsPerDay:      20,
-		minEventDuration:     15 * time.Minute,
-		maxEventDuration:     8 * time.Hour,
+		maxAttendeesPerEvent:  50,
+		maxEventsPerDay:       20,
+		minEventDuration:      15 * time.Minute,
+		maxEventDuration:      8 * time.Hour,
+		pastEventToleranceHrs: 1, // Allow events up to 1 hour in the past
 	}
 }
 
@@ -122,10 +124,11 @@ func (pv *PolicyValidator) validateCreateEvent(data map[string]interface{}) erro
 	}
 
 	// Validate past events
-	if start.Before(time.Now().Add(-1 * time.Hour)) {
+	tolerance := time.Duration(pv.pastEventToleranceHrs) * time.Hour
+	if start.Before(time.Now().Add(-tolerance)) {
 		return &ValidationError{
 			Field:   "start_time",
-			Message: "Cannot create events more than 1 hour in the past",
+			Message: fmt.Sprintf("Cannot create events more than %v in the past", tolerance),
 			Code:    "past_event",
 		}
 	}

@@ -18,21 +18,23 @@ import (
 
 // Service represents the Chat Service for chatbot functionality
 type Service struct {
-	config          *config.Config
-	logger          *logger.Logger
-	repo            Repository
-	grpcClient      *grpc.CalendarGRPCClient
-	policyValidator *PolicyValidator
+	config             *config.Config
+	logger             *logger.Logger
+	repo               Repository
+	grpcClient         *grpc.CalendarGRPCClient
+	policyValidator    *PolicyValidator
+	actionExpiryHours  int
 }
 
 // NewService creates a new Chat Service
 func NewService(cfg *config.Config, log *logger.Logger, repo Repository, grpcClient *grpc.CalendarGRPCClient) *Service {
 	return &Service{
-		config:          cfg,
-		logger:          log,
-		repo:            repo,
-		grpcClient:      grpcClient,
-		policyValidator: NewPolicyValidator(),
+		config:            cfg,
+		logger:            log,
+		repo:              repo,
+		grpcClient:        grpcClient,
+		policyValidator:   NewPolicyValidator(),
+		actionExpiryHours: 24, // Default 24 hours, can be made configurable via cfg
 	}
 }
 
@@ -206,7 +208,8 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	// If agent proposed an action, store it
 	if proposedAction != nil {
 		actionID := GenerateActionID()
-		idempotencyKey := GenerateIdempotencyKey(req.UserID, conv.ID, proposedAction.ActionType, time.Now().Unix())
+		// Use nanosecond timestamp + UUID for better uniqueness
+		idempotencyKey := GenerateIdempotencyKey(req.UserID, conv.ID, proposedAction.ActionType, time.Now().UnixNano())
 		
 		actionJSON, err := MarshalJSON(proposedAction.Action)
 		if err != nil {
@@ -239,7 +242,7 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 					IdempotencyKey: idempotencyKey,
 					Status:         "pending",
 					CorrelationID:  correlationID,
-					ExpiresAt:      time.Now().Add(24 * time.Hour), // 24 hour expiry
+					ExpiresAt:      time.Now().Add(time.Duration(s.actionExpiryHours) * time.Hour),
 				}
 
 				if proposedAction.Metadata != nil {
@@ -535,14 +538,13 @@ func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]
 	title, _ := actionData["title"].(string)
 	description, _ := actionData["description"].(string)
 	location, _ := actionData["location"].(string)
-	startTime, _ := actionData["start_time"].(float64)
-	endTime, _ := actionData["end_time"].(float64)
+	startTime, endTime, _, _ := extractTimeFields(actionData)
 
 	req := &pb.CreateEventRequest{
 		Title:       title,
 		Description: description,
-		StartTime:   int64(startTime),
-		EndTime:     int64(endTime),
+		StartTime:   startTime,
+		EndTime:     endTime,
 		Location:    location,
 	}
 
@@ -563,6 +565,21 @@ func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]
 	return result, res.Event.Id, nil
 }
 
+// extractTimeFields is a helper to extract and validate time fields from action data
+func extractTimeFields(actionData map[string]interface{}) (startTime int64, endTime int64, hasStart bool, hasEnd bool) {
+	startFloat, hasStart := actionData["start_time"].(float64)
+	endFloat, hasEnd := actionData["end_time"].(float64)
+	
+	if hasStart {
+		startTime = int64(startFloat)
+	}
+	if hasEnd {
+		endTime = int64(endFloat)
+	}
+	
+	return startTime, endTime, hasStart, hasEnd
+}
+
 func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]interface{}, action *models.PendingAction) (map[string]interface{}, string, error) {
 	client := s.grpcClient.GetCalendarServiceClient()
 
@@ -571,15 +588,14 @@ func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]
 	title, _ := actionData["title"].(string)
 	description, _ := actionData["description"].(string)
 	location, _ := actionData["location"].(string)
-	startTime, _ := actionData["start_time"].(float64)
-	endTime, _ := actionData["end_time"].(float64)
+	startTime, endTime, _, _ := extractTimeFields(actionData)
 
 	req := &pb.UpdateEventRequest{
 		Id:          eventID,
 		Title:       title,
 		Description: description,
-		StartTime:   int64(startTime),
-		EndTime:     int64(endTime),
+		StartTime:   startTime,
+		EndTime:     endTime,
 		Location:    location,
 	}
 
@@ -675,16 +691,15 @@ func (s *Service) checkConflicts(ctx context.Context, action *models.PendingActi
 		
 		// Example: Check if the time slot would conflict with existing events
 		// This is a placeholder - actual implementation would query the calendar service
-		startTime, hasStart := eventData["start_time"].(float64)
-		endTime, hasEnd := eventData["end_time"].(float64)
+		startTime, endTime, hasStart, hasEnd := extractTimeFields(eventData)
 		
 		if hasStart && hasEnd {
 			// In production, query calendar events in this time range
 			// and check for overlaps
 			s.logger.Info("Conflict check", 
 				"action_id", action.ActionID,
-				"start_time", time.Unix(int64(startTime), 0),
-				"end_time", time.Unix(int64(endTime), 0),
+				"start_time", time.Unix(startTime, 0),
+				"end_time", time.Unix(endTime, 0),
 			)
 		}
 	}
