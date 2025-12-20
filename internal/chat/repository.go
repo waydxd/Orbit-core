@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +17,7 @@ import (
 
 // Repository defines the interface for chat data operations
 type Repository interface {
+	// CreateConversation GetConversationByID GetConversationByCorrelationID ListConversationsByUser UpdateConversationStatus
 	// Conversation operations
 	CreateConversation(ctx context.Context, userID string, correlationID string) (*models.Conversation, error)
 	GetConversationByID(ctx context.Context, conversationID string) (*models.Conversation, error)
@@ -23,10 +25,12 @@ type Repository interface {
 	ListConversationsByUser(ctx context.Context, userID string, limit int) ([]*models.Conversation, error)
 	UpdateConversationStatus(ctx context.Context, conversationID string, status string) error
 
+	// CreateMessage GetMessagesByConversation
 	// Message operations
 	CreateMessage(ctx context.Context, msg *models.ChatMessage) (*models.ChatMessage, error)
 	GetMessagesByConversation(ctx context.Context, conversationID string) ([]*models.ChatMessage, error)
 
+	// CreatePendingAction GetPendingActionByID GetPendingActionsByConversation UpdatePendingActionStatus GetExpiredActions
 	// Pending action operations
 	CreatePendingAction(ctx context.Context, action *models.PendingAction) (*models.PendingAction, error)
 	GetPendingActionByID(ctx context.Context, actionID string) (*models.PendingAction, error)
@@ -34,6 +38,7 @@ type Repository interface {
 	UpdatePendingActionStatus(ctx context.Context, actionID string, status string, version int, errorMsg string) error
 	GetExpiredActions(ctx context.Context) ([]*models.PendingAction, error)
 
+	// CreateToolLog GetToolLogsByConversation GetToolLogsByPendingAction
 	// Tool log operations
 	CreateToolLog(ctx context.Context, log *models.AgentToolLog) (*models.AgentToolLog, error)
 	GetToolLogsByConversation(ctx context.Context, conversationID string) ([]*models.AgentToolLog, error)
@@ -46,12 +51,23 @@ type MongoRepository struct {
 	dbName string
 }
 
-// NewMongoRepository creates a new Mongo repository
-func NewMongoRepository(client *mongo.Client, dbName string) Repository {
-	return &MongoRepository{
+// NewMongoRepository creates a new Mongo repository and ensures necessary indexes
+func NewMongoRepository(ctx context.Context, client *mongo.Client, dbName string) (Repository, error) {
+	repo := &MongoRepository{
 		client: client,
 		dbName: dbName,
 	}
+
+	// Ensure indexes for pending_actions collection
+	pendingActionsCollection := client.Database(dbName).Collection("pending_actions")
+	_, err := pendingActionsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.M{"status": 1, "expiresat": 1},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create index on pending_actions: %w", err)
+	}
+
+	return repo, nil
 }
 
 // CreateConversation creates a new conversation
@@ -98,7 +114,7 @@ func (r *MongoRepository) GetConversationByCorrelationID(ctx context.Context, co
 	var conv models.Conversation
 	err := collection.FindOne(ctx, bson.M{"correlationid": correlationID}).Decode(&conv)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("conversation not found")
 		}
 		return nil, fmt.Errorf("failed to get conversation: %w", err)
@@ -119,7 +135,7 @@ func (r *MongoRepository) ListConversationsByUser(ctx context.Context, userID st
 	defer func(cursor *mongo.Cursor, ctx context.Context) {
 		err := cursor.Close(ctx)
 		if err != nil {
-			panic(err)
+			log.Fatalf("failed to close cursor: %v", err)
 		}
 	}(cursor, ctx)
 
@@ -292,7 +308,7 @@ func (r *MongoRepository) GetExpiredActions(ctx context.Context) ([]*models.Pend
 	defer func(cursor *mongo.Cursor, ctx context.Context) {
 		err := cursor.Close(ctx)
 		if err != nil {
-			panic(err)
+			log.Fatalf("failed to close cursor: %v", err)
 		}
 	}(cursor, ctx)
 
@@ -378,24 +394,24 @@ func (r *MongoRepository) GetToolLogsByPendingAction(ctx context.Context, pendin
 	return logs, nil
 }
 
-// Helper function to generate action ID
+// GenerateActionID Helper function to generate action ID
 func GenerateActionID() string {
 	return fmt.Sprintf("action_%s", uuid.New().String())
 }
 
-// Helper function to generate correlation ID
+// GenerateCorrelationID Helper function to generate correlation ID
 func GenerateCorrelationID() string {
 	return uuid.New().String()
 }
 
-// Helper function to generate idempotency key
+// GenerateIdempotencyKey Helper function to generate idempotency key
 func GenerateIdempotencyKey(userID, conversationID, actionType string, timestamp int64) string {
 	data := fmt.Sprintf("%s:%s:%s:%d", userID, conversationID, actionType, timestamp)
 	hash := uuid.NewSHA1(uuid.NameSpaceOID, []byte(data))
 	return hash.String()
 }
 
-// Helper function to marshal JSON safely
+// MarshalJSON Helper function to marshal JSON safely
 func MarshalJSON(v interface{}) (json.RawMessage, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
