@@ -50,7 +50,10 @@ func main() {
 	}(db)
 
 	// Initialize MongoDB
-	database.InitMongoDB(cfg.MongoDB.URI)
+	if err := database.InitMongoDB(cfg.MongoDB.URI); err != nil {
+		log.Error("Failed to connect to MongoDB", "error", err)
+		os.Exit(1)
+	}
 	defer database.DisconnectMongoDB()
 
 	// Initialize repositories
@@ -58,7 +61,11 @@ func main() {
 	eventRepo := calendar.NewSQLEventRepository(db)
 	taskRepo := calendar.NewSQLTaskRepository(db)
 	locationRepo := location.NewSQLRepository(db)
-	chatRepo := chat.NewMongoRepository(database.MongoClient, cfg.Database.DBName)
+	chatRepo, err := chat.NewMongoRepository(context.Background(), database.MongoClient, cfg.Database.DBName)
+	if err != nil {
+		log.Error("Failed to initialize chat repository", "error", err)
+		os.Exit(1)
+	}
 
 	// Initialize services with repositories
 	authService := auth.NewService(cfg, log, authRepo)
@@ -87,7 +94,9 @@ func main() {
 
 	// Start cleanup job for expired actions
 	cleanupJob := chat.NewCleanupJob(chatService, log, 5*time.Minute)
-	go cleanupJob.Start(context.Background())
+	cancelContext, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+	go cleanupJob.Start(cancelContext)
 
 	// Initialize gRPC server to expose CalendarDataService to Agent
 	grpcServer, err := grpc.NewServer(grpc.ServerConfig{
