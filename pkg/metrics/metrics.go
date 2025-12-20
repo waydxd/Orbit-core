@@ -210,8 +210,18 @@ func (m *Metrics) GetSnapshot() map[string]interface{} {
 		"total_canceled_actions":  m.TotalCancelledActions,
 		"total_expired_actions":   m.TotalExpiredActions,
 		"total_failed_actions":    m.TotalFailedActions,
-		"avg_message_latency_ms":  m.GetAverageMessageLatency().Milliseconds(),
-		"avg_action_latency_ms":   m.GetAverageActionLatency().Milliseconds(),
+		"avg_message_latency_ms":  func() int64 {
+			if m.MessageLatencyCount == 0 {
+				return 0
+			}
+			return (m.MessageLatencyTotal / time.Duration(m.MessageLatencyCount)).Milliseconds()
+		}(),
+		"avg_action_latency_ms": func() int64 {
+			if m.ActionLatencyCount == 0 {
+				return 0
+			}
+			return (m.ActionLatencyTotal / time.Duration(m.ActionLatencyCount)).Milliseconds()
+		}(),
 		"confirmation_rate_pct":   m.GetConfirmationRate(),
 		"success_rate_pct":        m.GetSuccessRate(),
 		"total_errors":            m.TotalErrors,
