@@ -207,10 +207,10 @@ func (m *Metrics) GetSnapshot() map[string]interface{} {
 		"total_conversations":     m.TotalConversations,
 		"total_pending_actions":   m.TotalPendingActions,
 		"total_confirmed_actions": m.TotalConfirmedActions,
-		"total_cancelled_actions":  m.TotalCancelledActions,
+		"total_cancelled_actions": m.TotalCancelledActions, //nolint:misspell
 		"total_expired_actions":   m.TotalExpiredActions,
 		"total_failed_actions":    m.TotalFailedActions,
-		"avg_message_latency_ms":  func() int64 {
+		"avg_message_latency_ms": func() int64 {
 			if m.MessageLatencyCount == 0 {
 				return 0
 			}
@@ -222,14 +222,14 @@ func (m *Metrics) GetSnapshot() map[string]interface{} {
 			}
 			return (m.ActionLatencyTotal / time.Duration(m.ActionLatencyCount)).Milliseconds()
 		}(),
-		"confirmation_rate_pct":   m.GetConfirmationRate(),
-		"success_rate_pct":        m.GetSuccessRate(),
-		"total_errors":            m.TotalErrors,
-		"validation_errors":       m.ValidationErrors,
-		"policy_violations":       m.PolicyViolations,
-		"conflict_errors":         m.ConflictErrors,
-		"messages_per_minute":     m.MessagesPerMinute,
-		"actions_per_minute":      m.ActionsPerMinute,
+		"confirmation_rate_pct": m.GetConfirmationRate(),
+		"success_rate_pct":      m.GetSuccessRate(),
+		"total_errors":          m.TotalErrors,
+		"validation_errors":     m.ValidationErrors,
+		"policy_violations":     m.PolicyViolations,
+		"conflict_errors":       m.ConflictErrors,
+		"messages_per_minute":   m.MessagesPerMinute,
+		"actions_per_minute":    m.ActionsPerMinute,
 	}
 }
 
