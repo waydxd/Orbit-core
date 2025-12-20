@@ -92,7 +92,7 @@ func Load() (*Config, error) {
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
 		MongoDB: MongoDBConfig{
-			URI: getEnv("MONGODB_URI", "mongodb://localhost:27017"),
+			URI: getEnv("MONGODB_URI", "mongodb://localhost:27017/orbit"),
 		},
 		Redis: RedisConfig{
 			Host:     getEnv("REDIS_HOST", "localhost"),
