@@ -49,12 +49,13 @@ func main() {
 		}
 	}(db)
 
+	defer database.DisconnectMongoDB()
+
 	// Initialize MongoDB
 	if err := database.InitMongoDB(cfg.MongoDB.URI); err != nil {
 		log.Error("Failed to connect to MongoDB", "error", err)
-		os.Exit(1)
+		return
 	}
-	defer database.DisconnectMongoDB()
 
 	// Initialize repositories
 	authRepo := auth.NewSQLRepository(db)
@@ -64,7 +65,7 @@ func main() {
 	chatRepo, err := chat.NewMongoRepository(context.Background(), database.MongoClient, cfg.Database.DBName)
 	if err != nil {
 		log.Error("Failed to initialize chat repository", "error", err)
-		os.Exit(1)
+		return
 	}
 
 	// Initialize services with repositories
