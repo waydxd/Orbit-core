@@ -36,16 +36,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Connect to database
+	// Connect to PostgreSQL database
 	db, err := database.Connect(cfg.Database.ConnectionString())
 	if err != nil {
-		log.Error("Failed to connect to database", "error", err)
+		log.Error("Failed to connect to PostgreSQL", "error", err)
 		os.Exit(1)
 	}
 	defer func(db *database.DB) {
 		err := db.Close()
 		if err != nil {
-			log.Error("Failed to close database connection", "error", err)
+			log.Error("Failed to close PostgreSQL connection", "error", err)
 		}
 	}(db)
 
