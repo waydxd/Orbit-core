@@ -207,7 +207,7 @@ func (m *Metrics) GetSnapshot() map[string]interface{} {
 		"total_conversations":     m.TotalConversations,
 		"total_pending_actions":   m.TotalPendingActions,
 		"total_confirmed_actions": m.TotalConfirmedActions,
-		"total_canceled_actions":  m.TotalCancelledActions,
+		"total_cancelled_actions":  m.TotalCancelledActions,
 		"total_expired_actions":   m.TotalExpiredActions,
 		"total_failed_actions":    m.TotalFailedActions,
 		"avg_message_latency_ms":  func() int64 {
