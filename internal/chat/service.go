@@ -514,8 +514,8 @@ func (s *Service) handleCancelAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update action status to cancelled
-	err = s.repo.UpdatePendingActionStatus(ctx, actionID, "cancelled", action.Version, "Cancelled by user")
+	// Update action status to canceled
+	err = s.repo.UpdatePendingActionStatus(ctx, actionID, "cancelled", action.Version, "Cancelled by user") //nolint: misspell
 	if err != nil {
 		s.logger.Error("Failed to cancel action", "error", err)
 		s.respondError(w, http.StatusInternalServerError, "cancel_failed", "Failed to cancel action", err.Error())
@@ -812,7 +812,7 @@ func (s *Service) CleanupExpiredActions(ctx context.Context) error {
 				break
 			}
 		}
-		
+
 		if len(expiredActions) <= maxIDsToLog {
 			s.logger.Info("Expired actions", "count", len(expiredActions), "action_ids", actionIDs)
 		} else {
