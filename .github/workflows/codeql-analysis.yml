@@ -1,45 +1,37 @@
 name: "CodeQL"
 
-# Run on push to main/master and on pull requests.
 on:
   push:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
   schedule:
-    - cron: '0 3 * * 0' # Weekly on Sundays at 03:00 UTC
+    - cron: '0 3 * * 0'
 
 jobs:
   analyze:
     name: Analyze (CodeQL)
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: go
-
-      # Autobuild can help for some languages; keep it but also run an explicit Go build
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+          # Optional: Use "manual" build mode if providing your own build commands
+          build-mode: manual
 
       - name: Set up Go and build
         run: |
-          echo "Go version"
-          go version || true
-          go env
           go mod download
           go build ./...
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        with:
-          # extra languages can be added if needed
-          # category is optional; letting the action auto-detect
-
-
-
+        uses: github/codeql-action/analyze@v4
