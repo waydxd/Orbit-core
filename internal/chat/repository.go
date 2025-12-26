@@ -311,7 +311,7 @@ func (r *MongoRepository) GetExpiredActions(ctx context.Context) ([]*models.Pend
 	defer func(cursor *mongo.Cursor, ctx context.Context) {
 		err := cursor.Close(ctx)
 		if err != nil {
-			log.Fatalf("failed to close cursor: %v", err)
+			panic(fmt.Sprintf("failed to close cursor: %v", err))
 		}
 	}(cursor, ctx)
 
