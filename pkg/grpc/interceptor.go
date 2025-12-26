@@ -56,11 +56,11 @@ func shouldIntercept(method string) bool {
 }
 
 // interceptMutatingOperation captures the operation and stores it as a pending action
-func (i *ActionInterceptor) interceptMutatingOperation(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+func (i *ActionInterceptor) interceptMutatingOperation(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, _ grpc.UnaryHandler) (interface{}, error) {
 	i.logger.Info("Intercepting mutating operation", "method", info.FullMethod)
 
-	// handler is intentionally unused because mutating operations are converted into pending actions
-	_ = handler
+	// The gRPC handler is intentionally ignored: mutating operations are not executed immediately,
+	// but converted into pending actions that require explicit confirmation.
 
 	// Extract metadata from context (user_id, session_id, etc.)
 	userID, sessionID := extractMetadata(ctx)
