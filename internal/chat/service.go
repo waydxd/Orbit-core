@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
@@ -116,6 +117,14 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 		s.respondError(w, http.StatusBadRequest, "invalid_request", "Invalid request body", err.Error())
 		m.IncrementErrors()
 		return
+	}
+
+	if req.ConversationID != "" {
+		if _, err := uuid.Parse(req.ConversationID); err != nil {
+			s.respondError(w, http.StatusBadRequest, "invalid_conversation_id", "Invalid conversation ID format", "")
+			m.IncrementErrors()
+			return
+		}
 	}
 
 	if req.Message == "" {
@@ -300,6 +309,10 @@ func (s *Service) handleGetConversation(w http.ResponseWriter, r *http.Request) 
 		s.respondError(w, http.StatusBadRequest, "missing_conversation_id", "Conversation ID is required", "")
 		return
 	}
+	if _, err := uuid.Parse(conversationID); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid_conversation_id", "Invalid conversation ID format", "")
+		return
+	}
 
 	// Get conversation
 	conv, err := s.repo.GetConversationByID(ctx, conversationID)
@@ -345,6 +358,16 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
 	actionID := vars["action_id"]
+	if actionID == "" {
+		s.respondError(w, http.StatusBadRequest, "missing_action_id", "Action ID is required", "")
+		m.IncrementErrors()
+		return
+	}
+	if _, err := uuid.Parse(actionID); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid_action_id", "Invalid action ID format", "")
+		m.IncrementErrors()
+		return
+	}
 
 	var req ConfirmActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -448,6 +471,16 @@ func (s *Service) handleCancelAction(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
 	actionID := vars["action_id"]
+	if actionID == "" {
+		s.respondError(w, http.StatusBadRequest, "missing_action_id", "Action ID is required", "")
+		m.IncrementErrors()
+		return
+	}
+	if _, err := uuid.Parse(actionID); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid_action_id", "Invalid action ID format", "")
+		m.IncrementErrors()
+		return
+	}
 
 	// Get pending action
 	action, err := s.repo.GetPendingActionByID(ctx, actionID)
@@ -493,6 +526,14 @@ func (s *Service) handleGetAction(w http.ResponseWriter, r *http.Request) {
 
 	vars := mux.Vars(r)
 	actionID := vars["action_id"]
+	if actionID == "" {
+		s.respondError(w, http.StatusBadRequest, "missing_action_id", "Action ID is required", "")
+		return
+	}
+	if _, err := uuid.Parse(actionID); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid_action_id", "Invalid action ID format", "")
+		return
+	}
 
 	// Get pending action
 	action, err := s.repo.GetPendingActionByID(ctx, actionID)
