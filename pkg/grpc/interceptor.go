@@ -59,8 +59,25 @@ func shouldIntercept(method string) bool {
 func (i *ActionInterceptor) interceptMutatingOperation(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 	i.logger.Info("Intercepting mutating operation", "method", info.FullMethod)
 
+	// handler is intentionally unused because mutating operations are converted into pending actions
+	_ = handler
+
 	// Extract metadata from context (user_id, session_id, etc.)
 	userID, sessionID := extractMetadata(ctx)
+
+	// If userID is not present in metadata, some CalendarService requests include it in the request payload
+	if userID == "" {
+		switch r := req.(type) {
+		case *pb.CreateEventRequest:
+			userID = r.UserId
+		case *pb.UpdateEventRequest:
+			userID = r.UserId
+		case *pb.DeleteEventRequest:
+			userID = r.UserId
+		default:
+			// leave userID empty if we don't recognize the request type
+		}
+	}
 
 	// Convert the request to a pending action
 	actionType, actionData, summary, err := convertRequestToAction(info.FullMethod, req)
@@ -107,8 +124,26 @@ func (i *ActionInterceptor) interceptMutatingOperation(ctx context.Context, req 
 
 // extractMetadata extracts user_id and session_id from the request context
 func extractMetadata(ctx context.Context) (userID, sessionID string) {
-	// TODO: Extract from gRPC metadata or context values
-	// For now, return empty strings - should be populated from actual metadata
+	// Try to read from gRPC incoming metadata (common keys and variants)
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		// helper to try multiple key variants
+		getFirst := func(keys ...string) string {
+			for _, k := range keys {
+				if vals := md.Get(k); len(vals) > 0 {
+					return vals[0]
+				}
+			}
+			return ""
+		}
+
+		// user id may be provided under several possible keys
+		userID = getFirst("user_id", "user-id", "userid", "user")
+		// session or conversation id may be provided under these keys
+		sessionID = getFirst("conversation_id", "conversation-id", "session_id", "session-id", "session", "conversation")
+		return userID, sessionID
+	}
+
+	// No metadata present; return empty values
 	return "", ""
 }
 
