@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -15,6 +16,14 @@ import (
 	"github.com/waydxd/Orbit-core/pkg/logger"
 	"github.com/waydxd/Orbit-core/pkg/metrics"
 	pb "github.com/waydxd/Orbit-core/proto/calendar"
+)
+
+var (
+	ErrInvalidIdempotencyKey = errors.New("invalid idempotency key")
+	ErrActionNotPending      = errors.New("action not pending")
+	ErrActionExpired         = errors.New("action has expired")
+	ErrActionValidation      = errors.New("action validation failed")
+	ErrActionConflict        = errors.New("action conflicts with existing data")
 )
 
 // Service represents the Chat Service for chatbot functionality
@@ -353,7 +362,6 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	ctx := r.Context()
 	w.Header().Set("Content-Type", "application/json")
-
 	m := metrics.GetInstance()
 
 	vars := mux.Vars(r)
@@ -376,7 +384,6 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get pending action
 	action, err := s.repo.GetPendingActionByID(ctx, actionID)
 	if err != nil {
 		s.respondError(w, http.StatusNotFound, "action_not_found", "Action not found", err.Error())
@@ -384,52 +391,31 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate idempotency key
-	if req.IdempotencyKey != action.IdempotencyKey {
-		s.respondError(w, http.StatusBadRequest, "invalid_idempotency_key", "Invalid idempotency key", "")
-		m.IncrementErrors()
-		return
-	}
-
-	// Check if action is still pending
-	if action.Status != "pending" {
-		s.respondError(w, http.StatusConflict, "action_not_pending", fmt.Sprintf("Action is %s", action.Status), "")
-		m.IncrementErrors()
-		return
-	}
-
-	// Check if action has expired
-	if time.Now().After(action.ExpiresAt) {
-		if err := s.repo.UpdatePendingActionStatus(ctx, actionID, "expired", action.Version, "Action expired"); err != nil {
-			s.logger.Error("Failed to update action status to expired", "error", err)
+	if err := s.validateActionForConfirmation(ctx, action, req.IdempotencyKey); err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidIdempotencyKey):
+			s.respondError(w, http.StatusBadRequest, "invalid_idempotency_key", err.Error(), "")
+			m.IncrementErrors()
+		case errors.Is(err, ErrActionNotPending):
+			s.respondError(w, http.StatusConflict, "action_not_pending", err.Error(), "")
+			m.IncrementErrors()
+		case errors.Is(err, ErrActionExpired):
+			s.respondError(w, http.StatusGone, "action_expired", err.Error(), "")
+			m.IncrementExpiredActions()
+		case errors.Is(err, ErrActionValidation):
+			s.respondError(w, http.StatusBadRequest, "validation_failed", err.Error(), "")
+			m.IncrementValidationErrors()
+			m.IncrementFailedActions()
+		case errors.Is(err, ErrActionConflict):
+			s.respondError(w, http.StatusConflict, "conflict_detected", err.Error(), "")
+			m.IncrementConflictErrors()
+		default:
+			s.respondError(w, http.StatusInternalServerError, "internal_error", "An unexpected error occurred during validation", err.Error())
+			m.IncrementErrors()
 		}
-		s.respondError(w, http.StatusGone, "action_expired", "Action has expired", "")
-		m.IncrementExpiredActions()
 		return
 	}
 
-	// Re-validate action before execution
-	if err := s.policyValidator.ValidateAction(action.ActionType, action.ProposedAction); err != nil {
-		s.logger.Error("Action failed validation on confirmation", "error", err, "action_id", actionID)
-		if err := s.repo.UpdatePendingActionStatus(ctx, actionID, "failed", action.Version, fmt.Sprintf("Validation failed: %v", err)); err != nil {
-			s.logger.Error("Failed to update action status to failed", "error", err)
-		}
-		s.respondError(w, http.StatusBadRequest, "validation_failed", "Action validation failed", err.Error())
-		m.IncrementValidationErrors()
-		m.IncrementFailedActions()
-		return
-	}
-
-	// Check for conflicts (simplified - in production, check for overlapping events, etc.)
-	// This is a placeholder for more sophisticated conflict detection
-	if err := s.checkConflicts(ctx, action); err != nil {
-		s.logger.Warn("Conflict detected", "error", err, "action_id", actionID)
-		s.respondError(w, http.StatusConflict, "conflict_detected", "Action conflicts with existing data", err.Error())
-		m.IncrementConflictErrors()
-		return
-	}
-
-	// Execute action via gRPC
 	result, operationID, err := s.executeAction(ctx, action)
 	if err != nil {
 		s.logger.Error("Failed to execute action", "error", err, "action_id", actionID)
@@ -441,10 +427,9 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update action status to confirmed
-	err = s.repo.UpdatePendingActionStatus(ctx, actionID, "confirmed", action.Version, "")
-	if err != nil {
+	if err := s.repo.UpdatePendingActionStatus(ctx, actionID, "confirmed", action.Version, ""); err != nil {
 		s.logger.Error("Failed to update action status", "error", err)
+		// Don't fail the request here as the action was successful
 	}
 
 	m.IncrementConfirmedActions()
@@ -460,6 +445,38 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		s.logger.Error("Failed to encode response", "error", err)
 	}
+}
+
+func (s *Service) validateActionForConfirmation(ctx context.Context, action *models.PendingAction, idempotencyKey string) error {
+	if idempotencyKey != action.IdempotencyKey {
+		return ErrInvalidIdempotencyKey
+	}
+
+	if action.Status != "pending" {
+		return fmt.Errorf("%w: action is %s", ErrActionNotPending, action.Status)
+	}
+
+	if time.Now().After(action.ExpiresAt) {
+		if err := s.repo.UpdatePendingActionStatus(ctx, action.ActionID, "expired", action.Version, "Action expired"); err != nil {
+			s.logger.Error("Failed to update action status to expired", "error", err)
+		}
+		return ErrActionExpired
+	}
+
+	if err := s.policyValidator.ValidateAction(action.ActionType, action.ProposedAction); err != nil {
+		s.logger.Error("Action failed validation on confirmation", "error", err, "action_id", action.ActionID)
+		if uerr := s.repo.UpdatePendingActionStatus(ctx, action.ActionID, "failed", action.Version, fmt.Sprintf("Validation failed: %v", err)); uerr != nil {
+			s.logger.Error("Failed to update action status to failed", "error", uerr)
+		}
+		return fmt.Errorf("%w: %v", ErrActionValidation, err)
+	}
+
+	if err := s.checkConflicts(ctx, action); err != nil {
+		s.logger.Warn("Conflict detected", "error", err, "action_id", action.ActionID)
+		return fmt.Errorf("%w: %v", ErrActionConflict, err)
+	}
+
+	return nil
 }
 
 // POST /chat/actions/{action_id}/cancel - Cancel pending action
