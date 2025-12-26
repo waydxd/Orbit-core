@@ -525,19 +525,44 @@ type ProposedAction struct {
 }
 
 func (s *Service) forwardToAgent(ctx context.Context, userID, message, correlationID, conversationID string) (string, *ProposedAction, error) {
-	// This is a simplified implementation
-	// In production, this would call the Agent Runner gRPC service
-
-	// For now, return a mock response
-	// TODO: Implement actual gRPC call to Agent Runner
-
 	s.logger.Info("Forwarding to agent", "correlation_id", correlationID, "user_id", userID)
 
-	// Mock agent response
-	reply := "I've received your message. How can I help you with your calendar?"
+	// Prepare metadata for the agent
+	metadata := make(map[string]string)
+	metadata["correlation_id"] = correlationID
+	if conversationID != "" {
+		metadata["conversation_id"] = conversationID
+	}
 
-	// No proposed action in this mock implementation
-	return reply, nil, nil
+	// Call the Agent Runner gRPC service
+	req := &pb.ProcessMessageRequest{
+		UserId:    userID,
+		Message:   message,
+		SessionId: conversationID,
+		Metadata:  metadata,
+	}
+
+	resp, err := s.grpcClient.ProcessMessage(ctx, req)
+	if err != nil {
+		s.logger.Error("Failed to call agent ProcessMessage", "error", err, "correlation_id", correlationID)
+		return "", nil, fmt.Errorf("failed to process message with agent: %w", err)
+	}
+
+	if !resp.Success {
+		errMsg := resp.Error
+		if errMsg == "" {
+			errMsg = "unknown error from agent"
+		}
+		s.logger.Error("Agent returned error", "error", errMsg, "correlation_id", correlationID)
+		return "", nil, fmt.Errorf("agent error: %s", errMsg)
+	}
+
+	// Parse the response for proposed actions
+	// The interceptor creates pending actions when the agent calls CalendarService CUD methods
+	// We retrieve the most recent pending action for this conversation
+	proposedAction := s.parseProposedAction(ctx, resp, conversationID, correlationID)
+
+	return resp.Response, proposedAction, nil
 }
 
 func (s *Service) executeAction(ctx context.Context, action *models.PendingAction) (map[string]interface{}, string, error) {
@@ -738,6 +763,79 @@ func (s *Service) checkConflicts(ctx context.Context, action *models.PendingActi
 	}
 
 	return nil
+}
+
+// parseProposedAction retrieves pending actions created by the gRPC interceptor
+// When the agent calls CalendarService methods, the interceptor creates PendingAction records
+// We retrieve the most recent one for this conversation and return it
+func (s *Service) parseProposedAction(ctx context.Context, resp *pb.ProcessMessageResponse, conversationID, correlationID string) *ProposedAction {
+	// Get pending actions created during this conversation/correlation
+	// The interceptor stores them with the correlation_id
+	pendingActions, err := s.repo.GetPendingActionsByConversation(ctx, conversationID)
+	if err != nil {
+		s.logger.Error("Failed to get pending actions", "error", err, "conversation_id", conversationID)
+		return nil
+	}
+
+	// Find the most recently created pending action with matching correlation ID or status=pending
+	var latestAction *models.PendingAction
+	for _, action := range pendingActions {
+		if action.Status != "pending" {
+			continue
+		}
+
+		// Match by correlation ID if available, or just take the most recent pending action
+		if action.CorrelationID == correlationID || latestAction == nil {
+			if latestAction == nil || action.CreatedAt.After(latestAction.CreatedAt) {
+				latestAction = action
+			}
+		}
+	}
+
+	if latestAction == nil {
+		return nil
+	}
+
+	// Parse the proposed action data
+	var actionData map[string]interface{}
+	if err := json.Unmarshal(latestAction.ProposedAction, &actionData); err != nil {
+		s.logger.Error("Failed to unmarshal proposed action", "error", err, "action_id", latestAction.ActionID)
+		return nil
+	}
+
+	// Generate a human-readable summary
+	summary := generateActionSummary(latestAction.ActionType, actionData)
+
+	return &ProposedAction{
+		ActionType: latestAction.ActionType,
+		Action:     actionData,
+		Summary:    summary,
+	}
+}
+
+// generateActionSummary creates a human-readable summary of the action
+func generateActionSummary(actionType string, actionData map[string]interface{}) string {
+	switch actionType {
+	case "create_event":
+		title, _ := actionData["title"].(string)
+		location, _ := actionData["location"].(string)
+		if location != "" {
+			return fmt.Sprintf("Create event: %s at %s", title, location)
+		}
+		return fmt.Sprintf("Create event: %s", title)
+	case "update_event":
+		title, _ := actionData["title"].(string)
+		return fmt.Sprintf("Update event: %s", title)
+	case "delete_event":
+		eventID, _ := actionData["id"].(string)
+		title, _ := actionData["title"].(string)
+		if title != "" {
+			return fmt.Sprintf("Delete event: %s", title)
+		}
+		return fmt.Sprintf("Delete event: %s", eventID)
+	default:
+		return fmt.Sprintf("Execute %s", actionType)
+	}
 }
 
 // GET /chat/metrics - Get chat metrics

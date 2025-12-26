@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package agent;
+
+option go_package = "github.com/waydxd/Orbit-core/proto";
+
+// ================================
+// Services
+// ================================
+
+// AgentService: Agent-side operations.
+// Implemented by Agent. Consumed by Backend/Core or clients.
+service AgentService {
+  // ProcessMessage processes a user message and returns a response
+  rpc ProcessMessage(ProcessMessageRequest) returns (ProcessMessageResponse);
+
+  // GetAgentState returns the current state of the agent
+  rpc GetAgentState(GetAgentStateRequest) returns (GetAgentStateResponse);
+}
+
+// ================================
+// Messages
+// ================================
+
+message ProcessMessageRequest {
+  string user_id = 1;     // Target user whose context/data is relevant
+  string message = 2;     // Raw user message
+  string session_id = 3;  // Optional session ID for context tracking
+  // Optional: lightweight context hints the backend might pass
+  map<string, string> metadata = 4; // e.g., locale, channel, tenant
+}
+
+message ProcessMessageResponse {
+  string response = 1;
+  bool success = 2;
+  string error = 3;
+  string session_id = 4;
+}
+
+message GetAgentStateRequest {
+  string user_id = 1;     // State scoped to a specific user/session
+  string session_id = 2;  // Optional session scope
+}
+
+message GetAgentStateResponse {
+  bool ready = 1;
+  string status = 2;
+  string message = 3;
+}

@@ -99,17 +99,24 @@ func main() {
 	defer cancelFunc()
 	go cleanupJob.Start(cancelContext)
 
+	// Create action interceptor for capturing mutating operations
+	actionInterceptor := grpc.NewActionInterceptor(log, chatRepo)
+
 	// Initialize gRPC server to expose CalendarDataService to Agent
 	grpcServer, err := grpc.NewServer(grpc.ServerConfig{
-		Port: cfg.GRPCServer.Port,
+		Port:         cfg.GRPCServer.Port,
+		Interceptors: []grpc.UnaryServerInterceptor{actionInterceptor.UnaryInterceptor()},
 	}, log)
 	if err != nil {
 		log.Error("Failed to initialize gRPC server", "error", err)
 		return
 	}
 
-	// Register CalendarDataService with gRPC server
+	// Register CalendarDataService with gRPC server (for Agent to read data)
 	pb.RegisterCalendarDataServiceServer(grpcServer.Underlying(), calendarService)
+
+	// Register CalendarService with gRPC server (for Agent to perform CRUD operations)
+	pb.RegisterCalendarServiceServer(grpcServer.Underlying(), calendarService)
 
 	// Start gRPC server in a goroutine
 	go func() {

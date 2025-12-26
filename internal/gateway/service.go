@@ -38,10 +38,10 @@ type AuthServiceInterface interface {
 // CalendarServiceInterface defines methods for calendar service
 type CalendarServiceInterface interface {
 	RegisterRoutes(router *mux.Router)
-	ListEvents(ctx context.Context, startTime, endTime int64, status string) ([]interface{}, error)
-	CreateEvent(ctx context.Context, event interface{}) (interface{}, error)
-	UpdateEvent(ctx context.Context, id string, event interface{}) (interface{}, error)
-	DeleteEvent(ctx context.Context, id string) error
+	ListEventsAdapter(ctx context.Context, startTime, endTime int64, status string) ([]interface{}, error)
+	CreateEventAdapter(ctx context.Context, event interface{}) (interface{}, error)
+	UpdateEventAdapter(ctx context.Context, id string, event interface{}) (interface{}, error)
+	DeleteEventAdapter(ctx context.Context, id string) error
 }
 
 // LocationServiceInterface defines methods for location service

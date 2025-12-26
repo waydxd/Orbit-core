@@ -8,6 +8,9 @@ import (
 	"google.golang.org/grpc"
 )
 
+// UnaryServerInterceptor is an alias for grpc.UnaryServerInterceptor
+type UnaryServerInterceptor = grpc.UnaryServerInterceptor
+
 // Server represents the gRPC server for Core to expose services to Agent
 type Server struct {
 	server   *grpc.Server

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:18-alpine
@@ -46,6 +44,29 @@ services:
       retries: 3
       start_period: 20s
 
+  orbit-orbi:
+    image: ghcr.io/waydxd/orbit-orbi:latest
+    container_name: orbit-orbi
+    stdin_open: true
+    tty: true
+    ports:
+      - "50042:50042"
+    environment:
+      OPENAI_API_KEY: "638e2a9d26c74b66877c89bb883fd2f4"
+      CALENDAR_SERVICE_ADDR: "orbit-core:50052"
+      OPENAI_MODEL: "gpt-4o-mini"
+      OPENAI_BASE_URL: "https://hkust.azure-api.net/"
+      REDIS_ADDR: "redis:6379"
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8088/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+
   orbit-core:
     build:
       context: .
@@ -53,6 +74,7 @@ services:
     container_name: orbit-core
     ports:
       - "8080:8080"
+      - "50052:50052"
     environment:
       SERVER_PORT: 8080
       SERVER_HOST: 0.0.0.0
@@ -69,6 +91,9 @@ services:
       JWT_SECRET: change-this-in-production
       JWT_EXPIRATION_HOURS: 24
       MONGODB_URI: mongodb://mongo:27017
+      ORBI_HOST: orbit-orbi
+      ORBI_PORT: 50042
+      GRPC_SERVER_PORT: 50052
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,7 +101,8 @@ services:
         condition: service_healthy
       mongo:
         condition: service_healthy
-
+      orbit-orbi:
+        condition: service_healthy
 volumes:
   postgres_data:
   redis_data:

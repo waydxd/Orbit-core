@@ -60,8 +60,11 @@ func NewMongoRepository(ctx context.Context, client *mongo.Client, dbName string
 
 	// Ensure indexes for pending_actions collection
 	pendingActionsCollection := client.Database(dbName).Collection("pending_actions")
+	// Create a compound index on {status: 1, expires_at: 1} to optimize queries
+	// that filter by status and expiration time.
 	_, err := pendingActionsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: bson.M{"status": 1, "expiresat": 1},
+		Keys:    bson.D{{Key: "status", Value: 1}, {Key: "expires_at", Value: 1}},
+		Options: options.Index(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create index on pending_actions: %w", err)
@@ -98,7 +101,7 @@ func (r *MongoRepository) GetConversationByID(ctx context.Context, conversationI
 	var conv models.Conversation
 	err := collection.FindOne(ctx, bson.M{"id": conversationID}).Decode(&conv)
 	if err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("conversation not found")
 		}
 		return nil, fmt.Errorf("failed to get conversation: %w", err)
@@ -299,8 +302,8 @@ func (r *MongoRepository) GetExpiredActions(ctx context.Context) ([]*models.Pend
 	collection := r.client.Database(r.dbName).Collection("pending_actions")
 
 	cursor, err := collection.Find(ctx, bson.M{
-		"status":    "pending",
-		"expiresat": bson.M{"$lt": time.Now()},
+		"status":     "pending",
+		"expires_at": bson.M{"$lt": time.Now()},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get expired actions: %w", err)
