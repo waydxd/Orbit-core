@@ -24,169 +24,174 @@ The `orbit-core` repository encapsulates the following key services, implemented
 5. **Integration Service**
    - Handles integration with external APIs and data synchronization.
 
+6. **Chat Service**
+    - Provides a complete backend implementation for an AI-powered chatbot with action confirmation workflows.
+
 ## Core Principles
 
 - **Modularity**: Each service is implemented as a distinct module to ensure clear separation of concerns, enabling easier refactoring into microservices when needed.
 - **Scalability**: Designed to support rapid prototyping while laying the foundation for future scalability.
 - **Data Integrity**: Relies on **PostgreSQL** as the primary relational database to ensure robust data consistency.
 
-## Related Repositories
+## Quick Start Guide
 
-To maintain clear boundaries and accommodate different technology stacks and deployment requirements, the following components are maintained in separate repositories:
-
-1. **AI/ML Modules (Python Backend)**
-   - Contains services like the **Intelligence Service** for tasks such as natural language parsing (DistilBERT), recommendation generation (TFRS), and LLM inference (vLLM).
-   - Isolated due to its **Python-based** tech stack and deployment on **GPU-accelerated nodes** (e.g., HKUST Academic Cloud).
-
-2. **Deployment Repository**
-   - Stores high-level deployment configurations, including **Kubernetes** setups and **CI/CD pipelines**.
-
-## Project Structure
-
-```
-orbit-core/
-├── cmd/
-│   └── orbit-core/          # Main application entry point
-├── internal/
-│   ├── gateway/             # Gateway Service (routing, rate limiting)
-│   ├── auth/                # Authentication Service (JWT, Argon2id)
-│   ├── calendar/            # Calendar & Task Service
-│   ├── location/            # Location Service
-│   ├── integration/         # Integration Service
-│   └── shared/
-│       ├── models/          # Shared data models
-│       └── database/        # Database utilities
-├── pkg/
-│   ├── config/              # Configuration management
-│   ├── logger/              # Logging utilities
-│   └── middleware/          # HTTP middleware (rate limiting, etc.)
-├── go.mod
-└── README.md
-```
-
-## Getting Started
-
-### Quick Start
-See the [Quick Start Guide](QUICKSTART.md) for step-by-step instructions to get up and running quickly.
-
-## Getting Started
+Get Orbit Core up and running in minutes!
 
 ### Prerequisites
-- **Go**: Version 1.25 or higher
-- **PostgreSQL**: Version 15 or higher
-- **Redis**: For rate limiting in the Gateway Service
-- **Docker**: For local development and testing
 
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/waydxd/Orbit-core.git
-   cd Orbit-core
-   ```
+Ensure you have the following installed:
+- [Go 1.21+](https://golang.org/dl/)
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
+- [PostgreSQL 15+](https://www.postgresql.org/download/) (optional if using Docker)
+- [Redis](https://redis.io/download/) (optional if using Docker)
 
-2. Install dependencies:
-   ```bash
-   go mod download
-   ```
+### Option 1: Quick Start with Docker (Recommended)
 
-3. Set up environment variables (create a `.env` file):
-   ```bash
-   # Server Configuration
-   SERVER_PORT=8080
-   SERVER_HOST=0.0.0.0
-
-   # PostgreSQL Configuration
-   DB_HOST=localhost
-   DB_PORT=5432
-   DB_USER=postgres
-   DB_PASSWORD=postgres
-   DB_NAME=orbit
-   DB_SSLMODE=disable
-
-   # Redis Configuration
-   REDIS_HOST=localhost
-   REDIS_PORT=6379
-   REDIS_PASSWORD=
-   REDIS_DB=0
-
-   # Authentication Configuration
-   JWT_SECRET=your-secret-key-change-in-production
-   JWT_EXPIRATION_HOURS=24
-   ```
-
-4. Run the application:
-   ```bash
-   go run cmd/orbit-core/main.go
-   ```
-
-### Development
-
-#### Build the application:
+#### Step 1: Clone the Repository
 ```bash
-go build -o bin/orbit-core cmd/orbit-core/main.go
+git clone https://github.com/waydxd/Orbit-core.git
+cd Orbit-core
 ```
 
-#### Run tests:
+#### Step 2: Start Services
 ```bash
-go test ./...
+docker-compose up -d
 ```
 
-#### Run with Docker Compose (coming soon):
+This will start:
+- PostgreSQL (port 5432)
+- Redis (port 6379)
+- Orbit Core application (port 8080)
+
+#### Step 3: Run Database Migrations
 ```bash
-docker-compose up
+docker-compose exec postgres psql -U postgres -d orbit -f /migrations/001_initial_schema.sql
 ```
 
-## API Endpoints
+#### Step 4: Verify the Application
+```bash
+curl http://localhost:8080/health
+```
 
-### Gateway Service
-- `GET /health` - Health check endpoint
+Expected response:
+```json
+{
+  "status": "healthy",
+  "service": "gateway"
+}
+```
 
-### Authentication Service
-- `POST /api/v1/auth/register` - Register a new user
-- `POST /api/v1/auth/login` - User login
-- `POST /api/v1/auth/verify` - Verify JWT token
+### Option 2: Manual Setup (Local Development)
 
-### Calendar & Task Service
-- `GET /api/v1/calendar/events` - List events
-- `POST /api/v1/calendar/events` - Create event
-- `GET /api/v1/calendar/events/{id}` - Get event
-- `PUT /api/v1/calendar/events/{id}` - Update event
-- `DELETE /api/v1/calendar/events/{id}` - Delete event
-- `GET /api/v1/calendar/tasks` - List tasks
-- `POST /api/v1/calendar/tasks` - Create task
-- `GET /api/v1/calendar/tasks/{id}` - Get task
-- `PUT /api/v1/calendar/tasks/{id}` - Update task
-- `DELETE /api/v1/calendar/tasks/{id}` - Delete task
+#### Step 1: Clone the Repository
+```bash
+git clone https://github.com/waydxd/Orbit-core.git
+cd Orbit-core
+```
 
-### Location Service
-- `POST /api/v1/location/track` - Track location
-- `GET /api/v1/location/history` - Get location history
-- `GET /api/v1/location/current` - Get current location
-- `GET /api/v1/location/nearby` - Find nearby locations
+#### Step 2: Install Go Dependencies
+```bash
+go mod download
+```
 
-### Integration Service
-- `POST /api/v1/integration/sync` - Sync data with external APIs
-- `POST /api/v1/integration/webhooks` - Handle webhooks
-- `POST /api/v1/integration/external/connect` - Connect external service
-- `POST /api/v1/integration/external/disconnect` - Disconnect external service
-- `GET /api/v1/integration/external/status` - Get integration status
+#### Step 3: Set Up Environment Variables
+```bash
+cp .env.example .env
+```
 
-## Documentation
+Edit `.env` with your configuration.
 
-- **[Quick Start Guide](QUICKSTART.md)** - Get started in minutes
-- **[API Documentation](API.md)** - Complete API reference
-- **[Database Schema](DATABASE.md)** - Database structure and migrations
-- **[Architecture Overview](ARCHITECTURE.md)** - System design and architecture
-- **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to the project
+#### Step 4: Start PostgreSQL and Redis
+(See instructions in QUICKSTART.md if needed)
 
-## Technology Stack
+#### Step 5: Run Database Migrations
+```bash
+psql -U postgres -d orbit -f migrations/001_initial_schema.sql
+```
 
-- **Language**: Go 1.21+
-- **Web Framework**: gorilla/mux for routing
-- **Database**: PostgreSQL 15+
-- **Cache/Rate Limiting**: Redis
-- **Authentication**: JWT (golang-jwt), Argon2id password hashing
-- **Logging**: slog (standard library)
+#### Step 6: Build and Run the Application
+```bash
+go run cmd/orbit-core/main.go
+```
+
+## Architecture
+
+### System Architecture
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         Client Layer                         │
+│  (Web/Mobile Apps, Third-party Services, External Systems)  │
+└────────────────────────────┬────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Gateway Service (Port 8080)               │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  • Request Routing                                     │  │
+│  │  • Rate Limiting (Redis)                              │  │
+│  │  • API Versioning (/api/v1)                          │  │
+│  │  • Health Checks                                      │  │
+│  └───────────────────────────────────────────────────────┘  │
+└──────┬──────────┬──────────┬──────────┬──────────┬─────────┘
+       │          │          │          │          │
+       ▼          ▼          ▼          ▼          ▼
+   ┌───────┐  ┌────────┐ ┌────────┐ ┌─────────┐ ┌──────────┐
+   │ Auth  │  │Calendar│ │Location│ │Integration│ │  Chat    │
+   │Service│  │Service │ │Service │ │ Service  │ │ Service  │
+   └───┬───┘  └───┬────┘ └───┬────┘ └────┬─────┘ └────┬─────┘
+       │          │          │           │            │
+       └──────────┴──────────┴───────────┴────────────┘
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │   Data Layer         │
+                  │  ┌────────────────┐  │
+                  │  │  PostgreSQL    │  │
+                  │  │  (Port 5432)   │  │
+                  │  └────────────────┘  │
+                  │  ┌────────────────┐  │
+                  │  │  Redis Cache   │  │
+                  │  │  (Port 6379)   │  │
+                  │  └────────────────┘  │
+                  └──────────────────────┘
+```
+
+### gRPC Architecture
+The system uses gRPC for communication between `orbit-core` and the external `orbit-orbi` AI agent.
+
+- **`orbit-core`** implements and exposes:
+  - `CalendarService` (CRUD operations)
+  - `CalendarDataService` (read-only data access)
+- **`orbit-core`** calls:
+  - `AgentService` on `orbit-orbi` (for AI message processing)
+- **`orbit-orbi`** (external service) implements and exposes:
+  - `AgentService` (AI message processing)
+- **`orbit-orbi`** (external service) calls:
+  - `CalendarService` on `orbit-core` (to create/modify events)
+  - `CalendarDataService` on `orbit-core` (to read calendar data)
+
+## API Documentation
+
+The full API documentation is available in `docs/openapi.yaml` and a summary is provided below.
+
+### Base URL
+`http://localhost:8080/api/v1`
+
+### Common Endpoints
+
+- **Authentication**: `POST /auth/register`, `POST /auth/login`
+- **Calendar Events**: `GET /calendar/events`, `POST /calendar/events`
+- **Chat**: `POST /chat/messages`, `GET /chat/conversations/{id}`
+- **Location**: `POST /location/track`, `GET /location/history`
+- **Integrations**: `POST /integration/external/connect`
+
+## Database
+
+The database schema is defined in `migrations/001_initial_schema.sql` and includes tables for `users`, `events`, `tasks`, `locations`, `integrations`, and `sessions`. A second migration `migrations/002_chat_and_pending_actions.sql` adds tables for `conversations`, `chat_messages`, `pending_actions`, and `agent_tool_logs`.
+
+## Contributing
+
+Please see the [CONTRIBUTING.md](CONTRIBUTING.md) file for details on how to contribute to this project.
 
 ## License
 
