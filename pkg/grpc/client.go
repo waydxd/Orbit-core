@@ -15,9 +15,10 @@ import (
 
 // CalendarGRPCClient wraps the gRPC client for calendar service
 type CalendarGRPCClient struct {
-	conn   *grpc.ClientConn
-	client pb.CalendarServiceClient
-	logger *logger.Logger
+	conn        *grpc.ClientConn
+	client      pb.CalendarServiceClient
+	agentClient pb.AgentServiceClient
+	logger      *logger.Logger
 }
 
 // NewCalendarGRPCClient creates a new gRPC client for the calendar service
@@ -36,11 +37,13 @@ func NewCalendarGRPCClient(cfg *config.Config, log *logger.Logger) (*CalendarGRP
 	}
 
 	client := pb.NewCalendarServiceClient(conn)
+	agentClient := pb.NewAgentServiceClient(conn)
 
 	return &CalendarGRPCClient{
-		conn:   conn,
-		client: client,
-		logger: log,
+		conn:        conn,
+		client:      client,
+		agentClient: agentClient,
+		logger:      log,
 	}, nil
 }
 
@@ -126,4 +129,15 @@ func (c *CalendarGRPCClient) HealthCheck(ctx context.Context) error {
 	}
 
 	return fmt.Errorf("grpc connection not ready: state=%v", c.conn.GetState())
+}
+
+// GetAgentServiceClient returns the gRPC AgentService client
+func (c *CalendarGRPCClient) GetAgentServiceClient() pb.AgentServiceClient {
+	return c.agentClient
+}
+
+// ProcessMessage calls Agent's ProcessMessage RPC
+func (c *CalendarGRPCClient) ProcessMessage(ctx context.Context, req *pb.ProcessMessageRequest) (*pb.ProcessMessageResponse, error) {
+	c.logger.Info("Calling Agent's ProcessMessage", "user_id", req.UserId, "session_id", req.SessionId)
+	return c.agentClient.ProcessMessage(ctx, req)
 }

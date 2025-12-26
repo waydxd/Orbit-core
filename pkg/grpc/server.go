@@ -8,6 +8,9 @@ import (
 	"google.golang.org/grpc"
 )
 
+// UnaryServerInterceptor is an alias for grpc.UnaryServerInterceptor
+type UnaryServerInterceptor = grpc.UnaryServerInterceptor
+
 // Server represents the gRPC server for Core to expose services to Agent
 type Server struct {
 	server   *grpc.Server
@@ -18,7 +21,8 @@ type Server struct {
 
 // ServerConfig holds the configuration for the gRPC server
 type ServerConfig struct {
-	Port int
+	Port         int
+	Interceptors []grpc.UnaryServerInterceptor
 }
 
 // NewServer creates a new gRPC server
@@ -29,7 +33,12 @@ func NewServer(cfg ServerConfig, log *logger.Logger) (*Server, error) {
 		return nil, err
 	}
 
-	grpcServer := grpc.NewServer()
+	// Create server with interceptors if provided
+	var opts []grpc.ServerOption
+	if len(cfg.Interceptors) > 0 {
+		opts = append(opts, grpc.ChainUnaryInterceptor(cfg.Interceptors...))
+	}
+	grpcServer := grpc.NewServer(opts...)
 
 	return &Server{
 		server:   grpcServer,

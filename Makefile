@@ -91,7 +91,7 @@ proto:
 	@export PATH=$$PATH:$$(go env GOPATH)/bin && \
 	protoc --go_out=. --go_opt=paths=source_relative \
 		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
-		proto/calendar/calendar.proto proto/calendar/calendar_data.proto
+		proto/calendar/calendar.proto proto/calendar/agent.proto
 	@echo "Protobuf code generated successfully"
 
 generate: proto ## Alias for proto (generate protobuf Go code)

@@ -18,6 +18,7 @@ import (
 // Service represents the Calendar & Task Service
 type Service struct {
 	pb.UnimplementedCalendarDataServiceServer
+	pb.UnimplementedCalendarServiceServer
 	config    *config.Config
 	logger    *logger.Logger
 	eventRepo EventRepository
@@ -648,8 +649,8 @@ func (s *Service) QueryEvents(ctx context.Context, req *pb.QueryEventsRequest) (
 
 // Adapter methods to satisfy agent.CalendarServiceInterface and gateway.CalendarServiceInterface
 
-// ListEvents returns events across users (userID omitted) or can be extended to filter by status.
-func (s *Service) ListEvents(ctx context.Context, startTime, endTime int64, status string) ([]interface{}, error) {
+// ListEventsAdapter returns events across users (userID omitted) or can be extended to filter by status.
+func (s *Service) ListEventsAdapter(ctx context.Context, startTime, endTime int64, status string) ([]interface{}, error) {
 	_ = status // mark as used until filtering is implemented
 	st := time.Unix(startTime, 0)
 	en := time.Unix(endTime, 0)
@@ -667,8 +668,8 @@ func (s *Service) ListEvents(ctx context.Context, startTime, endTime int64, stat
 	return out, nil
 }
 
-// CreateEvent accepts flexible payloads (map[string]interface{}, *models.Event, pb.Event) and creates an event
-func (s *Service) CreateEvent(ctx context.Context, event interface{}) (interface{}, error) {
+// CreateEventAdapter accepts flexible payloads (map[string]interface{}, *models.Event, pb.Event) and creates an event
+func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (interface{}, error) {
 	// Delegate parsing to a helper to keep cyclomatic complexity low
 	ev, err := parseEventPayload(event)
 	if err != nil {
@@ -751,8 +752,8 @@ func parseTimeFromInterface(v interface{}) (time.Time, error) {
 	}
 }
 
-// UpdateEvent updates an event by id using flexible payloads
-func (s *Service) UpdateEvent(ctx context.Context, id string, event interface{}) (interface{}, error) {
+// UpdateEventAdapter updates an event by id using flexible payloads
+func (s *Service) UpdateEventAdapter(ctx context.Context, id string, event interface{}) (interface{}, error) {
 	existing, err := s.eventRepo.GetEventByID(ctx, id)
 	if err != nil {
 		s.logger.Error("failed to get event for update", "id", id, "err", err)
@@ -808,11 +809,173 @@ func (s *Service) UpdateEvent(ctx context.Context, id string, event interface{})
 	return existing, nil
 }
 
-// DeleteEvent deletes an event by id
-func (s *Service) DeleteEvent(ctx context.Context, id string) error {
+// DeleteEventAdapter deletes an event by id
+func (s *Service) DeleteEventAdapter(ctx context.Context, id string) error {
 	if err := s.eventRepo.DeleteEvent(ctx, id); err != nil {
 		s.logger.Error("failed to delete event (adapter)", "id", id, "err", err)
 		return err
 	}
 	return nil
+}
+
+// CreateEvent implements CalendarService.CreateEvent
+func (s *Service) CreateEvent(ctx context.Context, req *pb.CreateEventRequest) (*pb.CreateEventResponse, error) {
+	s.logger.Info("CreateEvent called via gRPC", "user_id", req.UserId)
+
+	event := &models.Event{
+		ID:          uuid.New().String(),
+		UserID:      req.UserId,
+		Title:       req.Title,
+		Description: req.Description,
+		StartTime:   time.Unix(req.StartTime, 0),
+		EndTime:     time.Unix(req.EndTime, 0),
+		Location:    req.Location,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	if err := s.eventRepo.CreateEvent(ctx, event); err != nil {
+		s.logger.Error("failed to create event via gRPC", "err", err)
+		return &pb.CreateEventResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to create event: %v", err),
+		}, nil
+	}
+
+	pbEvent := &pb.Event{
+		Id:          event.ID,
+		UserId:      event.UserID,
+		Title:       event.Title,
+		Description: event.Description,
+		StartTime:   event.StartTime.Unix(),
+		EndTime:     event.EndTime.Unix(),
+		Location:    event.Location,
+	}
+
+	return &pb.CreateEventResponse{
+		Event:   pbEvent,
+		Success: true,
+		Message: "Event created successfully",
+	}, nil
+}
+
+// GetEvents implements CalendarService.GetEvents
+func (s *Service) GetEvents(ctx context.Context, req *pb.GetEventsRequest) (*pb.GetEventsResponse, error) {
+	s.logger.Info("GetEvents called via gRPC", "user_id", req.UserId)
+
+	startTime := time.Unix(req.StartTime, 0)
+	endTime := time.Unix(req.EndTime, 0)
+
+	events, err := s.eventRepo.ListEvents(ctx, req.UserId, startTime, endTime)
+	if err != nil {
+		s.logger.Error("failed to get events via gRPC", "err", err)
+		return &pb.GetEventsResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to get events: %v", err),
+		}, nil
+	}
+
+	pbEvents := make([]*pb.Event, len(events))
+	for i, event := range events {
+		pbEvents[i] = &pb.Event{
+			Id:          event.ID,
+			UserId:      event.UserID,
+			Title:       event.Title,
+			Description: event.Description,
+			StartTime:   event.StartTime.Unix(),
+			EndTime:     event.EndTime.Unix(),
+			Location:    event.Location,
+		}
+	}
+
+	return &pb.GetEventsResponse{
+		Events:  pbEvents,
+		Success: true,
+		Message: "Events retrieved successfully",
+	}, nil
+}
+
+// UpdateEvent implements CalendarService.UpdateEvent
+func (s *Service) UpdateEvent(ctx context.Context, req *pb.UpdateEventRequest) (*pb.UpdateEventResponse, error) {
+	s.logger.Info("UpdateEvent called via gRPC", "user_id", req.UserId, "event_id", req.Id)
+
+	event, err := s.eventRepo.GetEventByID(ctx, req.Id)
+	if err != nil {
+		return &pb.UpdateEventResponse{
+			Success: false,
+			Message: fmt.Sprintf("event not found: %v", err),
+		}, nil
+	}
+
+	if req.Title != "" {
+		event.Title = req.Title
+	}
+	if req.Description != "" {
+		event.Description = req.Description
+	}
+	if req.Location != "" {
+		event.Location = req.Location
+	}
+	if req.StartTime != 0 {
+		event.StartTime = time.Unix(req.StartTime, 0)
+	}
+	if req.EndTime != 0 {
+		event.EndTime = time.Unix(req.EndTime, 0)
+	}
+	event.UpdatedAt = time.Now()
+
+	if err := s.eventRepo.UpdateEvent(ctx, event); err != nil {
+		s.logger.Error("failed to update event via gRPC", "err", err)
+		return &pb.UpdateEventResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to update event: %v", err),
+		}, nil
+	}
+
+	pbEvent := &pb.Event{
+		Id:          event.ID,
+		UserId:      event.UserID,
+		Title:       event.Title,
+		Description: event.Description,
+		StartTime:   event.StartTime.Unix(),
+		EndTime:     event.EndTime.Unix(),
+		Location:    event.Location,
+	}
+
+	return &pb.UpdateEventResponse{
+		Event:   pbEvent,
+		Success: true,
+		Message: "Event updated successfully",
+	}, nil
+}
+
+// DeleteEvent implements CalendarService.DeleteEvent
+func (s *Service) DeleteEvent(ctx context.Context, req *pb.DeleteEventRequest) (*pb.DeleteEventResponse, error) {
+	s.logger.Info("DeleteEvent called via gRPC", "user_id", req.UserId, "event_id", req.Id)
+
+	if err := s.eventRepo.DeleteEvent(ctx, req.Id); err != nil {
+		s.logger.Error("failed to delete event via gRPC", "err", err)
+		return &pb.DeleteEventResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to delete event: %v", err),
+		}, nil
+	}
+
+	return &pb.DeleteEventResponse{
+		Success: true,
+		Message: "Event deleted successfully",
+	}, nil
+}
+
+// GetAvailableSlots implements CalendarService.GetAvailableSlots
+func (s *Service) GetAvailableSlots(ctx context.Context, req *pb.GetAvailableSlotsRequest) (*pb.GetAvailableSlotsResponse, error) {
+	// This is a simplified implementation. In a real-world scenario, you would
+	// calculate available slots based on existing events and working hours.
+	s.logger.Info("GetAvailableSlots called via gRPC", "user_id", req.UserId)
+
+	return &pb.GetAvailableSlotsResponse{
+		Slots:   []*pb.TimeSlot{},
+		Success: true,
+		Message: "Available slots retrieval not fully implemented",
+	}, nil
 }

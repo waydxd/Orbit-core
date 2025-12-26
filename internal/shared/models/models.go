@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // User represents a user in the system
 type User struct {
@@ -69,4 +72,59 @@ type Integration struct {
 	LastSync        time.Time `json:"last_sync" db:"last_sync"`
 	CreatedAt       time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// Conversation represents a chat conversation
+type Conversation struct {
+	ID            string    `json:"id" db:"id" bson:"id"`
+	UserID        string    `json:"user_id" db:"user_id" bson:"user_id"`
+	CorrelationID string    `json:"correlation_id" db:"correlation_id" bson:"correlation_id"`
+	Status        string    `json:"status" db:"status" bson:"status"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at" bson:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at" db:"updated_at" bson:"updated_at"`
+}
+
+// ChatMessage represents a message in a conversation
+type ChatMessage struct {
+	ID             string          `json:"id" db:"id" bson:"id"`
+	ConversationID string          `json:"conversation_id" db:"conversation_id" bson:"conversation_id"`
+	UserID         string          `json:"user_id" db:"user_id" bson:"user_id"`
+	Role           string          `json:"role" db:"role" bson:"role"`
+	Content        string          `json:"content" db:"content" bson:"content"`
+	Metadata       json.RawMessage `json:"metadata,omitempty" db:"metadata" bson:"metadata,omitempty"`
+	CreatedAt      time.Time       `json:"created_at" db:"created_at" bson:"created_at"`
+}
+
+// PendingAction represents an action proposed by the agent awaiting user confirmation
+type PendingAction struct {
+	ID             string          `json:"id" db:"id" bson:"id"`
+	ActionID       string          `json:"action_id" db:"action_id" bson:"action_id"`
+	UserID         string          `json:"user_id" db:"user_id" bson:"user_id"`
+	ConversationID string          `json:"conversation_id" db:"conversation_id" bson:"conversation_id"`
+	ProposedAction json.RawMessage `json:"proposed_action" db:"proposed_action" bson:"proposed_action"`
+	ActionType     string          `json:"action_type" db:"action_type" bson:"action_type"`
+	IdempotencyKey string          `json:"idempotency_key" db:"idempotency_key" bson:"idempotency_key"`
+	Status         string          `json:"status" db:"status" bson:"status"`
+	Version        int             `json:"version" db:"version" bson:"version"`
+	CorrelationID  string          `json:"correlation_id" db:"correlation_id" bson:"correlation_id"`
+	AgentMetadata  json.RawMessage `json:"agent_metadata,omitempty" db:"agent_metadata" bson:"agent_metadata,omitempty"`
+	ErrorMessage   string          `json:"error_message,omitempty" db:"error_message" bson:"error_message,omitempty"`
+	CreatedAt      time.Time       `json:"created_at" db:"created_at" bson:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at" db:"updated_at" bson:"updated_at"`
+	ExpiresAt      time.Time       `json:"expires_at" db:"expires_at" bson:"expires_at"`
+}
+
+// AgentToolLog represents an audit log of agent tool calls
+type AgentToolLog struct {
+	ID              string          `json:"id" db:"id" bson:"id"`
+	PendingActionID *string         `json:"pending_action_id,omitempty" db:"pending_action_id" bson:"pending_action_id,omitempty"`
+	ConversationID  string          `json:"conversation_id" db:"conversation_id" bson:"conversation_id"`
+	UserID          string          `json:"user_id" db:"user_id" bson:"user_id"`
+	ToolName        string          `json:"tool_name" db:"tool_name" bson:"tool_name"`
+	ToolInput       json.RawMessage `json:"tool_input" db:"tool_input" bson:"tool_input"`
+	ToolOutput      json.RawMessage `json:"tool_output,omitempty" db:"tool_output" bson:"tool_output,omitempty"`
+	Status          string          `json:"status" db:"status" bson:"status"`
+	ErrorMessage    string          `json:"error_message,omitempty" db:"error_message" bson:"error_message,omitempty"`
+	CorrelationID   string          `json:"correlation_id" db:"correlation_id" bson:"correlation_id"`
+	CreatedAt       time.Time       `json:"created_at" db:"created_at" bson:"created_at"`
 }
