@@ -4,7 +4,7 @@
 // 	protoc        v6.33.2
 // source: proto/calendar/agent.proto
 
-package proto
+package calendar
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -300,7 +300,7 @@ const file_proto_calendar_agent_proto_rawDesc = "" +
 	"\amessage\x18\x03 \x01(\tR\amessage2\xa9\x01\n" +
 	"\fAgentService\x12M\n" +
 	"\x0eProcessMessage\x12\x1c.agent.ProcessMessageRequest\x1a\x1d.agent.ProcessMessageResponse\x12J\n" +
-	"\rGetAgentState\x12\x1b.agent.GetAgentStateRequest\x1a\x1c.agent.GetAgentStateResponseB$Z\"github.com/waydxd/Orbit-core/protob\x06proto3"
+	"\rGetAgentState\x12\x1b.agent.GetAgentStateRequest\x1a\x1c.agent.GetAgentStateResponseB-Z+github.com/waydxd/Orbit-core/proto/calendarb\x06proto3"
 
 var (
 	file_proto_calendar_agent_proto_rawDescOnce sync.Once

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package calendar;
 
-option go_package = "github.com/waydxd/Orbit-core/proto";
+option go_package = "github.com/waydxd/Orbit-core/proto/calendar";
 
 // ================================
 // Services

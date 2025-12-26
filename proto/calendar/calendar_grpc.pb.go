@@ -4,7 +4,7 @@
 // - protoc             v6.33.2
 // source: proto/calendar/calendar.proto
 
-package proto
+package calendar
 
 import (
 	context "context"
@@ -31,7 +31,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // CalendarService: Core backend CRUD and scheduling operations.
-// Implemented by Backend/Core. Consumed by external clients (optional).
+// Implemented by Backend/Core. Consumed by external clients.
 type CalendarServiceClient interface {
 	// CreateEvent creates a new calendar event
 	CreateEvent(ctx context.Context, in *CreateEventRequest, opts ...grpc.CallOption) (*CreateEventResponse, error)
@@ -108,7 +108,7 @@ func (c *calendarServiceClient) GetAvailableSlots(ctx context.Context, in *GetAv
 // for forward compatibility.
 //
 // CalendarService: Core backend CRUD and scheduling operations.
-// Implemented by Backend/Core. Consumed by external clients (optional).
+// Implemented by Backend/Core. Consumed by external clients.
 type CalendarServiceServer interface {
 	// CreateEvent creates a new calendar event
 	CreateEvent(context.Context, *CreateEventRequest) (*CreateEventResponse, error)

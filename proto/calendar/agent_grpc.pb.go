@@ -4,7 +4,7 @@
 // - protoc             v6.33.2
 // source: proto/calendar/agent.proto
 
-package proto
+package calendar
 
 import (
 	context "context"

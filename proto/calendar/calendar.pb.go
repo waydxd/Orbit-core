@@ -4,7 +4,7 @@
 // 	protoc        v6.33.2
 // source: proto/calendar/calendar.proto
 
-package proto
+package calendar
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -1478,7 +1478,7 @@ const file_proto_calendar_calendar_proto_rawDesc = "" +
 	"\x13CalendarDataService\x12V\n" +
 	"\x0fGetCalendarData\x12 .calendar.GetCalendarDataRequest\x1a!.calendar.GetCalendarDataResponse\x12b\n" +
 	"\x13GetUserAvailability\x12$.calendar.GetUserAvailabilityRequest\x1a%.calendar.GetUserAvailabilityResponse\x12J\n" +
-	"\vQueryEvents\x12\x1c.calendar.QueryEventsRequest\x1a\x1d.calendar.QueryEventsResponseB$Z\"github.com/waydxd/Orbit-core/protob\x06proto3"
+	"\vQueryEvents\x12\x1c.calendar.QueryEventsRequest\x1a\x1d.calendar.QueryEventsResponseB-Z+github.com/waydxd/Orbit-core/proto/calendarb\x06proto3"
 
 var (
 	file_proto_calendar_calendar_proto_rawDescOnce sync.Once
