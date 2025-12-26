@@ -188,7 +188,9 @@ func (m *Metrics) GetSuccessRate() float64 {
 	return float64(m.TotalConfirmedActions) / float64(total) * 100
 }
 
-// updateRate updates per-minute rates (should be called while holding lock)
+// updateRate updates per-minute rates based on cumulative averages (should be called while holding lock)
+// Note: This calculates average rates since the last reset, not instantaneous rates.
+// For true per-minute rates, a sliding window approach would be needed.
 func (m *Metrics) updateRate() {
 	elapsed := time.Since(m.LastResetTime).Minutes()
 	if elapsed > 0 {

@@ -464,8 +464,8 @@ func (s *Service) handleCancelAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update action status to canceled
-	err = s.repo.UpdatePendingActionStatus(ctx, actionID, "canceled", action.Version, "Canceled by user")
+	// Update action status to cancelled
+	err = s.repo.UpdatePendingActionStatus(ctx, actionID, "cancelled", action.Version, "Cancelled by user")
 	if err != nil {
 		s.logger.Error("Failed to cancel action", "error", err)
 		s.respondError(w, http.StatusInternalServerError, "cancel_failed", "Failed to cancel action", err.Error())
@@ -628,9 +628,27 @@ func extractTimeFields(actionData map[string]interface{}) (startTime int64, endT
 
 	if hasStart {
 		startTime = int64(startFloat)
+		// Validate timestamp is reasonable (not negative, not too far in future)
+		if startTime < 0 {
+			startTime = 0
+			hasStart = false
+		} else if startTime > time.Now().AddDate(10, 0, 0).Unix() {
+			// Reject timestamps more than 10 years in the future
+			startTime = 0
+			hasStart = false
+		}
 	}
 	if hasEnd {
 		endTime = int64(endFloat)
+		// Validate timestamp is reasonable (not negative, not too far in future)
+		if endTime < 0 {
+			endTime = 0
+			hasEnd = false
+		} else if endTime > time.Now().AddDate(10, 0, 0).Unix() {
+			// Reject timestamps more than 10 years in the future
+			endTime = 0
+			hasEnd = false
+		}
 	}
 
 	return startTime, endTime, hasStart, hasEnd
@@ -723,8 +741,24 @@ func (s *Service) CleanupExpiredActions(ctx context.Context) error {
 		err := s.repo.UpdatePendingActionStatus(ctx, action.ActionID, "expired", action.Version, "Automatically expired due to TTL")
 		if err != nil {
 			s.logger.Error("Failed to expire action", "action_id", action.ActionID, "error", err)
+		}
+	}
+
+	if len(expiredActions) > 0 {
+		const maxIDsToLog = 20
+		actionIDs := make([]string, 0, maxIDsToLog)
+		for i, action := range expiredActions {
+			if i < maxIDsToLog {
+				actionIDs = append(actionIDs, action.ActionID)
+			} else {
+				break
+			}
+		}
+		
+		if len(expiredActions) <= maxIDsToLog {
+			s.logger.Info("Expired actions", "count", len(expiredActions), "action_ids", actionIDs)
 		} else {
-			s.logger.Info("Expired action", "action_id", action.ActionID, "user_id", action.UserID)
+			s.logger.Info("Expired actions", "count", len(expiredActions), "action_ids", actionIDs, "note", fmt.Sprintf("showing first %d of %d", maxIDsToLog, len(expiredActions)))
 		}
 	}
 

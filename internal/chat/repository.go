@@ -115,7 +115,7 @@ func (r *MongoRepository) GetConversationByCorrelationID(ctx context.Context, co
 	collection := r.client.Database(r.dbName).Collection("conversations")
 
 	var conv models.Conversation
-	err := collection.FindOne(ctx, bson.M{"correlationid": correlationID}).Decode(&conv)
+	err := collection.FindOne(ctx, bson.M{"correlation_id": correlationID}).Decode(&conv)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("conversation not found")
@@ -196,7 +196,7 @@ func (r *MongoRepository) GetMessagesByConversation(ctx context.Context, convers
 	defer func(cursor *mongo.Cursor, ctx context.Context) {
 		err := cursor.Close(ctx)
 		if err != nil {
-			panic(err)
+			log.Printf("failed to close cursor: %v", err)
 		}
 	}(cursor, ctx)
 
@@ -256,7 +256,7 @@ func (r *MongoRepository) GetPendingActionsByConversation(ctx context.Context, c
 	defer func(cursor *mongo.Cursor, ctx context.Context) {
 		err := cursor.Close(ctx)
 		if err != nil {
-			panic(err)
+			log.Printf("failed to close cursor: %v", err)
 		}
 	}(cursor, ctx)
 
@@ -311,7 +311,7 @@ func (r *MongoRepository) GetExpiredActions(ctx context.Context) ([]*models.Pend
 	defer func(cursor *mongo.Cursor, ctx context.Context) {
 		err := cursor.Close(ctx)
 		if err != nil {
-			panic(fmt.Sprintf("failed to close cursor: %v", err))
+			log.Printf("failed to close cursor: %v", err)
 		}
 	}(cursor, ctx)
 
@@ -353,7 +353,7 @@ func (r *MongoRepository) GetToolLogsByConversation(ctx context.Context, convers
 	defer func(cursor *mongo.Cursor, ctx context.Context) {
 		err := cursor.Close(ctx)
 		if err != nil {
-			panic(err)
+			log.Printf("failed to close cursor: %v", err)
 		}
 	}(cursor, ctx)
 
@@ -381,7 +381,7 @@ func (r *MongoRepository) GetToolLogsByPendingAction(ctx context.Context, pendin
 	defer func(cursor *mongo.Cursor, ctx context.Context) {
 		err := cursor.Close(ctx)
 		if err != nil {
-			panic(err)
+			log.Printf("failed to close cursor: %v", err)
 		}
 	}(cursor, ctx)
 
