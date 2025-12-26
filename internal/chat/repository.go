@@ -138,7 +138,7 @@ func (r *MongoRepository) ListConversationsByUser(ctx context.Context, userID st
 	defer func(cursor *mongo.Cursor, ctx context.Context) {
 		err := cursor.Close(ctx)
 		if err != nil {
-			log.Fatalf("failed to close cursor: %v", err)
+			log.Printf("failed to close cursor: %v", err)
 		}
 	}(cursor, ctx)
 
