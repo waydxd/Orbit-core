@@ -50,8 +50,13 @@ type RedisConfig struct {
 
 // AuthConfig holds authentication configuration
 type AuthConfig struct {
-	JWTSecret     string
-	JWTExpiration int // in hours
+	JWTSecret                    string
+	JWTExpiration                int // in hours
+	ResendAPIKey                 string
+	AppBaseURL                   string
+	PasswordResetExpiryMinutes   int
+	EmailVerificationExpiryHours int
+	EmailFrom                    string // From address for outgoing emails, e.g. "Orbit <onboarding@resend.dev>"
 }
 
 // OrbiConfig holds Orbi agent gRPC connection configuration
@@ -101,8 +106,13 @@ func Load() (*Config, error) {
 			DB:       getEnvAsInt("REDIS_DB", 0),
 		},
 		Auth: AuthConfig{
-			JWTSecret:     getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
-			JWTExpiration: getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
+			JWTSecret:                    getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
+			JWTExpiration:                getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
+			ResendAPIKey:                 getEnv("RESEND_API_KEY", ""),
+			AppBaseURL:                   getEnv("APP_BASE_URL", "http://localhost:3000"),
+			PasswordResetExpiryMinutes:   getEnvAsInt("PASSWORD_RESET_EXPIRY_MINUTES", 30),
+			EmailVerificationExpiryHours: getEnvAsInt("EMAIL_VERIFICATION_EXPIRY_HOURS", 24),
+			EmailFrom:                    getEnv("EMAIL_FROM", "Orbit <onboarding@resend.dev>"),
 		},
 		Orbi: OrbiConfig{
 			Host: getEnv("ORBI_HOST", "localhost"),

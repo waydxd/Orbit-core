@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -49,9 +50,9 @@ func createIndexes(client *mongo.Client) error {
 	// Create index on pending_actions for efficient GetExpiredActions query
 	pendingActionsCollection := db.Collection("pending_actions")
 	_, err := pendingActionsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: map[string]interface{}{
-			"status":     1,
-			"expires_at": 1,
+		Keys: bson.D{
+			{Key: "status", Value: 1},
+			{Key: "expires_at", Value: 1},
 		},
 	})
 	if err != nil {
@@ -60,9 +61,7 @@ func createIndexes(client *mongo.Client) error {
 
 	// Create unique index on action_id
 	_, err = pendingActionsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: map[string]interface{}{
-			"action_id": 1,
-		},
+		Keys:    bson.D{{Key: "action_id", Value: 1}},
 		Options: options.Index().SetUnique(true),
 	})
 	if err != nil {
@@ -72,9 +71,7 @@ func createIndexes(client *mongo.Client) error {
 	// Create index on conversation_id for correlation queries
 	conversationsCollection := db.Collection("conversations")
 	_, err = conversationsCollection.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: map[string]interface{}{
-			"correlation_id": 1,
-		},
+		Keys:    bson.D{{Key: "correlation_id", Value: 1}},
 		Options: options.Index().SetUnique(true),
 	})
 	if err != nil {
