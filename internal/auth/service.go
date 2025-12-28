@@ -116,7 +116,7 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Password == "" || !s.validatePassword(req.Password) {
 		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password does not meet requirements (min 8 chars, must include letters and numbers)"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password does not meet requirements (min 8 chars, must include letters, numbers, and special characters; no spaces)"})
 		return
 	}
 
@@ -426,7 +426,7 @@ func (s *Service) passwordResetConfirm(w http.ResponseWriter, r *http.Request) {
 	// Validate password
 	if req.Password == "" || !s.validatePassword(req.Password) {
 		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password does not meet requirements (min 8 chars, must include letters and numbers)"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password does not meet requirements (min 8 chars, must include letters, numbers, and special characters; no spaces)"})
 		return
 	}
 
@@ -728,6 +728,12 @@ func (s *Service) validateEmail(email string) bool {
 
 // validatePassword enforces a minimal password policy: at least 8 chars, contains letter, number, and special character
 func (s *Service) validatePassword(pw string) bool {
+	// Disallow any whitespace characters
+	for _, r := range pw {
+		if unicode.IsSpace(r) {
+			return false
+		}
+	}
 	if len(pw) < 8 {
 		return false
 	}
@@ -738,14 +744,15 @@ func (s *Service) validatePassword(pw string) bool {
 			hasLetter = true
 		case unicode.IsDigit(r):
 			hasNumber = true
-		case !unicode.IsSpace(r):
-			// Treat any non-letter, non-digit, non-whitespace character as special
+		default:
+			// Any non-letter, non-digit counts as special
 			hasSpecial = true
 		}
 		if hasLetter && hasNumber && hasSpecial {
 			return true
 		}
 	}
+
 	return hasLetter && hasNumber && hasSpecial
 }
 
