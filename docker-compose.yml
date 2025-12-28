@@ -51,12 +51,13 @@ services:
     tty: true
     ports:
       - "50042:50042"
+    env_file: .env
     environment:
-      OPENAI_API_KEY: "638e2a9d26c74b66877c89bb883fd2f4"
-      CALENDAR_SERVICE_ADDR: "orbit-core:50052"
-      OPENAI_MODEL: "gpt-4o-mini"
-      OPENAI_BASE_URL: "https://hkust.azure-api.net/"
-      REDIS_ADDR: "redis:6379"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CALENDAR_SERVICE_ADDR: ${CALENDAR_SERVICE_ADDR:-orbit-core:50052}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://hkust.azure-api.net/}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
     depends_on:
       - redis
     healthcheck:
@@ -75,25 +76,31 @@ services:
     ports:
       - "8080:8080"
       - "50052:50052"
+    env_file: .env
     environment:
-      SERVER_PORT: 8080
-      SERVER_HOST: 0.0.0.0
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: orbit
-      DB_SSLMODE: disable
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ""
-      REDIS_DB: 0
-      JWT_SECRET: change-this-in-production
-      JWT_EXPIRATION_HOURS: 24
-      MONGODB_URI: mongodb://mongo:27017
-      ORBI_HOST: orbit-orbi
-      ORBI_PORT: 50042
-      GRPC_SERVER_PORT: 50052
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      SERVER_HOST: ${SERVER_HOST:-0.0.0.0}
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-orbit}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+      JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017}
+      ORBI_HOST: ${ORBI_HOST:-orbit-orbi}
+      ORBI_PORT: ${ORBI_PORT:-50042}
+      GRPC_SERVER_PORT: ${GRPC_SERVER_PORT:-50052}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      PASSWORD_RESET_EXPIRY_MINUTES: ${PASSWORD_RESET_EXPIRY_MINUTES:-30}
+      EMAIL_VERIFICATION_EXPIRY_HOURS: ${EMAIL_VERIFICATION_EXPIRY_HOURS:-24}
+      EMAIL_FROM: ${EMAIL_FROM:-"Orbit <onboarding@orbitly.qzz.io>"}
     depends_on:
       postgres:
         condition: service_healthy
