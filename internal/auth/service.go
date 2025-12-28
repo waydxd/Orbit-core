@@ -335,15 +335,19 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate email early to avoid unnecessary work
+	// Create a request-scoped context early so we can equalize response timing
+	// for invalid inputs to mitigate timing-based enumeration attacks.
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Validate email; if invalid, perform a short, context-aware delay so the
+	// response timing is closer to the path that does a DB lookup. Then return
+	// the same generic success message to avoid email enumeration.
 	if req.Email == "" || !s.validateEmail(req.Email) {
-		// Always return success message to avoid email enumeration
+		s.equalizeResponseDelay(ctx)
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "if the email exists, a reset link has been sent"})
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
 
 	// Always return success to prevent email enumeration
 	defer func() {
@@ -761,7 +765,7 @@ func (s *Service) validatePassword(pw string) bool {
 // slower paths (e.g., DB lookups). Duration is intentionally small to avoid
 // creating a DoS amplification vector but large enough to make timing attacks harder.
 func (s *Service) equalizeResponseDelay(ctx context.Context) {
-	const delay = 120 * time.Millisecond
+	const delay = 300 * time.Millisecond
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
