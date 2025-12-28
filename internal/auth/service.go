@@ -13,9 +13,11 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/mail"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -49,12 +51,6 @@ func NewService(cfg *config.Config, log *logger.Logger, repo Repository) *Servic
 		DB:       cfg.Redis.DB,
 	})
 
-	// Validate Redis connectivity at startup to avoid silent failures later.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		log.Errorf("failed to connect to Redis at %s: %v", cfg.Redis.RedisAddr(), err)
-	}
 	var resendClient *resend.Client
 	if cfg.Auth.ResendAPIKey != "" {
 		resendClient = resend.NewClient(cfg.Auth.ResendAPIKey)
@@ -104,6 +100,18 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		s.logger.Error("invalid register request", "err", err)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		return
+	}
+
+	// Input validation
+	if req.Email == "" || !s.validateEmail(req.Email) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid email"})
+		return
+	}
+	if req.Password == "" || !s.validatePassword(req.Password) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password does not meet requirements (min 8 chars, must include letters and numbers)"})
 		return
 	}
 
@@ -191,6 +199,18 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		s.logger.Error("invalid login request", "err", err)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		return
+	}
+
+	// Input validation
+	if req.Email == "" || !s.validateEmail(req.Email) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid email"})
+		return
+	}
+	if req.Password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password required"})
 		return
 	}
 
@@ -310,6 +330,13 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate email early to avoid unnecessary work
+	if req.Email == "" || !s.validateEmail(req.Email) {
+		// Always return success message to avoid email enumeration
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "if the email exists, a reset link has been sent"})
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
@@ -367,6 +394,13 @@ func (s *Service) passwordResetConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate password
+	if req.Password == "" || !s.validatePassword(req.Password) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password does not meet requirements (min 8 chars, must include letters and numbers)"})
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
@@ -385,9 +419,6 @@ func (s *Service) passwordResetConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete token (single-use)
-	s.redisClient.Del(ctx, redisKey)
-
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
 		s.logger.Error("user not found", "id", userID, "err", err)
@@ -404,6 +435,11 @@ func (s *Service) passwordResetConfirm(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to update password"})
 		return
+	}
+
+	// Delete token (single-use) only after successful DB update. Log but do not fail
+	if err := s.redisClient.Del(ctx, redisKey).Err(); err != nil {
+		s.logger.Error("failed to delete password reset token from redis", "err", err, "key", redisKey)
 	}
 
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": "password reset successfully"})
@@ -438,9 +474,6 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete token (single-use)
-	s.redisClient.Del(ctx, redisKey)
-
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
 		s.logger.Error("user not found", "id", userID, "err", err)
@@ -456,6 +489,11 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to verify email"})
 		return
+	}
+
+	// Delete token (single-use) only after successful DB update. Log but do not fail
+	if err := s.redisClient.Del(ctx, redisKey).Err(); err != nil {
+		s.logger.Error("failed to delete email verification token from redis", "err", err, "key", redisKey)
 	}
 
 	// Redirect to frontend success page or return JSON
@@ -524,7 +562,7 @@ func (s *Service) verifyPassword(password, hashedPassword string) bool {
 	return true
 }
 
-// hashToken creates a SHA-256 hash of the token for storage
+// hashToken creates an SHA-256 hash of the token for storage
 func (s *Service) hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token + s.config.Auth.JWTSecret))
 	return fmt.Sprintf("%x", sum)
@@ -632,4 +670,32 @@ func (s *Service) renderHTMLTemplate(path string, data map[string]interface{}) (
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// validateEmail verifies email format using net/mail
+func (s *Service) validateEmail(email string) bool {
+	if strings.TrimSpace(email) == "" {
+		return false
+	}
+	_, err := mail.ParseAddress(email)
+	return err == nil
+}
+
+// validatePassword enforces a minimal password policy: at least 8 chars, contains letter and number
+func (s *Service) validatePassword(pw string) bool {
+	if len(pw) < 8 {
+		return false
+	}
+	var hasLetter, hasNumber bool
+	for _, r := range pw {
+		if unicode.IsLetter(r) {
+			hasLetter = true
+		} else if unicode.IsDigit(r) {
+			hasNumber = true
+		}
+		if hasLetter && hasNumber {
+			return true
+		}
+	}
+	return false
 }
