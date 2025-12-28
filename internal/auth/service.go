@@ -519,11 +519,9 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("failed to delete email verification token from redis", "err", err, "key", redisKey)
 	}
 
-	// Redirect to frontend success page or return JSON
-	// For now, return JSON
-	_ = json.NewEncoder(w).Encode(map[string]string{"message": "email verified successfully"})
+	// Redirect to frontend success page after successful verification
+	http.Redirect(w, r, "/email-verified", http.StatusSeeOther)
 }
-
 // generateJWT generates a JWT token for a user
 func (s *Service) generateJWT(email, userID string) (string, error) {
 	claims := jwt.MapClaims{
