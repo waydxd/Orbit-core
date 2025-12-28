@@ -534,7 +534,8 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Redirect to frontend success page after successful verification
-	http.Redirect(w, r, "/email-verified", http.StatusSeeOther)
+	redirectURL := strings.TrimRight(s.config.Auth.AppBaseURL, "/") + "/email-verified"
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
 
 // Helper functions (password hashing, token helpers, email rendering/sending,
