@@ -438,6 +438,10 @@ func (s *Service) passwordResetConfirm(w http.ResponseWriter, r *http.Request) {
 
 	userID, err := s.redisClient.Get(ctx, redisKey).Result()
 	if errors.Is(err, redis.Nil) {
+		// Mitigate timing attacks by performing a short, consistent delay so an
+		// attacker can't distinguish between an invalid token and other failures
+		// based on response time.
+		s.equalizeResponseDelay(ctx)
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired token"})
 		return
@@ -493,6 +497,8 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
 
 	userID, err := s.redisClient.Get(ctx, redisKey).Result()
 	if errors.Is(err, redis.Nil) {
+		// Mitigate timing attacks similarly for email verification
+		s.equalizeResponseDelay(ctx)
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired token"})
 		return
@@ -508,6 +514,17 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("user not found", "id", userID, "err", err)
 		w.WriteHeader(http.StatusNotFound)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user not found"})
+		return
+	}
+
+	// Idempotency: if email already verified, avoid unnecessary DB update.
+	if user.EmailVerified {
+		// Token is single-use; delete it now to avoid reuse. Log any deletion error.
+		if err := s.redisClient.Del(ctx, redisKey).Err(); err != nil {
+			s.logger.Error("failed to delete email verification token from redis (idempotent path)", "err", err, "key", redisKey)
+		}
+		// Redirect to frontend success page (no DB update required)
+		http.Redirect(w, r, "/email-verified", http.StatusSeeOther)
 		return
 	}
 
@@ -528,6 +545,7 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
 	// Redirect to frontend success page after successful verification
 	http.Redirect(w, r, "/email-verified", http.StatusSeeOther)
 }
+
 // generateJWT generates a JWT token for a user
 func (s *Service) generateJWT(email, userID string) (string, error) {
 	claims := jwt.MapClaims{
@@ -729,4 +747,18 @@ func (s *Service) validatePassword(pw string) bool {
 		}
 	}
 	return hasLetter && hasNumber && hasSpecial
+}
+
+// equalizeResponseDelay performs a short, context-aware delay to reduce timing
+// differences between fast-failing paths (e.g., missing Redis token) and
+// slower paths (e.g., DB lookups). Duration is intentionally small to avoid
+// creating a DoS amplification vector but large enough to make timing attacks harder.
+func (s *Service) equalizeResponseDelay(ctx context.Context) {
+	const delay = 120 * time.Millisecond
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
 }
