@@ -681,21 +681,25 @@ func (s *Service) validateEmail(email string) bool {
 	return err == nil
 }
 
-// validatePassword enforces a minimal password policy: at least 8 chars, contains letter and number
+// validatePassword enforces a minimal password policy: at least 8 chars, contains letter, number, and special character
 func (s *Service) validatePassword(pw string) bool {
 	if len(pw) < 8 {
 		return false
 	}
-	var hasLetter, hasNumber bool
+	var hasLetter, hasNumber, hasSpecial bool
 	for _, r := range pw {
-		if unicode.IsLetter(r) {
+		switch {
+		case unicode.IsLetter(r):
 			hasLetter = true
-		} else if unicode.IsDigit(r) {
+		case unicode.IsDigit(r):
 			hasNumber = true
+		case !unicode.IsSpace(r):
+			// Treat any non-letter, non-digit, non-whitespace character as special
+			hasSpecial = true
 		}
-		if hasLetter && hasNumber {
+		if hasLetter && hasNumber && hasSpecial {
 			return true
 		}
 	}
-	return false
+	return hasLetter && hasNumber && hasSpecial
 }
