@@ -649,7 +649,7 @@ func (s *Service) sendEmail(to, subject, templateID string, data map[string]inte
 
 // renderHTMLTemplate loads an HTML file and executes it as a Go template with provided data
 func (s *Service) renderHTMLTemplate(path string, data map[string]interface{}) (string, error) {
-	// sanitize and restrict to embedded templates/ templates
+	// sanitize and restrict to embedded templates/
 	clean := filepath.Clean(path)
 	if strings.Contains(clean, "..") || !strings.HasPrefix(clean, "templates/") {
 		return "", fmt.Errorf("invalid template path")
