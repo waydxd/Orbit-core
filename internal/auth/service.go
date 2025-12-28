@@ -527,8 +527,9 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
 		if err := s.redisClient.Del(ctx, redisKey).Err(); err != nil {
 			s.logger.Error("failed to delete email verification token from redis (idempotent path)", "err", err, "key", redisKey)
 		}
-		// Redirect to frontend success page (no DB update required)
-		http.Redirect(w, r, "/email-verified", http.StatusSeeOther)
+		// Redirect to frontend success page (no DB update required). Use APP_BASE_URL for consistency with verification link.
+		redirectURL := strings.TrimRight(config.Get().AppBaseURL, "/") + "/email-verified"
+		http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 		return
 	}
 
