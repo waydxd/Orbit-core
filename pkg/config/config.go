@@ -56,7 +56,8 @@ type AuthConfig struct {
 	AppBaseURL                   string
 	PasswordResetExpiryMinutes   int
 	EmailVerificationExpiryHours int
-	EmailFrom                    string // From address for outgoing emails, e.g. "Orbit <onboarding@resend.dev>"
+	// EmailFrom is the From address for outgoing emails, e.g. "Orbit <onboarding@resend.dev>"
+	EmailFrom string
 }
 
 // OrbiConfig holds Orbi agent gRPC connection configuration
