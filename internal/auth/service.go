@@ -518,7 +518,7 @@ func (s *Service) verifyPassword(password, hashedPassword string) bool {
 	return true
 }
 
-// hashToken creates an SHA-256 hash of the token for storage
+// hashToken creates a SHA-256 hash of the token for storage
 func (s *Service) hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token + s.config.Auth.JWTSecret))
 	return fmt.Sprintf("%x", sum)
