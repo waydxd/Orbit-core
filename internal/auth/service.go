@@ -326,6 +326,22 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
+	// Ensure Redis is available before proceeding. If Redis is nil or unavailable
+	// we should surface service-unavailable so the client knows the reset cannot
+	// be performed (avoids silently claiming success while no token/email will be sent).
+	if s.redisClient == nil {
+		s.logger.Error("redis client is not initialized")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "service unavailable"})
+		return
+	}
+	if err := s.redisClient.Ping(ctx).Err(); err != nil {
+		s.logger.Error("redis unavailable", "err", err)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "service unavailable"})
+		return
+	}
+
 	// Validate email; if invalid, perform a short, context-aware delay so the
 	// response timing is closer to the path that does a DB lookup. Then return
 	// the same generic success message to avoid email enumeration.
@@ -340,25 +356,21 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "if the email exists, a reset link has been sent"})
 	}()
 
-	user, err := s.repo.GetUserByEmail(ctx, req.Email)
-	if err != nil {
-		// User not found, do nothing (or log debug)
-		return
-	}
-
-	// Basic per-email rate limiting for password reset requests
+	// Basic per-email rate limiting for password reset requests — do this before
+	// the DB lookup so attackers can't distinguish existing vs non-existing
+	// emails by timing whether the rate limiter was applied.
 	rateLimitKey := fmt.Sprintf("auth:rl:password_reset:%s", strings.ToLower(req.Email))
 	const maxPasswordResetRequests = int64(5)
 	const passwordResetRateWindow = time.Hour
 
-	passwordResetAttempts, rateLimitErr := s.redisClient.Incr(ctx, rateLimitKey).Result()
-	if rateLimitErr != nil {
+	reqCount, rlErr := s.redisClient.Incr(ctx, rateLimitKey).Result()
+	if rlErr != nil {
 		// If we cannot reliably track rate limits, avoid sending emails to prevent abuse
-		s.logger.Error("failed to apply password reset rate limit", "err", rateLimitErr)
+		s.logger.Error("failed to apply password reset rate limit", "err", rlErr)
 		return
 	}
 
-	if passwordResetAttempts == 1 {
+	if reqCount == 1 {
 		// Set the window only on first increment
 		if err := s.redisClient.Expire(ctx, rateLimitKey, passwordResetRateWindow).Err(); err != nil {
 			s.logger.Error("failed to set password reset rate limit expiry", "err", err)
@@ -366,11 +378,18 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if passwordResetAttempts > maxPasswordResetRequests {
+	if reqCount > maxPasswordResetRequests {
 		// Rate limit exceeded; do not generate a token or send another email
-		s.logger.Warn("password reset rate limit exceeded", "email", req.Email, "count", passwordResetAttempts)
+		s.logger.Warn("password reset rate limit exceeded", "email", req.Email, "count", reqCount)
 		return
 	}
+
+	user, err := s.repo.GetUserByEmail(ctx, req.Email)
+	if err != nil {
+		// User not found, do nothing (or log debug)
+		return
+	}
+
 	// Generate secure random token
 	token, err := s.generateSecureToken()
 	if err != nil {
@@ -447,6 +466,13 @@ func (s *Service) passwordResetConfirm(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("user not found", "id", userID, "err", err)
 		w.WriteHeader(http.StatusNotFound)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user not found"})
+		return
+	}
+
+	// Security: prevent reusing the same password
+	if s.verifyPassword(req.Password, user.PasswordHash) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "new password must be different from the old password"})
 		return
 	}
 
