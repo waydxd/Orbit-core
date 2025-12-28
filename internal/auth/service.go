@@ -400,8 +400,9 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 	// Send reset email
 	resetLink := fmt.Sprintf("%s/reset-password?token=%s", s.config.Auth.AppBaseURL, token)
 	if err := s.sendEmail(user.Email, "Password Reset Request", "password-reset", map[string]interface{}{
-		"reset_link": resetLink,
-		"first_name": user.FirstName,
+		"reset_link":         resetLink,
+		"first_name":         user.FirstName,
+		"support_center_url": s.config.Auth.AppBaseURL,
 	}); err != nil {
 		s.logger.Error("failed to send password reset email", "err", err)
 	}
