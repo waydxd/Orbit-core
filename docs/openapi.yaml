@@ -199,7 +199,7 @@ paths:
               properties:
                 token:
                   type: string
-                  example: xxxxxxx
+                  example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.reset-token
                 password:
                   type: string
                   format: password
