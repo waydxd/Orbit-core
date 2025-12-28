@@ -203,7 +203,7 @@ paths:
                 password:
                   type: string
                   format: password
-                  example: newsecurepassword123
+                  example: Newsecurepassword123!
       responses:
         '200':
           description: Password reset successfully
