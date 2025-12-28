@@ -351,8 +351,31 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rate limit check (optional, skipping for brevity as per plan instructions to focus on core logic, but good to have)
+	// Basic per-email rate limiting for password reset requests
+	rateLimitKey := fmt.Sprintf("auth:rl:password_reset:%s", strings.ToLower(req.Email))
+	const maxPasswordResetRequests = int64(5)
+	const passwordResetRateWindow = time.Hour
 
+	reqCount, rlErr := s.redisClient.Incr(ctx, rateLimitKey).Result()
+	if rlErr != nil {
+		// If we cannot reliably track rate limits, avoid sending emails to prevent abuse
+		s.logger.Error("failed to apply password reset rate limit", "err", rlErr)
+		return
+	}
+
+	if reqCount == 1 {
+		// Set the window only on first increment
+		if err := s.redisClient.Expire(ctx, rateLimitKey, passwordResetRateWindow).Err(); err != nil {
+			s.logger.Error("failed to set password reset rate limit expiry", "err", err)
+			return
+		}
+	}
+
+	if reqCount > maxPasswordResetRequests {
+		// Rate limit exceeded; do not generate a token or send another email
+		s.logger.Warn("password reset rate limit exceeded", "email", req.Email, "count", reqCount)
+		return
+	}
 	// Generate secure random token
 	token, err := s.generateSecureToken()
 	if err != nil {
