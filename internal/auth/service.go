@@ -51,6 +51,11 @@ func NewService(cfg *config.Config, log *logger.Logger, repo Repository) *Servic
 		DB:       cfg.Redis.DB,
 	})
 
+	// Validate Redis connectivity at startup to avoid runtime failures in
+	// email verification or password reset flows.
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		panic(fmt.Sprintf("auth service: failed to connect to Redis at %s: %v", cfg.Redis.RedisAddr(), err))
+	}
 	var resendClient *resend.Client
 	if cfg.Auth.ResendAPIKey != "" {
 		resendClient = resend.NewClient(cfg.Auth.ResendAPIKey)
