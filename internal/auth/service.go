@@ -730,7 +730,7 @@ func (s *Service) validateEmail(email string) bool {
 	return err == nil
 }
 
-// validatePassword enforces a minimal password policy: at least 8 chars, contains letter, number, and special character
+// validatePassword enforces a minimal password policy: at least 8 chars, and must contain at least one letter, one number, and one special character (all three required)
 func (s *Service) validatePassword(pw string) bool {
 	// Disallow any whitespace characters
 	for _, r := range pw {
