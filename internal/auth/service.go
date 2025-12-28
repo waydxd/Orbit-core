@@ -361,10 +361,10 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 	const maxPasswordResetRequests = int64(5)
 	const passwordResetRateWindow = time.Hour
 
-	reqCount, rlErr := s.redisClient.Incr(ctx, rateLimitKey).Result()
-	if rlErr != nil {
+	reqCount, rateLimitErr := s.redisClient.Incr(ctx, rateLimitKey).Result()
+	if rateLimitErr != nil {
 		// If we cannot reliably track rate limits, avoid sending emails to prevent abuse
-		s.logger.Error("failed to apply password reset rate limit", "err", rlErr)
+		s.logger.Error("failed to apply password reset rate limit", "err", rateLimitErr)
 		return
 	}
 
