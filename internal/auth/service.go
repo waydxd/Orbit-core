@@ -143,7 +143,7 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 		if err := s.redisClient.Set(ctx, redisKey, user.ID, ttl).Err(); err != nil {
 			s.logger.Error("failed to store verification token in redis", "err", err)
 		} else {
-			verifyLink := fmt.Sprintf("%s/auth/verify-email?token=%s", s.config.Auth.AppBaseURL, verifyToken)
+			verifyLink := fmt.Sprintf("%s/api/v1/auth/verify-email?token=%s", s.config.Auth.AppBaseURL, verifyToken)
 			if err := s.sendEmail(user.Email, "Verify your email", "email-verification", map[string]interface{}{
 				"verify_link": verifyLink,
 				"first_name":  user.FirstName,
@@ -560,7 +560,8 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Redirect to frontend success page after successful verification
-	http.Redirect(w, r, "/email-verified", http.StatusSeeOther)
+	redirectURL := strings.TrimRight(s.config.Auth.AppBaseURL, "/") + "/email-verified"
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
 
 // Helper functions (password hashing, token helpers, email rendering/sending,
