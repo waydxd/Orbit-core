@@ -49,6 +49,12 @@ func NewService(cfg *config.Config, log *logger.Logger, repo Repository) *Servic
 		DB:       cfg.Redis.DB,
 	})
 
+	// Validate Redis connectivity at startup to avoid silent failures later.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Errorf("failed to connect to Redis at %s: %v", cfg.Redis.RedisAddr(), err)
+	}
 	var resendClient *resend.Client
 	if cfg.Auth.ResendAPIKey != "" {
 		resendClient = resend.NewClient(cfg.Auth.ResendAPIKey)
