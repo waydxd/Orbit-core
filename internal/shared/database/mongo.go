@@ -2,7 +2,9 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -91,4 +93,50 @@ func DisconnectMongoDB() {
 			log.Printf("Failed to disconnect from MongoDB: %v", err)
 		}
 	}
+}
+
+// BuildMongoURI constructs a MongoDB URI from provided components. It will
+// prefer an explicit MONGODB_URI environment variable when present (and not the default placeholder).
+// Otherwise, if user and pass are provided, it will assemble mongodb://user:pass@host/db.
+// If user/pass are empty it will attempt to use MONGO_USER/MONGO_PASSWORD env vars.
+// Final fallback is the explicit MONGODB_URI or default mongodb://localhost:27017/orbit.
+func BuildMongoURI(user, pass, host, dbname string) string {
+	defaultURI := "mongodb://localhost:27017/orbit"
+	uri := os.Getenv("MONGODB_URI")
+	if uri != "" && uri != defaultURI {
+		return uri
+	}
+
+	// If caller provided host/dbname empty, allow env fallbacks
+	if host == "" {
+		host = os.Getenv("MONGODB_HOST")
+		if host == "" {
+			host = "mongo:27017"
+		}
+	}
+	if dbname == "" {
+		dbname = os.Getenv("MONGODB_DB")
+		if dbname == "" {
+			dbname = "orbit"
+		}
+	}
+
+	// If we have explicit user/pass passed in use them
+	if user != "" && pass != "" {
+		return fmt.Sprintf("mongodb://%s:%s@%s/%s", user, pass, host, dbname)
+	}
+
+	// Fallback to environment variables for user/pass
+	envUser := os.Getenv("MONGO_USER")
+	envPass := os.Getenv("MONGO_PASSWORD")
+	if envUser != "" && envPass != "" {
+		return fmt.Sprintf("mongodb://%s:%s@%s/%s", envUser, envPass, host, dbname)
+	}
+
+	// If we had an explicit URI (even the default), return it as last resort
+	if uri != "" {
+		return uri
+	}
+
+	return defaultURI
 }

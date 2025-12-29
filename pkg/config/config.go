@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -38,7 +39,10 @@ type DatabaseConfig struct {
 
 // MongoDBConfig holds MongoDB configuration
 type MongoDBConfig struct {
-	URI string
+	User     string
+	Password string
+	Host     string
+	DBName   string
 }
 
 // RedisConfig holds Redis configuration for rate limiting
@@ -114,7 +118,10 @@ func Load() (*Config, error) {
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
 		MongoDB: MongoDBConfig{
-			URI: getMongoURI(),
+			User:     getEnv("MONGO_USER", ""),
+			Password: getEnv("MONGO_PASSWORD", ""),
+			Host:     getEnv("MONGODB_HOST", "mongo:27017"),
+			DBName:   getEnv("MONGODB_DB", "orbit"),
 		},
 		Redis: RedisConfig{
 			Host:     getEnv("REDIS_HOST", "localhost"),
@@ -141,59 +148,6 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
-}
-
-// getMongoURI builds the MongoDB URI, preferring secrets for user/password when available.
-// Order of preference:
-// 1. Explicit MONGODB_URI environment variable (unless it's the default local placeholder)
-// 2. Docker secrets for MONGO_USER and MONGO_PASSWORD (via readSecret)
-// 3. Environment variables MONGO_USER and MONGO_PASSWORD
-// 4. The default: mongodb://localhost:27017/orbit
-func getMongoURI() string {
-	defaultURI := "mongodb://localhost:27017/orbit"
-	uri := os.Getenv("MONGODB_URI")
-	if uri != "" && uri != defaultURI {
-		return uri
-	}
-
-	// Try reading secrets directly
-	var user, pass string
-	if secretName, ok := secretEnvMap["MONGO_USER"]; ok {
-		if s, err := readSecret(secretName); err == nil && s != "" {
-			user = s
-		}
-	}
-	if secretName, ok := secretEnvMap["MONGO_PASSWORD"]; ok {
-		if s, err := readSecret(secretName); err == nil && s != "" {
-			pass = s
-		}
-	}
-
-	if user != "" && pass != "" {
-		mongoHost := os.Getenv("MONGODB_HOST")
-		if mongoHost == "" {
-			mongoHost = "mongo:27017"
-		}
-		return fmt.Sprintf("mongodb://%s:%s@%s/orbit", user, pass, mongoHost)
-	}
-
-	// Fallback to environment variables (non-secret)
-	envUser := os.Getenv("MONGO_USER")
-	envPass := os.Getenv("MONGO_PASSWORD")
-	if envUser != "" && envPass != "" {
-		mongoHost := os.Getenv("MONGODB_HOST")
-		if mongoHost == "" {
-			mongoHost = "mongo:27017"
-		}
-		return fmt.Sprintf("mongodb://%s:%s@%s/orbit", envUser, envPass, mongoHost)
-	}
-
-	// If we had an explicit URI (even the default), return it as last resort
-	if uri != "" {
-		return uri
-	}
-
-	return defaultURI
 }
 
 // getEnv gets an environment variable or returns a default value. For certain sensitive
@@ -231,18 +185,24 @@ func getEnvAsInt(key string, defaultValue int) int {
 }
 
 // readSecret attempts to read a secret from common docker secret locations.
-// It tries the following (in order):
+// It validates the secret base name to prevent file inclusion attacks, then tries:
 //   - /run/secrets/<name>
 //   - ./secrets/<name>.txt (local-development file included in repo)
 //   - ./secrets/<name> (fallback)
 func readSecret(name string) (string, error) {
+	// allow only safe characters in secret name
+	validName := regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+	if !validName.MatchString(name) {
+		return "", fmt.Errorf("invalid secret name")
+	}
+
 	paths := []string{
 		"/run/secrets/" + name,
 		"./secrets/" + name + ".txt",
 		"./secrets/" + name,
 	}
 	for _, p := range paths {
-		b, err := os.ReadFile(p)
+		b, err := os.ReadFile(p) //nolint:gosec
 		if err != nil {
 			continue
 		}
