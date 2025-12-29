@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -35,8 +36,8 @@ func NewSQLRepository(db *database.DB) Repository {
 // CreateUser inserts a new user into the database
 func (r *SQLRepository) CreateUser(ctx context.Context, user *models.User) error {
 	query := `
-		INSERT INTO users (id, email, password_hash, first_name, last_name, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO users (id, email, password_hash, first_name, last_name, email_verified, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
 	_, err := r.db.ExecContext(ctx, query,
 		user.ID,
@@ -44,6 +45,7 @@ func (r *SQLRepository) CreateUser(ctx context.Context, user *models.User) error
 		user.PasswordHash,
 		user.FirstName,
 		user.LastName,
+		user.EmailVerified,
 		user.CreatedAt,
 		user.UpdatedAt,
 	)
@@ -56,7 +58,7 @@ func (r *SQLRepository) CreateUser(ctx context.Context, user *models.User) error
 // GetUserByEmail retrieves a user by email
 func (r *SQLRepository) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `
-		SELECT id, email, password_hash, first_name, last_name, created_at, updated_at
+		SELECT id, email, password_hash, first_name, last_name, email_verified, created_at, updated_at
 		FROM users WHERE email = $1
 	`
 	user := &models.User{}
@@ -66,11 +68,12 @@ func (r *SQLRepository) GetUserByEmail(ctx context.Context, email string) (*mode
 		&user.PasswordHash,
 		&user.FirstName,
 		&user.LastName,
+		&user.EmailVerified,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("user not found")
 		}
 		return nil, fmt.Errorf("failed to get user by email: %w", err)
@@ -81,7 +84,7 @@ func (r *SQLRepository) GetUserByEmail(ctx context.Context, email string) (*mode
 // GetUserByID retrieves a user by ID
 func (r *SQLRepository) GetUserByID(ctx context.Context, id string) (*models.User, error) {
 	query := `
-		SELECT id, email, password_hash, first_name, last_name, created_at, updated_at
+		SELECT id, email, password_hash, first_name, last_name, email_verified, created_at, updated_at
 		FROM users WHERE id = $1
 	`
 	user := &models.User{}
@@ -91,11 +94,12 @@ func (r *SQLRepository) GetUserByID(ctx context.Context, id string) (*models.Use
 		&user.PasswordHash,
 		&user.FirstName,
 		&user.LastName,
+		&user.EmailVerified,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("user not found")
 		}
 		return nil, fmt.Errorf("failed to get user by id: %w", err)
@@ -107,14 +111,15 @@ func (r *SQLRepository) GetUserByID(ctx context.Context, id string) (*models.Use
 func (r *SQLRepository) UpdateUser(ctx context.Context, user *models.User) error {
 	query := `
 		UPDATE users
-		SET email = $1, password_hash = $2, first_name = $3, last_name = $4, updated_at = $5
-		WHERE id = $6
+		SET email = $1, password_hash = $2, first_name = $3, last_name = $4, email_verified = $5, updated_at = $6
+		WHERE id = $7
 	`
 	_, err := r.db.ExecContext(ctx, query,
 		user.Email,
 		user.PasswordHash,
 		user.FirstName,
 		user.LastName,
+		user.EmailVerified,
 		time.Now(),
 		user.ID,
 	)
@@ -164,7 +169,7 @@ func (r *SQLRepository) GetSessionByToken(ctx context.Context, tokenHash string)
 		&session.CreatedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("session not found or expired")
 		}
 		return nil, fmt.Errorf("failed to get session: %w", err)

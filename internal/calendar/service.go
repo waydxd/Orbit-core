@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"github.com/waydxd/Orbit-core/internal/hashtag"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/logger"
@@ -20,21 +18,20 @@ import (
 // Service represents the Calendar & Task Service
 type Service struct {
 	pb.UnimplementedCalendarDataServiceServer
-	config         *config.Config
-	logger         *logger.Logger
-	eventRepo      EventRepository
-	taskRepo       TaskRepository
-	hashtagService *hashtag.Service
+	pb.UnimplementedCalendarServiceServer
+	config    *config.Config
+	logger    *logger.Logger
+	eventRepo EventRepository
+	taskRepo  TaskRepository
 }
 
 // NewService creates a new Calendar Service
-func NewService(cfg *config.Config, log *logger.Logger, eventRepo EventRepository, taskRepo TaskRepository, hashtagService *hashtag.Service) *Service {
+func NewService(cfg *config.Config, log *logger.Logger, eventRepo EventRepository, taskRepo TaskRepository) *Service {
 	return &Service{
-		config:         cfg,
-		logger:         log,
-		eventRepo:      eventRepo,
-		taskRepo:       taskRepo,
-		hashtagService: hashtagService,
+		config:    cfg,
+		logger:    log,
+		eventRepo: eventRepo,
+		taskRepo:  taskRepo,
 	}
 }
 
@@ -42,16 +39,12 @@ func NewService(cfg *config.Config, log *logger.Logger, eventRepo EventRepositor
 func (s *Service) RegisterRoutes(router *mux.Router) {
 	calendarRouter := router.PathPrefix("/calendar").Subrouter()
 
-	// Hashtag suggestions endpoint
-	calendarRouter.HandleFunc("/hashtag-suggestions", s.getHashtagSuggestions).Methods("GET")
-
 	// Event routes
 	calendarRouter.HandleFunc("/events", s.listEvents).Methods("GET")
 	calendarRouter.HandleFunc("/events", s.createEvent).Methods("POST")
 	calendarRouter.HandleFunc("/events/{id}", s.getEvent).Methods("GET")
 	calendarRouter.HandleFunc("/events/{id}", s.updateEvent).Methods("PUT")
 	calendarRouter.HandleFunc("/events/{id}", s.deleteEvent).Methods("DELETE")
-	calendarRouter.HandleFunc("/events/{id}/predict-hashtags", s.predictHashtagsForEvent).Methods("POST")
 
 	// Task routes
 	calendarRouter.HandleFunc("/tasks", s.listTasks).Methods("GET")
@@ -59,140 +52,6 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	calendarRouter.HandleFunc("/tasks/{id}", s.getTask).Methods("GET")
 	calendarRouter.HandleFunc("/tasks/{id}", s.updateTask).Methods("PUT")
 	calendarRouter.HandleFunc("/tasks/{id}", s.deleteTask).Methods("DELETE")
-}
-
-// ===== Hashtag Handler =====
-
-// getHashtagSuggestions handles GET /calendar/hashtag-suggestions
-func (s *Service) getHashtagSuggestions(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	eventText := r.URL.Query().Get("eventText")
-	if eventText == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "eventText parameter is required"}); err != nil {
-			s.logger.Error("failed to write getHashtagSuggestions error response", "error", err)
-			return
-		}
-		return
-	}
-
-	useBart := r.URL.Query().Get("useBart") == "true"
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	// Check if hashtag service is available
-	if s.hashtagService == nil || !s.hashtagService.IsServiceAvailable() {
-		s.logger.Warn("Hashtag service not available, returning empty suggestions")
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{
-			"suggested": []string{},
-			"top5":      []interface{}{},
-		}); err != nil {
-			s.logger.Error("failed to write empty suggestions response", "error", err)
-		}
-		return
-	}
-
-	// Get suggestions
-	suggestions, err := s.hashtagService.GetSuggestions(ctx, eventText, useBart)
-	if err != nil {
-		s.logger.Error("failed to get hashtag suggestions", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to get suggestions"}); err != nil {
-			s.logger.Error("failed to write getHashtagSuggestions error response", "error", err)
-			return
-		}
-		return
-	}
-
-	// Return JSON response
-	if err := json.NewEncoder(w).Encode(suggestions); err != nil {
-		s.logger.Error("failed to write getHashtagSuggestions response", "error", err)
-		return
-	}
-}
-
-// predictHashtagsForEvent handles POST /calendar/events/{id}/predict-hashtags
-func (s *Service) predictHashtagsForEvent(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	eventID := mux.Vars(r)["id"]
-	if eventID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "event ID is required"}); err != nil {
-			s.logger.Error("failed to write predictHashtagsForEvent error response", "error", err)
-			return
-		}
-		return
-	}
-
-	// Parse request body for optional parameters
-	var req struct {
-		UseBart   *bool    `json:"use_bart"`
-		Threshold *float64 `json:"threshold"`
-	}
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
-	}
-
-	useBart := false
-	if req.UseBart != nil {
-		useBart = *req.UseBart
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	// Get the event
-	event, err := s.eventRepo.GetEventByID(ctx, eventID)
-	if err != nil {
-		s.logger.Error("failed to get event", "error", err, "event_id", eventID)
-		w.WriteHeader(http.StatusNotFound)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "event not found"}); err != nil {
-			s.logger.Error("failed to write predictHashtagsForEvent error response", "error", err)
-			return
-		}
-		return
-	}
-
-	// Build event text from title and description
-	eventText := event.Title
-	if event.Description != "" {
-		eventText += " " + event.Description
-	}
-
-	// Check if hashtag service is available
-	if s.hashtagService == nil {
-		s.logger.Warn("Hashtag service not available, returning empty suggestions")
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{
-			"suggested": []string{},
-			"top_5":     []interface{}{},
-		}); err != nil {
-			s.logger.Error("failed to write empty suggestions response", "error", err)
-		}
-		return
-	}
-
-	// Get suggestions
-	suggestions, err := s.hashtagService.GetSuggestions(ctx, eventText, useBart)
-	if err != nil {
-		s.logger.Error("failed to get hashtag suggestions", "error", err)
-		// Return empty suggestions instead of error (graceful degradation)
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{
-			"suggested": []string{},
-			"top_5":     []interface{}{},
-		}); err != nil {
-			s.logger.Error("failed to write empty suggestions response", "error", err)
-		}
-		return
-	}
-
-	// Return JSON response
-	if err := json.NewEncoder(w).Encode(suggestions); err != nil {
-		s.logger.Error("failed to write predictHashtagsForEvent response", "error", err)
-		return
-	}
 }
 
 // ===== Event HTTP Handlers =====
@@ -253,13 +112,12 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var req struct {
-		UserID      string   `json:"user_id"`
-		Title       string   `json:"title"`
-		Description string   `json:"description"`
-		StartTime   string   `json:"start_time"`
-		EndTime     string   `json:"end_time"`
-		Location    string   `json:"location"`
-		Hashtags    []string `json:"hashtags"`
+		UserID      string `json:"user_id"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		StartTime   string `json:"start_time"`
+		EndTime     string `json:"end_time"`
+		Location    string `json:"location"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -299,7 +157,6 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 		StartTime:   startTime,
 		EndTime:     endTime,
 		Location:    req.Location,
-		Hashtags:    req.Hashtags,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
@@ -315,14 +172,6 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		return
-	}
-
-	// Record hashtag selection for ML improvement (async, non-blocking)
-	if s.hashtagService != nil && len(req.Hashtags) > 0 {
-		// Parse user ID to int32
-		if userIDInt, err := strconv.ParseInt(req.UserID, 10, 32); err == nil {
-			s.hashtagService.RecordSelection(int32(userIDInt), req.Title, req.Hashtags)
-		}
 	}
 
 	w.WriteHeader(http.StatusCreated)
@@ -364,12 +213,11 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 
 	var req struct {
-		Title       string   `json:"title"`
-		Description string   `json:"description"`
-		StartTime   string   `json:"start_time"`
-		EndTime     string   `json:"end_time"`
-		Location    string   `json:"location"`
-		Hashtags    []string `json:"hashtags"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		StartTime   string `json:"start_time"`
+		EndTime     string `json:"end_time"`
+		Location    string `json:"location"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -413,9 +261,6 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 			event.EndTime = t
 		}
 	}
-	if req.Hashtags != nil {
-		event.Hashtags = req.Hashtags
-	}
 
 	if err := s.eventRepo.UpdateEvent(ctx, event); err != nil {
 		s.logger.Error("failed to update event", "err", err)
@@ -425,13 +270,6 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		return
-	}
-
-	// Record hashtag changes if provided
-	if s.hashtagService != nil && len(req.Hashtags) > 0 {
-		if userIDInt, err := strconv.ParseInt(event.UserID, 10, 32); err == nil {
-			s.hashtagService.RecordSelection(int32(userIDInt), event.Title, req.Hashtags)
-		}
 	}
 
 	if err := json.NewEncoder(w).Encode(event); err != nil {
@@ -811,8 +649,8 @@ func (s *Service) QueryEvents(ctx context.Context, req *pb.QueryEventsRequest) (
 
 // Adapter methods to satisfy agent.CalendarServiceInterface and gateway.CalendarServiceInterface
 
-// ListEvents returns events across users (userID omitted) or can be extended to filter by status.
-func (s *Service) ListEvents(ctx context.Context, startTime, endTime int64, status string) ([]interface{}, error) {
+// ListEventsAdapter returns events across users (userID omitted) or can be extended to filter by status.
+func (s *Service) ListEventsAdapter(ctx context.Context, startTime, endTime int64, status string) ([]interface{}, error) {
 	_ = status // mark as used until filtering is implemented
 	st := time.Unix(startTime, 0)
 	en := time.Unix(endTime, 0)
@@ -830,8 +668,8 @@ func (s *Service) ListEvents(ctx context.Context, startTime, endTime int64, stat
 	return out, nil
 }
 
-// CreateEvent accepts flexible payloads (map[string]interface{}, *models.Event, pb.Event) and creates an event
-func (s *Service) CreateEvent(ctx context.Context, event interface{}) (interface{}, error) {
+// CreateEventAdapter accepts flexible payloads (map[string]interface{}, *models.Event, pb.Event) and creates an event
+func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (interface{}, error) {
 	// Delegate parsing to a helper to keep cyclomatic complexity low
 	ev, err := parseEventPayload(event)
 	if err != nil {
@@ -914,8 +752,8 @@ func parseTimeFromInterface(v interface{}) (time.Time, error) {
 	}
 }
 
-// UpdateEvent updates an event by id using flexible payloads
-func (s *Service) UpdateEvent(ctx context.Context, id string, event interface{}) (interface{}, error) {
+// UpdateEventAdapter updates an event by id using flexible payloads
+func (s *Service) UpdateEventAdapter(ctx context.Context, id string, event interface{}) (interface{}, error) {
 	existing, err := s.eventRepo.GetEventByID(ctx, id)
 	if err != nil {
 		s.logger.Error("failed to get event for update", "id", id, "err", err)
@@ -971,11 +809,173 @@ func (s *Service) UpdateEvent(ctx context.Context, id string, event interface{})
 	return existing, nil
 }
 
-// DeleteEvent deletes an event by id
-func (s *Service) DeleteEvent(ctx context.Context, id string) error {
+// DeleteEventAdapter deletes an event by id
+func (s *Service) DeleteEventAdapter(ctx context.Context, id string) error {
 	if err := s.eventRepo.DeleteEvent(ctx, id); err != nil {
 		s.logger.Error("failed to delete event (adapter)", "id", id, "err", err)
 		return err
 	}
 	return nil
+}
+
+// CreateEvent implements CalendarService.CreateEvent
+func (s *Service) CreateEvent(ctx context.Context, req *pb.CreateEventRequest) (*pb.CreateEventResponse, error) {
+	s.logger.Info("CreateEvent called via gRPC", "user_id", req.UserId)
+
+	event := &models.Event{
+		ID:          uuid.New().String(),
+		UserID:      req.UserId,
+		Title:       req.Title,
+		Description: req.Description,
+		StartTime:   time.Unix(req.StartTime, 0),
+		EndTime:     time.Unix(req.EndTime, 0),
+		Location:    req.Location,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	if err := s.eventRepo.CreateEvent(ctx, event); err != nil {
+		s.logger.Error("failed to create event via gRPC", "err", err)
+		return &pb.CreateEventResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to create event: %v", err),
+		}, nil
+	}
+
+	pbEvent := &pb.Event{
+		Id:          event.ID,
+		UserId:      event.UserID,
+		Title:       event.Title,
+		Description: event.Description,
+		StartTime:   event.StartTime.Unix(),
+		EndTime:     event.EndTime.Unix(),
+		Location:    event.Location,
+	}
+
+	return &pb.CreateEventResponse{
+		Event:   pbEvent,
+		Success: true,
+		Message: "Event created successfully",
+	}, nil
+}
+
+// GetEvents implements CalendarService.GetEvents
+func (s *Service) GetEvents(ctx context.Context, req *pb.GetEventsRequest) (*pb.GetEventsResponse, error) {
+	s.logger.Info("GetEvents called via gRPC", "user_id", req.UserId)
+
+	startTime := time.Unix(req.StartTime, 0)
+	endTime := time.Unix(req.EndTime, 0)
+
+	events, err := s.eventRepo.ListEvents(ctx, req.UserId, startTime, endTime)
+	if err != nil {
+		s.logger.Error("failed to get events via gRPC", "err", err)
+		return &pb.GetEventsResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to get events: %v", err),
+		}, nil
+	}
+
+	pbEvents := make([]*pb.Event, len(events))
+	for i, event := range events {
+		pbEvents[i] = &pb.Event{
+			Id:          event.ID,
+			UserId:      event.UserID,
+			Title:       event.Title,
+			Description: event.Description,
+			StartTime:   event.StartTime.Unix(),
+			EndTime:     event.EndTime.Unix(),
+			Location:    event.Location,
+		}
+	}
+
+	return &pb.GetEventsResponse{
+		Events:  pbEvents,
+		Success: true,
+		Message: "Events retrieved successfully",
+	}, nil
+}
+
+// UpdateEvent implements CalendarService.UpdateEvent
+func (s *Service) UpdateEvent(ctx context.Context, req *pb.UpdateEventRequest) (*pb.UpdateEventResponse, error) {
+	s.logger.Info("UpdateEvent called via gRPC", "user_id", req.UserId, "event_id", req.Id)
+
+	event, err := s.eventRepo.GetEventByID(ctx, req.Id)
+	if err != nil {
+		return &pb.UpdateEventResponse{
+			Success: false,
+			Message: fmt.Sprintf("event not found: %v", err),
+		}, nil
+	}
+
+	if req.Title != "" {
+		event.Title = req.Title
+	}
+	if req.Description != "" {
+		event.Description = req.Description
+	}
+	if req.Location != "" {
+		event.Location = req.Location
+	}
+	if req.StartTime != 0 {
+		event.StartTime = time.Unix(req.StartTime, 0)
+	}
+	if req.EndTime != 0 {
+		event.EndTime = time.Unix(req.EndTime, 0)
+	}
+	event.UpdatedAt = time.Now()
+
+	if err := s.eventRepo.UpdateEvent(ctx, event); err != nil {
+		s.logger.Error("failed to update event via gRPC", "err", err)
+		return &pb.UpdateEventResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to update event: %v", err),
+		}, nil
+	}
+
+	pbEvent := &pb.Event{
+		Id:          event.ID,
+		UserId:      event.UserID,
+		Title:       event.Title,
+		Description: event.Description,
+		StartTime:   event.StartTime.Unix(),
+		EndTime:     event.EndTime.Unix(),
+		Location:    event.Location,
+	}
+
+	return &pb.UpdateEventResponse{
+		Event:   pbEvent,
+		Success: true,
+		Message: "Event updated successfully",
+	}, nil
+}
+
+// DeleteEvent implements CalendarService.DeleteEvent
+func (s *Service) DeleteEvent(ctx context.Context, req *pb.DeleteEventRequest) (*pb.DeleteEventResponse, error) {
+	s.logger.Info("DeleteEvent called via gRPC", "user_id", req.UserId, "event_id", req.Id)
+
+	if err := s.eventRepo.DeleteEvent(ctx, req.Id); err != nil {
+		s.logger.Error("failed to delete event via gRPC", "err", err)
+		return &pb.DeleteEventResponse{
+			Success: false,
+			Message: fmt.Sprintf("failed to delete event: %v", err),
+		}, nil
+	}
+
+	return &pb.DeleteEventResponse{
+		Success: true,
+		Message: "Event deleted successfully",
+	}, nil
+}
+
+// GetAvailableSlots implements CalendarService.GetAvailableSlots
+func (s *Service) GetAvailableSlots(ctx context.Context, req *pb.GetAvailableSlotsRequest) (*pb.GetAvailableSlotsResponse, error) {
+	// This is a simplified implementation. In a real-world scenario, you would
+	// calculate available slots based on existing events and working hours.
+	s.logger.Info("GetAvailableSlots called via gRPC", "user_id", req.UserId)
+
+	return &pb.GetAvailableSlotsResponse{
+		Slots:   []*pb.TimeSlot{},
+		Success: true,
+		Message: "Available slots retrieval not fully implemented",
+	}, nil
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/grpc"
 	"github.com/waydxd/Orbit-core/pkg/logger"
-	pb "github.com/waydxd/Orbit-core/proto/calendar"
 )
 
 // Service represents the Agent Service for AI interactions
@@ -23,10 +22,10 @@ type Service struct {
 
 // CalendarServiceInterface defines calendar operations
 type CalendarServiceInterface interface {
-	ListEvents(ctx context.Context, startTime, endTime int64, status string) ([]interface{}, error)
-	CreateEvent(ctx context.Context, event interface{}) (interface{}, error)
-	UpdateEvent(ctx context.Context, id string, event interface{}) (interface{}, error)
-	DeleteEvent(ctx context.Context, id string) error
+	ListEventsAdapter(ctx context.Context, startTime, endTime int64, status string) ([]interface{}, error)
+	CreateEventAdapter(ctx context.Context, event interface{}) (interface{}, error)
+	UpdateEventAdapter(ctx context.Context, id string, event interface{}) (interface{}, error)
+	DeleteEventAdapter(ctx context.Context, id string) error
 }
 
 // PromptRequest represents the user prompt for the AI agent
@@ -97,66 +96,30 @@ func (s *Service) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch calendar events to provide context to the agent
-	events, err := s.calendarSvc.ListEvents(ctx, startTime, endTime, "")
+	events, err := s.calendarSvc.ListEventsAdapter(ctx, startTime, endTime, "")
 	if err != nil {
 		s.logger.Error("Failed to fetch events", "error", err)
 		events = []interface{}{}
 	}
 
-	// Get available slots from the Orbi agent
-	availableSlots, err := s.getAvailableSlots(ctx, startTime, endTime, 3600) // 1 hour duration
-	if err != nil {
-		s.logger.Warn("Failed to get available slots", "error", err)
-	}
+	// TODO: The orbit-orbi external agent should call CalendarService methods on orbit-core
+	// This orbit-core agent service should not be calling CalendarService methods
+	// For now, we just return calendar events without calling the external agent
 
 	// Prepare response with calendar context
 	resp := AgentResponse{
 		Success:        true,
-		Message:        "Prompt processed successfully",
+		Message:        "Prompt processed successfully (Note: External agent integration needed)",
 		Timestamp:      time.Now().Unix(),
 		CalendarEvents: events,
 		Data: map[string]interface{}{
-			"available_slots": availableSlots,
-			"prompt":          req.Prompt,
+			"prompt": req.Prompt,
 		},
 	}
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		s.logger.Error("Failed to encode response", "error", err)
 	}
-}
-
-// getAvailableSlots retrieves available time slots from the Orbi agent
-func (s *Service) getAvailableSlots(ctx context.Context, startTime, endTime, duration int64) (interface{}, error) {
-	// Create gRPC client for calendar service
-	client := s.grpcClient.GetCalendarServiceClient()
-
-	// Call GetAvailableSlots RPC
-	res, err := client.GetAvailableSlots(ctx, &pb.GetAvailableSlotsRequest{
-		StartTime: startTime,
-		EndTime:   endTime,
-		Duration:  duration,
-	})
-
-	if err != nil {
-		s.logger.Error("GetAvailableSlots RPC failed", "error", err)
-		return nil, err
-	}
-
-	// Convert TimeSlot messages to JSON-serializable format
-	slots := make([]map[string]interface{}, len(res.Slots))
-	for i, slot := range res.Slots {
-		slots[i] = map[string]interface{}{
-			"start_time": slot.StartTime,
-			"end_time":   slot.EndTime,
-		}
-	}
-
-	return map[string]interface{}{
-		"slots":   slots,
-		"success": res.Success,
-		"message": res.Message,
-	}, nil
 }
 
 // healthCheck returns the health status of the agent service

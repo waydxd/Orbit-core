@@ -13,6 +13,7 @@ import (
 	"github.com/waydxd/Orbit-core/internal/agent"
 	"github.com/waydxd/Orbit-core/internal/auth"
 	"github.com/waydxd/Orbit-core/internal/calendar"
+	"github.com/waydxd/Orbit-core/internal/chat"
 	"github.com/waydxd/Orbit-core/internal/gateway"
 	"github.com/waydxd/Orbit-core/internal/hashtag"
 	"github.com/waydxd/Orbit-core/internal/integration"
@@ -36,24 +37,38 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Connect to database
+	// Connect to PostgreSQL database
 	db, err := database.Connect(cfg.Database.ConnectionString())
 	if err != nil {
-		log.Error("Failed to connect to database", "error", err)
+		log.Error("Failed to connect to PostgreSQL", "error", err)
 		os.Exit(1)
 	}
 	defer func(db *database.DB) {
 		err := db.Close()
 		if err != nil {
-			log.Error("Failed to close database connection", "error", err)
+			log.Error("Failed to close PostgreSQL connection", "error", err)
 		}
 	}(db)
+
+	defer database.DisconnectMongoDB()
+
+	// Initialize MongoDB
+	mongoURI := database.BuildMongoURI(cfg.MongoDB.User, cfg.MongoDB.Password, cfg.MongoDB.Host, cfg.MongoDB.DBName)
+	if err := database.InitMongoDB(mongoURI); err != nil {
+		log.Error("Failed to connect to MongoDB", "error", err)
+		return
+	}
 
 	// Initialize repositories
 	authRepo := auth.NewSQLRepository(db)
 	eventRepo := calendar.NewSQLEventRepository(db)
 	taskRepo := calendar.NewSQLTaskRepository(db)
 	locationRepo := location.NewSQLRepository(db)
+	chatRepo, err := chat.NewMongoRepository(context.Background(), database.MongoClient, cfg.Database.DBName)
+	if err != nil {
+		log.Error("Failed to initialize chat repository", "error", err)
+		return
+	}
 
 	// Initialize hashtag client and service
 	hashtagClient, err := hashtag.NewClient(&cfg.Hashtag, log)
@@ -100,17 +115,33 @@ func main() {
 	// Initialize agent service for AI interactions
 	agentService := agent.NewService(cfg, log, grpcClient, calendarService)
 
+	// Initialize chat service for chatbot functionality
+	chatService := chat.NewService(cfg, log, chatRepo, grpcClient)
+
+	// Start cleanup job for expired actions
+	cleanupJob := chat.NewCleanupJob(chatService, log, 5*time.Minute)
+	cancelContext, cancelFunc := context.WithCancel(context.Background())
+	defer cancelFunc()
+	go cleanupJob.Start(cancelContext)
+
+	// Create action interceptor for capturing mutating operations
+	actionInterceptor := grpc.NewActionInterceptor(log, chatRepo)
+
 	// Initialize gRPC server to expose CalendarDataService to Agent
 	grpcServer, err := grpc.NewServer(grpc.ServerConfig{
-		Port: cfg.GRPCServer.Port,
+		Port:         cfg.GRPCServer.Port,
+		Interceptors: []grpc.UnaryServerInterceptor{actionInterceptor.UnaryInterceptor()},
 	}, log)
 	if err != nil {
 		log.Error("Failed to initialize gRPC server", "error", err)
 		return
 	}
 
-	// Register CalendarDataService with gRPC server
+	// Register CalendarDataService with gRPC server (for Agent to read data)
 	pb.RegisterCalendarDataServiceServer(grpcServer.Underlying(), calendarService)
+
+	// Register CalendarService with gRPC server (for Agent to perform CRUD operations)
+	pb.RegisterCalendarServiceServer(grpcServer.Underlying(), calendarService)
 
 	// Start gRPC server in a goroutine
 	go func() {
@@ -128,6 +159,7 @@ func main() {
 		LocationService:    locationService,
 		IntegrationService: integrationService,
 		AgentService:       agentService,
+		ChatService:        chatService,
 	})
 
 	// Start HTTP server

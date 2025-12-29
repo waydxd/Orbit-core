@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:18-alpine
@@ -20,7 +18,7 @@ services:
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    image: redis:8.4-alpine
     container_name: orbit-redis
     ports:
       - "6379:6379"
@@ -32,6 +30,44 @@ services:
       timeout: 5s
       retries: 5
 
+  mongo:
+    image: mongo:latest # No alpine version available
+    container_name: orbit-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  orbit-orbi:
+    image: ghcr.io/waydxd/orbit-orbi:latest
+    container_name: orbit-orbi
+    stdin_open: true
+    tty: true
+    ports:
+      - "50042:50042"
+    env_file: .env
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CALENDAR_SERVICE_ADDR: ${CALENDAR_SERVICE_ADDR:-orbit-core:50052}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://hkust.azure-api.net/}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8088/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+
   orbit-core:
     build:
       context: .
@@ -39,60 +75,42 @@ services:
     container_name: orbit-core
     ports:
       - "8080:8080"
-      - "50054:50054"
+      - "50052:50052"
+    env_file: .env
     environment:
-      SERVER_PORT: 8080
-      SERVER_HOST: 0.0.0.0
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: orbit
-      DB_SSLMODE: disable
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ""
-      REDIS_DB: 0
-      JWT_SECRET: change-this-in-production
-      JWT_EXPIRATION_HOURS: 24
-      GRPC_SERVER_PORT: 50054
-      HASHTAG_ENABLED: true
-      HASHTAG_GRPC_HOST: orbit-hashtag
-      HASHTAG_GRPC_PORT: 50051
-      HASHTAG_GRPC_TIMEOUT: 5
-      HASHTAG_GRPC_MAX_RETRIES: 3
-      HASHTAG_GRPC_KEEP_ALIVE: 30
-      HASHTAG_GRPC_KEEP_ALIVE_TIMEOUT: 10
-      HASHTAG_CACHE_ENABLED: true
-      HASHTAG_CACHE_TTL: 5
-      HASHTAG_CACHE_MAX_SIZE: 1000
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      SERVER_HOST: ${SERVER_HOST:-0.0.0.0}
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-orbit}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+      JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
+      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017}
+      ORBI_HOST: ${ORBI_HOST:-orbit-orbi}
+      ORBI_PORT: ${ORBI_PORT:-50042}
+      GRPC_SERVER_PORT: ${GRPC_SERVER_PORT:-50052}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      PASSWORD_RESET_EXPIRY_MINUTES: ${PASSWORD_RESET_EXPIRY_MINUTES:-30}
+      EMAIL_VERIFICATION_EXPIRY_HOURS: ${EMAIL_VERIFICATION_EXPIRY_HOURS:-24}
+      EMAIL_FROM: ${EMAIL_FROM:-"Orbit <onboarding@orbitly.qzz.io>"}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      orbit-hashtag:
-        condition: service_started
-
-  orbit-hashtag:
-    image: waydxd/orbit-hashtag:latest
-    container_name: orbit-hashtag
-    ports:
-      - "50051:50051"
-      - "8000:8000"
-    environment:
-      GRPC_PORT: 50051
-      HTTP_PORT: 8000
-      MODEL_PATH: /app/models
-      DEVICE: cpu
-    healthcheck:
-      test: ["CMD", "grpcurl", "-plaintext", "localhost:50051", "hashtag.HashtagService/HealthCheck"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    restart: unless-stopped
-
+      mongo:
+        condition: service_healthy
+      orbit-orbi:
+        condition: service_healthy
 volumes:
   postgres_data:
   redis_data:
+  mongo_data:

@@ -32,7 +32,7 @@ jobs:
           --health-retries 5
       
       redis:
-        image: redis:7-alpine
+        image: redis:8.4-alpine
         ports:
           - 6379:6379
         options: >-
@@ -71,7 +71,7 @@ jobs:
         DB_USER: postgres
         DB_PASSWORD: postgres
         DB_NAME: orbit_test
-        DB_SSLMODE: disable
+        DB_SSLMODE: prefer
         REDIS_HOST: localhost
         REDIS_PORT: 6379
         JWT_SECRET: test-secret

@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -12,11 +14,11 @@ import (
 type Config struct {
 	Server     ServerConfig
 	Database   DatabaseConfig
+	MongoDB    MongoDBConfig
 	Redis      RedisConfig
 	Auth       AuthConfig
 	Orbi       OrbiConfig
 	GRPCServer GRPCServerConfig
-	Hashtag    HashtagConfig
 }
 
 // ServerConfig holds server configuration
@@ -35,6 +37,14 @@ type DatabaseConfig struct {
 	SSLMode  string
 }
 
+// MongoDBConfig holds MongoDB configuration
+type MongoDBConfig struct {
+	User     string
+	Password string
+	Host     string
+	DBName   string
+}
+
 // RedisConfig holds Redis configuration for rate limiting
 type RedisConfig struct {
 	Host     string
@@ -45,8 +55,14 @@ type RedisConfig struct {
 
 // AuthConfig holds authentication configuration
 type AuthConfig struct {
-	JWTSecret     string
-	JWTExpiration int // in hours
+	JWTSecret                    string
+	JWTExpiration                int // in hours
+	ResendAPIKey                 string
+	AppBaseURL                   string
+	PasswordResetExpiryMinutes   int
+	EmailVerificationExpiryHours int
+	// EmailFrom is the From address for outgoing emails, e.g. "Orbit <onboarding@resend.dev>"
+	EmailFrom string
 }
 
 // OrbiConfig holds Orbi agent gRPC connection configuration
@@ -60,33 +76,24 @@ type GRPCServerConfig struct {
 	Port int
 }
 
-// HashtagConfig holds hashtag service configuration
-type HashtagConfig struct {
-	Enabled bool
-	GRPC    HashtagGRPCConfig
-	Cache   HashtagCacheConfig
+// secretEnvMap maps environment variable names to docker secret filenames (base names).
+// When a secret is present, we'll prefer reading the corresponding secret from
+// /run/secrets/<name> (container) or ./secrets/<name>.txt (local dev). If no secret
+// is available we fall back to the environment variable, then to the default value.
+var secretEnvMap = map[string]string{
+	"DB_USER":        "db_user",
+	"DB_PASSWORD":    "db_password",
+	"DB_NAME":        "db_name",
+	"JWT_SECRET":     "jwt_secret",
+	"RESEND_API_KEY": "resend_api_key",
+	"MONGO_USER":     "mongo_user",
+	"MONGO_PASSWORD": "mongo_password",
+	"REDIS_PASSWORD": "redis_password",
 }
 
-// HashtagGRPCConfig holds gRPC connection settings for hashtag service
-type HashtagGRPCConfig struct {
-	Host             string
-	Port             int
-	Timeout          int // in seconds
-	MaxRetries       int
-	KeepAlive        int // in seconds
-	KeepAliveTimeout int // in seconds
-}
-
-// HashtagCacheConfig holds cache settings for hashtag predictions
-type HashtagCacheConfig struct {
-	Enabled bool
-	TTL     int // in minutes
-	MaxSize int
-}
-
-// Load loads configuration from environment variables
+// Load loads configuration from environment variables and docker secrets
 func Load() (*Config, error) {
-	// Detect and load a dotenv file if present. By default we look for `.env`.
+	// Detect and load a dotenv file if present. By default, we look for `.env`.
 	// The path can be overridden by setting the ENV_FILE environment variable.
 	envFile := os.Getenv("ENV_FILE")
 	if envFile == "" {
@@ -110,6 +117,12 @@ func Load() (*Config, error) {
 			DBName:   getEnv("DB_NAME", "orbit"),
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
+		MongoDB: MongoDBConfig{
+			User:     getEnv("MONGO_USER", ""),
+			Password: getEnv("MONGO_PASSWORD", ""),
+			Host:     getEnv("MONGODB_HOST", "mongo:27017"),
+			DBName:   getEnv("MONGODB_DB", "orbit"),
+		},
 		Redis: RedisConfig{
 			Host:     getEnv("REDIS_HOST", "localhost"),
 			Port:     getEnvAsInt("REDIS_PORT", 6379),
@@ -117,8 +130,13 @@ func Load() (*Config, error) {
 			DB:       getEnvAsInt("REDIS_DB", 0),
 		},
 		Auth: AuthConfig{
-			JWTSecret:     getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
-			JWTExpiration: getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
+			JWTSecret:                    getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
+			JWTExpiration:                getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
+			ResendAPIKey:                 getEnv("RESEND_API_KEY", ""),
+			AppBaseURL:                   getEnv("APP_BASE_URL", "http://localhost:3000"),
+			PasswordResetExpiryMinutes:   getEnvAsInt("PASSWORD_RESET_EXPIRY_MINUTES", 30),
+			EmailVerificationExpiryHours: getEnvAsInt("EMAIL_VERIFICATION_EXPIRY_HOURS", 24),
+			EmailFrom:                    getEnv("EMAIL_FROM", "Orbit <onboarding@resend.dev>"),
 		},
 		Orbi: OrbiConfig{
 			Host: getEnv("ORBI_HOST", "localhost"),
@@ -127,32 +145,27 @@ func Load() (*Config, error) {
 		GRPCServer: GRPCServerConfig{
 			Port: getEnvAsInt("GRPC_SERVER_PORT", 50052),
 		},
-		Hashtag: HashtagConfig{
-			Enabled: getEnvAsBool("HASHTAG_ENABLED", true),
-			GRPC: HashtagGRPCConfig{
-				Host:             getEnv("HASHTAG_GRPC_HOST", "localhost"),
-				Port:             getEnvAsInt("HASHTAG_GRPC_PORT", 50051),
-				Timeout:          getEnvAsInt("HASHTAG_GRPC_TIMEOUT", 5),
-				MaxRetries:       getEnvAsInt("HASHTAG_GRPC_MAX_RETRIES", 3),
-				KeepAlive:        getEnvAsInt("HASHTAG_GRPC_KEEP_ALIVE", 30),
-				KeepAliveTimeout: getEnvAsInt("HASHTAG_GRPC_KEEP_ALIVE_TIMEOUT", 10),
-			},
-			Cache: HashtagCacheConfig{
-				Enabled: getEnvAsBool("HASHTAG_CACHE_ENABLED", true),
-				TTL:     getEnvAsInt("HASHTAG_CACHE_TTL", 5),
-				MaxSize: getEnvAsInt("HASHTAG_CACHE_MAX_SIZE", 1000),
-			},
-		},
 	}
 
 	return cfg, nil
 }
 
-// getEnv gets an environment variable or returns a default value
+// getEnv gets an environment variable or returns a default value. For certain sensitive
+// variables we will prefer reading from Docker secrets first (e.g. /run/secrets/<name> or ./secrets/<name>.txt);
+// if no secret is present we fall back to an explicitly set environment variable, then the default.
 func getEnv(key, defaultValue string) string {
+	// First, if this key maps to a secret name, try to read the secret and prefer it when present.
+	if secretName, ok := secretEnvMap[key]; ok {
+		if s, err := readSecret(secretName); err == nil && s != "" {
+			return s
+		}
+	}
+
+	// Next prefer any explicitly set environment variable
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
+
 	return defaultValue
 }
 
@@ -171,19 +184,34 @@ func getEnvAsInt(key string, defaultValue int) int {
 	return value
 }
 
-// getEnvAsBool gets an environment variable as bool or returns a default value
-func getEnvAsBool(key string, defaultValue bool) bool {
-	valueStr := os.Getenv(key)
-	if valueStr == "" {
-		return defaultValue
+// readSecret attempts to read a secret from common docker secret locations.
+// It validates the secret base name to prevent file inclusion attacks, then tries:
+//   - /run/secrets/<name>
+//   - ./secrets/<name>.txt (local-development file included in repo)
+//   - ./secrets/<name> (fallback)
+func readSecret(name string) (string, error) {
+	// allow only safe characters in secret name
+	validName := regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+	if !validName.MatchString(name) {
+		return "", fmt.Errorf("invalid secret name")
 	}
 
-	value, err := strconv.ParseBool(valueStr)
-	if err != nil {
-		return defaultValue
+	paths := []string{
+		"/run/secrets/" + name,
+		"./secrets/" + name + ".txt",
+		"./secrets/" + name,
 	}
-
-	return value
+	for _, p := range paths {
+		b, err := os.ReadFile(p) //nolint:gosec
+		if err != nil {
+			continue
+		}
+		val := strings.TrimSpace(string(b))
+		if val != "" {
+			return val, nil
+		}
+	}
+	return "", fmt.Errorf("secret %s not found in known paths", name)
 }
 
 // ConnectionString returns PostgreSQL connection string

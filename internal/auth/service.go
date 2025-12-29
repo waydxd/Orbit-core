@@ -2,11 +2,8 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
-	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,7 +12,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"golang.org/x/crypto/argon2"
+	"github.com/redis/go-redis/v9"
+	"github.com/resend/resend-go/v3"
 
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
@@ -24,17 +22,37 @@ import (
 
 // Service represents the Authentication Service
 type Service struct {
-	config *config.Config
-	logger *logger.Logger
-	repo   Repository
+	config       *config.Config
+	logger       *logger.Logger
+	repo         Repository
+	redisClient  *redis.Client
+	resendClient *resend.Client
 }
 
 // NewService creates a new Authentication Service
 func NewService(cfg *config.Config, log *logger.Logger, repo Repository) *Service {
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.RedisAddr(),
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+
+	// Validate Redis connectivity at startup to avoid runtime failures in
+	// email verification or password reset flows.
+	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+		panic(fmt.Sprintf("auth service: failed to connect to Redis at %s: %v", cfg.Redis.RedisAddr(), err))
+	}
+	var resendClient *resend.Client
+	if cfg.Auth.ResendAPIKey != "" {
+		resendClient = resend.NewClient(cfg.Auth.ResendAPIKey)
+	}
+
 	return &Service{
-		config: cfg,
-		logger: log,
-		repo:   repo,
+		config:       cfg,
+		logger:       log,
+		repo:         repo,
+		redisClient:  redisClient,
+		resendClient: resendClient,
 	}
 }
 
@@ -45,6 +63,9 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	authRouter.HandleFunc("/login", s.login).Methods("POST")
 	authRouter.HandleFunc("/verify", s.verify).Methods("POST")
 	authRouter.HandleFunc("/logout", s.logout).Methods("POST")
+	authRouter.HandleFunc("/password-reset-request", s.passwordResetRequest).Methods("POST")
+	authRouter.HandleFunc("/password-reset-confirm", s.passwordResetConfirm).Methods("POST")
+	authRouter.HandleFunc("/verify-email", s.verifyEmail).Methods("GET")
 }
 
 // LoginRequest represents login/register request payload
@@ -73,6 +94,18 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Input validation
+	if req.Email == "" || !s.validateEmail(req.Email) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid email"})
+		return
+	}
+	if req.Password == "" || !s.validatePassword(req.Password) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password does not meet requirements (min 8 chars, must include letters, numbers, and special characters; no spaces)"})
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
@@ -98,6 +131,28 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to register user"})
 		return
+	}
+
+	// Generate email verification token
+	verifyToken, err := s.generateSecureToken()
+	if err == nil {
+		tokenHash := s.hashToken(verifyToken)
+		redisKey := fmt.Sprintf("auth:token:email_verification:%s", tokenHash)
+		ttl := time.Duration(s.config.Auth.EmailVerificationExpiryHours) * time.Hour
+
+		if err := s.redisClient.Set(ctx, redisKey, user.ID, ttl).Err(); err != nil {
+			s.logger.Error("failed to store verification token in redis", "err", err)
+		} else {
+			verifyLink := fmt.Sprintf("%s/api/v1/auth/verify-email?token=%s", s.config.Auth.AppBaseURL, verifyToken)
+			if err := s.sendEmail(user.Email, "Verify your email", "email-verification", map[string]interface{}{
+				"verify_link": verifyLink,
+				"first_name":  user.FirstName,
+			}); err != nil {
+				s.logger.Error("failed to send verification email", "err", err)
+			}
+		}
+	} else {
+		s.logger.Error("failed to generate verification token", "err", err)
 	}
 
 	// generate token and save session
@@ -135,6 +190,18 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		s.logger.Error("invalid login request", "err", err)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		return
+	}
+
+	// Input validation
+	if req.Email == "" || !s.validateEmail(req.Email) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid email"})
+		return
+	}
+	if req.Password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password required"})
 		return
 	}
 
@@ -240,81 +307,263 @@ func (s *Service) verify(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]bool{"valid": true})
 }
 
-// generateJWT generates a JWT token for a user
-func (s *Service) generateJWT(email, userID string) (string, error) {
-	claims := jwt.MapClaims{
-		"email": email,
-		"id":    userID,
-		"exp":   time.Now().Add(time.Hour * time.Duration(s.config.Auth.JWTExpiration)).Unix(),
-		"iat":   time.Now().Unix(),
+// passwordResetRequest handles password reset requests
+func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		s.logger.Error("invalid password reset request", "err", err)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		return
 	}
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(s.config.Auth.JWTSecret))
-}
+	// Create a request-scoped context early so we can equalize response timing
+	// for invalid inputs to mitigate timing-based enumeration attacks.
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
 
-// hashPassword hashes a password using Argon2id
-func (s *Service) hashPassword(password string) string {
-	// Generate random salt
-	salt := make([]byte, 16)
-	_, err := rand.Read(salt)
+	// Ensure Redis is available before proceeding. If Redis is nil or unavailable
+	// we should surface service-unavailable so the client knows the reset cannot
+	// be performed (avoids silently claiming success while no token/email will be sent).
+	if s.redisClient == nil {
+		s.logger.Error("redis client is not initialized")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "service unavailable"})
+		return
+	}
+	if err := s.redisClient.Ping(ctx).Err(); err != nil {
+		s.logger.Error("redis unavailable", "err", err)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "service unavailable"})
+		return
+	}
+
+	// Validate email; if invalid, perform a short, context-aware delay so the
+	// response timing is closer to the path that does a DB lookup. Then return
+	// the same generic success message to avoid email enumeration.
+	if req.Email == "" || !s.validateEmail(req.Email) {
+		s.equalizeResponseDelay(ctx)
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "if the email exists, a reset link has been sent"})
+		return
+	}
+
+	// Always return success to prevent email enumeration
+	defer func() {
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "if the email exists, a reset link has been sent"})
+	}()
+
+	// Basic per-email rate limiting for password reset requests — do this before
+	// the DB lookup so attackers can't distinguish existing vs non-existing
+	// emails by timing whether the rate limiter was applied.
+	rateLimitKey := fmt.Sprintf("auth:rl:password_reset:%s", strings.ToLower(req.Email))
+	const maxPasswordResetRequests = int64(5)
+	const passwordResetRateWindow = time.Hour
+
+	reqCount, rlErr := s.redisClient.Incr(ctx, rateLimitKey).Result()
+	if rlErr != nil {
+		// If we cannot reliably track rate limits, avoid sending emails to prevent abuse
+		s.logger.Error("failed to apply password reset rate limit", "err", rlErr)
+		return
+	}
+
+	if reqCount == 1 {
+		// Set the window only on first increment
+		if err := s.redisClient.Expire(ctx, rateLimitKey, passwordResetRateWindow).Err(); err != nil {
+			s.logger.Error("failed to set password reset rate limit expiry", "err", err)
+			return
+		}
+	}
+
+	if reqCount > maxPasswordResetRequests {
+		// Rate limit exceeded; do not generate a token or send another email
+		s.logger.Warn("password reset rate limit exceeded", "email", req.Email, "count", reqCount)
+		return
+	}
+
+	user, err := s.repo.GetUserByEmail(ctx, req.Email)
 	if err != nil {
-		s.logger.Error("failed to read random salt", "err", err)
-		return ""
+		// User not found, do nothing (or log debug)
+		return
 	}
 
-	// Hash password with Argon2id
-	hash := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
-
-	// Combine salt and hash for storage
-	salt = append(salt, hash...)
-	return base64.StdEncoding.EncodeToString(salt)
-}
-
-// verifyPassword verifies a password against a stored Argon2id hash
-func (s *Service) verifyPassword(password, hashedPassword string) bool {
-	decoded, err := base64.StdEncoding.DecodeString(hashedPassword)
+	// Generate secure random token
+	token, err := s.generateSecureToken()
 	if err != nil {
-		s.logger.Error("failed to decode stored password", "err", err)
-		return false
+		s.logger.Error("failed to generate reset token", "err", err)
+		return
 	}
 
-	if len(decoded) < 16 {
-		s.logger.Error("invalid hashed password length", "len", len(decoded))
-		return false
+	tokenHash := s.hashToken(token)
+	redisKey := fmt.Sprintf("auth:token:password_reset:%s", tokenHash)
+	ttl := time.Duration(s.config.Auth.PasswordResetExpiryMinutes) * time.Minute
+
+	if err := s.redisClient.Set(ctx, redisKey, user.ID, ttl).Err(); err != nil {
+		s.logger.Error("failed to store reset token in redis", "err", err)
+		return
 	}
 
-	salt := decoded[:16]
-	storedHash := decoded[16:]
-
-	computed := argon2.IDKey([]byte(password), salt, 1, 64*1024, 4, 32)
-	if len(computed) != len(storedHash) {
-		s.logger.Error("hashed lengths differ during password verification", "expected", len(storedHash), "got", len(computed))
-		return false
+	// Send reset email
+	resetLink := fmt.Sprintf("%s/reset-password?token=%s", s.config.Auth.AppBaseURL, token)
+	if err := s.sendEmail(user.Email, "Password Reset Request", "password-reset", map[string]interface{}{
+		"reset_link":         resetLink,
+		"first_name":         user.FirstName,
+		"support_center_url": s.config.Auth.AppBaseURL,
+	}); err != nil {
+		s.logger.Error("failed to send password reset email", "err", err)
 	}
-
-	// constant time compare
-	if subtle.ConstantTimeCompare(computed, storedHash) != 1 {
-		s.logger.Info("password verification failed")
-		return false
-	}
-	return true
 }
 
-// hashToken creates a SHA-256 hash of the token for storage
-func (s *Service) hashToken(token string) string {
-	sum := sha256.Sum256([]byte(token + s.config.Auth.JWTSecret))
-	return fmt.Sprintf("%x", sum)
+// passwordResetConfirm handles password reset confirmations
+func (s *Service) passwordResetConfirm(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	var req struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		s.logger.Error("invalid password reset confirmation", "err", err)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+		return
+	}
+
+	// Validate password
+	if req.Password == "" || !s.validatePassword(req.Password) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password does not meet requirements (min 8 chars, must include letters, numbers, and special characters; no spaces)"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	tokenHash := s.hashToken(req.Token)
+	redisKey := fmt.Sprintf("auth:token:password_reset:%s", tokenHash)
+
+	userID, err := s.redisClient.Get(ctx, redisKey).Result()
+	if errors.Is(err, redis.Nil) {
+		// Mitigate timing attacks by performing a short, consistent delay so an
+		// attacker can't distinguish between an invalid token and other failures
+		// based on response time.
+		s.equalizeResponseDelay(ctx)
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired token"})
+		return
+	} else if err != nil {
+		s.logger.Error("redis error", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "internal server error"})
+		return
+	}
+
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		s.logger.Error("user not found", "id", userID, "err", err)
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user not found"})
+		return
+	}
+
+	// Security: prevent reusing the same password
+	if s.verifyPassword(req.Password, user.PasswordHash) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "new password must be different from the old password"})
+		return
+	}
+
+	// Update password
+	passwordHash := s.hashPassword(req.Password)
+	user.PasswordHash = passwordHash
+	if err := s.repo.UpdateUser(ctx, user); err != nil {
+		s.logger.Error("failed to update user", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to update password"})
+		return
+	}
+
+	// Delete token (single-use) only after successful DB update. Log but do not fail
+	if err := s.redisClient.Del(ctx, redisKey).Err(); err != nil {
+		s.logger.Error("failed to delete password reset token from redis", "err", err, "key", redisKey)
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": "password reset successfully"})
 }
 
-// extractBearerToken strips optional "Bearer " prefix from Authorization header
-func extractBearerToken(header string) string {
-	header = strings.TrimSpace(header)
-	if header == "" {
-		return ""
+// verifyEmail handles email verification
+func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing token"})
+		return
 	}
-	if strings.HasPrefix(strings.ToLower(header), "bearer ") {
-		return strings.TrimSpace(header[7:])
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	tokenHash := s.hashToken(token)
+	redisKey := fmt.Sprintf("auth:token:email_verification:%s", tokenHash)
+
+	userID, err := s.redisClient.Get(ctx, redisKey).Result()
+	if errors.Is(err, redis.Nil) {
+		// Mitigate timing attacks similarly for email verification
+		s.equalizeResponseDelay(ctx)
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid or expired token"})
+		return
+	} else if err != nil {
+		s.logger.Error("redis error", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "internal server error"})
+		return
 	}
-	return header
+
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		s.logger.Error("user not found", "id", userID, "err", err)
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user not found"})
+		return
+	}
+
+	// Idempotency: if email already verified, avoid unnecessary DB update.
+	if user.EmailVerified {
+		// Token is single-use; delete it now to avoid reuse. Log any deletion error.
+		if err := s.redisClient.Del(ctx, redisKey).Err(); err != nil {
+			s.logger.Error("failed to delete email verification token from redis (idempotent path)", "err", err, "key", redisKey)
+		}
+		// Redirect to frontend success page (no DB update required). Use APP_BASE_URL for consistency with verification link.
+		redirectURL := strings.TrimRight(s.config.Auth.AppBaseURL, "/") + "/email-verified"
+		http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+		return
+	}
+
+	// Update email verified status
+	user.EmailVerified = true
+	if err := s.repo.UpdateUser(ctx, user); err != nil {
+		s.logger.Error("failed to update user", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to verify email"})
+		return
+	}
+
+	// Delete token (single-use) only after successful DB update. Log but do not fail
+	if err := s.redisClient.Del(ctx, redisKey).Err(); err != nil {
+		s.logger.Error("failed to delete email verification token from redis", "err", err, "key", redisKey)
+	}
+
+	// Redirect to frontend success page after successful verification
+	redirectURL := strings.TrimRight(s.config.Auth.AppBaseURL, "/") + "/email-verified"
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
+
+// Helper functions (password hashing, token helpers, email rendering/sending,
+// validation, delay etc.) have been moved to internal/auth/helpers.go to
+// keep this file focused on the Service handlers and wiring.
