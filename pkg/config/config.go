@@ -3,7 +3,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -37,7 +39,10 @@ type DatabaseConfig struct {
 
 // MongoDBConfig holds MongoDB configuration
 type MongoDBConfig struct {
-	URI string
+	User     string
+	Password string
+	Host     string
+	DBName   string
 }
 
 // RedisConfig holds Redis configuration for rate limiting
@@ -71,9 +76,24 @@ type GRPCServerConfig struct {
 	Port int
 }
 
-// Load loads configuration from environment variables
+// secretEnvMap maps environment variable names to docker secret filenames (base names).
+// When a secret is present, we'll prefer reading the corresponding secret from
+// /run/secrets/<name> (container) or ./secrets/<name>.txt (local dev). If no secret
+// is available we fall back to the environment variable, then to the default value.
+var secretEnvMap = map[string]string{
+	"DB_USER":        "db_user",
+	"DB_PASSWORD":    "db_password",
+	"DB_NAME":        "db_name",
+	"JWT_SECRET":     "jwt_secret",
+	"RESEND_API_KEY": "resend_api_key",
+	"MONGO_USER":     "mongo_user",
+	"MONGO_PASSWORD": "mongo_password",
+	"REDIS_PASSWORD": "redis_password",
+}
+
+// Load loads configuration from environment variables and docker secrets
 func Load() (*Config, error) {
-	// Detect and load a dotenv file if present. By default we look for `.env`.
+	// Detect and load a dotenv file if present. By default, we look for `.env`.
 	// The path can be overridden by setting the ENV_FILE environment variable.
 	envFile := os.Getenv("ENV_FILE")
 	if envFile == "" {
@@ -98,7 +118,10 @@ func Load() (*Config, error) {
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
 		MongoDB: MongoDBConfig{
-			URI: getEnv("MONGODB_URI", "mongodb://localhost:27017/orbit"),
+			User:     getEnv("MONGO_USER", ""),
+			Password: getEnv("MONGO_PASSWORD", ""),
+			Host:     getEnv("MONGODB_HOST", "mongo:27017"),
+			DBName:   getEnv("MONGODB_DB", "orbit"),
 		},
 		Redis: RedisConfig{
 			Host:     getEnv("REDIS_HOST", "localhost"),
@@ -127,11 +150,22 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// getEnv gets an environment variable or returns a default value
+// getEnv gets an environment variable or returns a default value. For certain sensitive
+// variables we will prefer reading from Docker secrets first (e.g. /run/secrets/<name> or ./secrets/<name>.txt);
+// if no secret is present we fall back to an explicitly set environment variable, then the default.
 func getEnv(key, defaultValue string) string {
+	// First, if this key maps to a secret name, try to read the secret and prefer it when present.
+	if secretName, ok := secretEnvMap[key]; ok {
+		if s, err := readSecret(secretName); err == nil && s != "" {
+			return s
+		}
+	}
+
+	// Next prefer any explicitly set environment variable
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
+
 	return defaultValue
 }
 
@@ -148,6 +182,36 @@ func getEnvAsInt(key string, defaultValue int) int {
 	}
 
 	return value
+}
+
+// readSecret attempts to read a secret from common docker secret locations.
+// It validates the secret base name to prevent file inclusion attacks, then tries:
+//   - /run/secrets/<name>
+//   - ./secrets/<name>.txt (local-development file included in repo)
+//   - ./secrets/<name> (fallback)
+func readSecret(name string) (string, error) {
+	// allow only safe characters in secret name
+	validName := regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+	if !validName.MatchString(name) {
+		return "", fmt.Errorf("invalid secret name")
+	}
+
+	paths := []string{
+		"/run/secrets/" + name,
+		"./secrets/" + name + ".txt",
+		"./secrets/" + name,
+	}
+	for _, p := range paths {
+		b, err := os.ReadFile(p) //nolint:gosec
+		if err != nil {
+			continue
+		}
+		val := strings.TrimSpace(string(b))
+		if val != "" {
+			return val, nil
+		}
+	}
+	return "", fmt.Errorf("secret %s not found in known paths", name)
 }
 
 // ConnectionString returns PostgreSQL connection string
