@@ -19,19 +19,27 @@ import (
 type Service struct {
 	pb.UnimplementedCalendarDataServiceServer
 	pb.UnimplementedCalendarServiceServer
-	config    *config.Config
-	logger    *logger.Logger
-	eventRepo EventRepository
-	taskRepo  TaskRepository
+	config       *config.Config
+	logger       *logger.Logger
+	eventRepo    EventRepository
+	taskRepo     TaskRepository
+	habitTracker HabitTracker
+}
+
+// HabitTracker interface for tracking event patterns
+type HabitTracker interface {
+	TrackEventCreation(ctx context.Context, event *models.Event) error
+	GetRecurringEventsForTimeRange(ctx context.Context, userID string, startTime, endTime time.Time) ([]*models.Event, error)
 }
 
 // NewService creates a new Calendar Service
-func NewService(cfg *config.Config, log *logger.Logger, eventRepo EventRepository, taskRepo TaskRepository) *Service {
+func NewService(cfg *config.Config, log *logger.Logger, eventRepo EventRepository, taskRepo TaskRepository, habitTracker HabitTracker) *Service {
 	return &Service{
-		config:    cfg,
-		logger:    log,
-		eventRepo: eventRepo,
-		taskRepo:  taskRepo,
+		config:       cfg,
+		logger:       log,
+		eventRepo:    eventRepo,
+		taskRepo:     taskRepo,
+		habitTracker: habitTracker,
 	}
 }
 
@@ -172,6 +180,17 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		return
+	}
+
+	// Track event for habit detection (async, don't block response)
+	if s.habitTracker != nil {
+		go func() {
+			trackCtx, trackCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer trackCancel()
+			if err := s.habitTracker.TrackEventCreation(trackCtx, event); err != nil {
+				s.logger.Error("failed to track event for habit detection", "err", err)
+			}
+		}()
 	}
 
 	w.WriteHeader(http.StatusCreated)
@@ -689,6 +708,18 @@ func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (in
 		s.logger.Error("failed to create event (adapter)", "err", err)
 		return nil, err
 	}
+
+	// Track event for habit detection (async, don't block response)
+	if s.habitTracker != nil {
+		go func() {
+			trackCtx, trackCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer trackCancel()
+			if err := s.habitTracker.TrackEventCreation(trackCtx, &ev); err != nil {
+				s.logger.Error("failed to track event for habit detection (adapter)", "err", err)
+			}
+		}()
+	}
+
 	return &ev, nil
 }
 
@@ -840,6 +871,17 @@ func (s *Service) CreateEvent(ctx context.Context, req *pb.CreateEventRequest) (
 			Success: false,
 			Message: fmt.Sprintf("failed to create event: %v", err),
 		}, nil
+	}
+
+	// Track event for habit detection (async, don't block response)
+	if s.habitTracker != nil {
+		go func() {
+			trackCtx, trackCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer trackCancel()
+			if err := s.habitTracker.TrackEventCreation(trackCtx, event); err != nil {
+				s.logger.Error("failed to track event for habit detection (gRPC)", "err", err)
+			}
+		}()
 	}
 
 	pbEvent := &pb.Event{
