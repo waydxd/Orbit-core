@@ -5,9 +5,14 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/db_password
       POSTGRES_USER_FILE: /run/secrets/db_user
       POSTGRES_DB_FILE: /run/secrets/db_name
+    # Mount TLS certs (generate using `make postgres-gen-cert` for testing)
     volumes:
+      - ./secrets/postgres_server.crt:/var/lib/postgresql/server.crt:ro
+      - ./secrets/postgres_server.key:/var/lib/postgresql/server.key:ro
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/migrations
+    # Start Postgres with SSL enabled and point to the mounted cert/key
+    command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/var/lib/postgresql/server.crt", "-c", "ssl_key_file=/var/lib/postgresql/server.key"]
     secrets:
       - db_user
       - db_password
@@ -157,7 +162,7 @@ services:
       pass=$$(cat /run/secrets/db_password 2>/dev/null || echo postgres); \
       db=$$(cat /run/secrets/db_name 2>/dev/null || echo orbit); \
       until pg_isready -U "$$user" -h postgres >/dev/null 2>&1; do echo "Waiting for Postgres to be ready..."; sleep 1; done; \
-      migrate -path=/migrations/ -database="postgres://$$user:$$pass@postgres:5432/$$db?sslmode=disable" up
+        migrate -path=/migrations/ -database="postgres://$$user:$$pass@postgres:5432/$$db?sslmode=require" up
     depends_on:
       postgres:
         condition: service_healthy
