@@ -28,7 +28,7 @@ services:
       - redis_password
     command: /bin/sh -c "redis-server /usr/local/etc/redis/redis.conf --requirepass \"$(cat /run/secrets/redis_password)\""
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$(cat /run/secrets/redis_password)\" ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -111,7 +111,7 @@ services:
       # RESEND_API_KEY is a secret; provided via Docker secrets in prod.
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       PASSWORD_RESET_EXPIRY_MINUTES: ${PASSWORD_RESET_EXPIRY_MINUTES:-30}
-      EMAIL_VERIFICATION_EXPIRY_HOURS: ${EMAIL_VERIFICATION_EXPIRATION_HOURS:-24}
+      EMAIL_VERIFICATION_EXPIRY_HOURS: ${EMAIL_VERIFICATION_EXPIRY_HOURS:-24}
       EMAIL_FROM: ${EMAIL_FROM:-"Orbit <onboarding@orbitly.qzz.io>"}
     depends_on:
       postgres:
@@ -136,6 +136,12 @@ services:
     depends_on:
       - orbit-core
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   migrate:
     image: migrate/migrate
@@ -155,6 +161,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: "no"
 
   # Development Vault server (optional, used to centrally store secrets)
   # vault:
