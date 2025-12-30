@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -95,19 +97,8 @@ func DisconnectMongoDB() {
 	}
 }
 
-// BuildMongoURI constructs a MongoDB URI from provided components. It will
-// prefer an explicit MONGODB_URI environment variable when present (and not the default placeholder).
-// Otherwise, if user and pass are provided, it will assemble mongodb://user:pass@host/db.
-// If user/pass are empty it will attempt to use MONGO_USER/MONGO_PASSWORD env vars.
-// Final fallback is the explicit MONGODB_URI or default mongodb://localhost:27017/orbit.
-func BuildMongoURI(user, pass, host, dbname string) string {
-	defaultURI := "mongodb://localhost:27017/orbit"
-	uri := os.Getenv("MONGODB_URI")
-	if uri != "" && uri != defaultURI {
-		return uri
-	}
-
-	// If caller provided host/dbname empty, allow env fallbacks
+// helper: determine host and dbname with env fallbacks
+func getHostAndDB(host, dbname string) (string, string) {
 	if host == "" {
 		host = os.Getenv("MONGODB_HOST")
 		if host == "" {
@@ -120,23 +111,78 @@ func BuildMongoURI(user, pass, host, dbname string) string {
 			dbname = "orbit"
 		}
 	}
+	return host, dbname
+}
 
-	// If we have explicit user/pass passed in use them
+// helper: pick credentials from args or env
+func getCredentials(user, pass string) (string, string, bool) {
 	if user != "" && pass != "" {
-		return fmt.Sprintf("mongodb://%s:%s@%s/%s", user, pass, host, dbname)
+		return user, pass, true
 	}
-
-	// Fallback to environment variables for user/pass
 	envUser := os.Getenv("MONGO_USER")
 	envPass := os.Getenv("MONGO_PASSWORD")
 	if envUser != "" && envPass != "" {
-		return fmt.Sprintf("mongodb://%s:%s@%s/%s", envUser, envPass, host, dbname)
+		return envUser, envPass, true
+	}
+	return "", "", false
+}
+
+// helper: build base URI with escaped credentials
+func buildBaseURI(user, pass, host, db string) string {
+	return fmt.Sprintf("mongodb://%s:%s@%s/%s", url.QueryEscape(user), url.QueryEscape(pass), host, db)
+}
+
+// helper: build params string (authSource + extra)
+func buildParams() string {
+	authSource := os.Getenv("MONGODB_AUTH_SOURCE")
+	extraParams := os.Getenv("MONGODB_PARAMS")
+	if authSource == "" {
+		authSource = "admin"
+	}
+	params := fmt.Sprintf("authSource=%s", url.QueryEscape(authSource))
+	if extraParams != "" {
+		params = params + "&" + extraParams
+	}
+	return params
+}
+
+// BuildMongoURI constructs a MongoDB URI from provided components. It will
+// prefer an explicit MONGODB_URI environment variable when present (and not the default placeholder).
+// Otherwise, if user and pass are provided (or via env), it will assemble mongodb://user:pass@host/db
+// and append authSource/params when credentials are used. Final fallback is the explicit MONGODB_URI
+// or default mongodb://localhost:27017/orbit.
+func BuildMongoURI(user, pass, host, dbname string) string {
+	defaultURI := "mongodb://localhost:27017/orbit"
+	dockerDefaultURI := "mongodb://mongo:27017"
+	uri := os.Getenv("MONGODB_URI")
+
+	// Check if we have credentials available
+	credUser, credPass, haveCreds := getCredentials(user, pass)
+
+	// If MONGODB_URI is set, use it, UNLESS it's a default placeholder AND we have credentials to use instead.
+	if uri != "" && uri != defaultURI {
+		if uri == dockerDefaultURI && haveCreds {
+			// Ignore the docker default URI if we have secrets/credentials to use
+		} else {
+			return uri
+		}
 	}
 
-	// If we had an explicit URI (even the default), return it as last resort
+	host, dbname = getHostAndDB(host, dbname)
+	if haveCreds {
+		base := buildBaseURI(credUser, credPass, host, dbname)
+		params := buildParams()
+		if params != "" {
+			if strings.Contains(base, "?") {
+				return base + "&" + params
+			}
+			return base + "?" + params
+		}
+		return base
+	}
+
 	if uri != "" {
 		return uri
 	}
-
 	return defaultURI
 }
