@@ -163,6 +163,7 @@ func BuildMongoURI(user, pass, host, dbname string) string {
 	if uri != "" && uri != defaultURI {
 		if uri == dockerDefaultURI && haveCreds {
 			// Ignore the docker default URI if we have secrets/credentials to use
+			log.Printf("Warning: MONGODB_URI is set to %q but credentials are available; ignoring this placeholder value and using a credential-based URI instead.", dockerDefaultURI)
 		} else {
 			return uri
 		}
