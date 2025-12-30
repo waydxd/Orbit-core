@@ -129,7 +129,15 @@ func getCredentials(user, pass string) (string, string, bool) {
 
 // helper: build base URI with escaped credentials
 func buildBaseURI(user, pass, host, db string) string {
-	return fmt.Sprintf("mongodb://%s:%s@%s/%s", url.QueryEscape(user), url.QueryEscape(pass), host, db)
+	u := &url.URL{
+		Scheme: "mongodb",
+		Host:   host,
+		Path:   "/" + db,
+	}
+	if user != "" || pass != "" {
+		u.User = url.UserPassword(user, pass)
+	}
+	return u.String()
 }
 
 // helper: build params string (authSource + extra)
