@@ -102,14 +102,27 @@ func (r *SQLEventRepository) GetEventByID(ctx context.Context, id string) (*mode
 
 // ListEvents retrieves events for a user within a time range
 func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, startTime, endTime time.Time) ([]*models.Event, error) {
-	// If userID is empty, return events for all users
-	query := `
+	var rows *sql.Rows
+	var err error
+
+	if userID == "" {
+		query := `
 			SELECT id, user_id, title, description, start_time, end_time, location, created_at, updated_at
 			FROM events
-			WHERE ($1 = '' OR user_id = $1) AND start_time >= $2 AND end_time <= $3
+			WHERE start_time >= $1 AND end_time <= $2
 			ORDER BY start_time
 		`
-	rows, err := r.db.QueryContext(ctx, query, userID, startTime, endTime)
+		rows, err = r.db.QueryContext(ctx, query, startTime, endTime)
+	} else {
+		query := `
+			SELECT id, user_id, title, description, start_time, end_time, location, created_at, updated_at
+			FROM events
+			WHERE user_id = $1 AND start_time >= $2 AND end_time <= $3
+			ORDER BY start_time
+		`
+		rows, err = r.db.QueryContext(ctx, query, userID, startTime, endTime)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to list events: %w", err)
 	}
