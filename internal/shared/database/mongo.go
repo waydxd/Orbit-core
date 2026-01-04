@@ -129,7 +129,15 @@ func getCredentials(user, pass string) (string, string, bool) {
 
 // helper: build base URI with escaped credentials
 func buildBaseURI(user, pass, host, db string) string {
-	return fmt.Sprintf("mongodb://%s:%s@%s/%s", url.QueryEscape(user), url.QueryEscape(pass), host, db)
+	u := &url.URL{
+		Scheme: "mongodb",
+		Host:   host,
+		Path:   "/" + db,
+	}
+	if user != "" || pass != "" {
+		u.User = url.UserPassword(user, pass)
+	}
+	return u.String()
 }
 
 // helper: build params string (authSource + extra)
@@ -163,6 +171,7 @@ func BuildMongoURI(user, pass, host, dbname string) string {
 	if uri != "" && uri != defaultURI {
 		if uri == dockerDefaultURI && haveCreds {
 			// Ignore the docker default URI if we have secrets/credentials to use
+			log.Printf("Warning: MONGODB_URI is set to %q but credentials are available; ignoring this placeholder value and using a credential-based URI instead.", dockerDefaultURI)
 		} else {
 			return uri
 		}
