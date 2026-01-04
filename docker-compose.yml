@@ -5,7 +5,7 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/db_password
       POSTGRES_USER_FILE: /run/secrets/db_user
       POSTGRES_DB_FILE: /run/secrets/db_name
-    # Mount TLS certs (generate using `make postgres-gen-cert` for testing)
+    # Mount TLS certs (for testing, generate self-signed cert/key into ./secrets/postgres_server.crt and ./secrets/postgres_server.key)
     volumes:
       - ./secrets/postgres_server.crt:/var/lib/postgresql/server.crt:ro
       - ./secrets/postgres_server.key:/var/lib/postgresql/server.key:ro
