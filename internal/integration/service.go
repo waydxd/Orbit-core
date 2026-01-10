@@ -582,7 +582,7 @@ func (s *Service) googleSync(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		UserID    string `json:"user_id"`
-		Direction string `json:"direction"` // "from_google", "to_google", or "bidirectional"
+		Direction string `json:"direction"`  // "from_google", "to_google", or "bidirectional"
 		StartTime string `json:"start_time"` // optional, RFC3339 format
 		EndTime   string `json:"end_time"`   // optional, RFC3339 format
 	}

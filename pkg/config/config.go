@@ -94,16 +94,16 @@ type GoogleCalendarConfig struct {
 // /run/secrets/<name> (container) or ./secrets/<name>.txt (local dev). If no secret
 // is available we fall back to the environment variable, then to the default value.
 var secretEnvMap = map[string]string{
-	"DB_USER":               "db_user",
-	"DB_PASSWORD":           "db_password",
-	"DB_NAME":               "db_name",
-	"JWT_SECRET":            "jwt_secret",
-	"RESEND_API_KEY":        "resend_api_key",
-	"MONGO_USER":            "mongo_user",
-	"MONGO_PASSWORD":        "mongo_password",
-	"REDIS_PASSWORD":        "redis_password",
-	"GOOGLE_CLIENT_ID":      "google_client_id",
-	"GOOGLE_CLIENT_SECRET":  "google_client_secret",
+	"DB_USER":              "db_user",
+	"DB_PASSWORD":          "db_password",
+	"DB_NAME":              "db_name",
+	"JWT_SECRET":           "jwt_secret",
+	"RESEND_API_KEY":       "resend_api_key",
+	"MONGO_USER":           "mongo_user",
+	"MONGO_PASSWORD":       "mongo_password",
+	"REDIS_PASSWORD":       "redis_password",
+	"GOOGLE_CLIENT_ID":     "google_client_id",
+	"GOOGLE_CLIENT_SECRET": "google_client_secret",
 }
 
 // Load loads configuration from environment variables and docker secrets

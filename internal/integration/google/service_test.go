@@ -61,10 +61,10 @@ func TestServiceIsConfigured(t *testing.T) {
 	log := logger.New()
 
 	testCases := []struct {
-		name       string
-		clientID   string
-		clientSec  string
-		expected   bool
+		name      string
+		clientID  string
+		clientSec string
+		expected  bool
 	}{
 		{"Not configured - empty", "", "", false},
 		{"Not configured - missing secret", "client-id", "", false},
