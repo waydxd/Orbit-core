@@ -12,13 +12,14 @@ import (
 
 // Config holds all configuration for the application
 type Config struct {
-	Server     ServerConfig
-	Database   DatabaseConfig
-	MongoDB    MongoDBConfig
-	Redis      RedisConfig
-	Auth       AuthConfig
-	Orbi       OrbiConfig
-	GRPCServer GRPCServerConfig
+	Server         ServerConfig
+	Database       DatabaseConfig
+	MongoDB        MongoDBConfig
+	Redis          RedisConfig
+	Auth           AuthConfig
+	Orbi           OrbiConfig
+	GRPCServer     GRPCServerConfig
+	GoogleCalendar GoogleCalendarConfig
 }
 
 // ServerConfig holds server configuration
@@ -79,19 +80,30 @@ type GRPCServerConfig struct {
 	Port int
 }
 
+// GoogleCalendarConfig holds Google Calendar integration configuration
+type GoogleCalendarConfig struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	// WebhookURL is the publicly accessible URL for Google Calendar push notifications
+	WebhookURL string
+}
+
 // secretEnvMap maps environment variable names to docker secret filenames (base names).
 // When a secret is present, we'll prefer reading the corresponding secret from
 // /run/secrets/<name> (container) or ./secrets/<name>.txt (local dev). If no secret
 // is available we fall back to the environment variable, then to the default value.
 var secretEnvMap = map[string]string{
-	"DB_USER":        "db_user",
-	"DB_PASSWORD":    "db_password",
-	"DB_NAME":        "db_name",
-	"JWT_SECRET":     "jwt_secret",
-	"RESEND_API_KEY": "resend_api_key",
-	"MONGO_USER":     "mongo_user",
-	"MONGO_PASSWORD": "mongo_password",
-	"REDIS_PASSWORD": "redis_password",
+	"DB_USER":               "db_user",
+	"DB_PASSWORD":           "db_password",
+	"DB_NAME":               "db_name",
+	"JWT_SECRET":            "jwt_secret",
+	"RESEND_API_KEY":        "resend_api_key",
+	"MONGO_USER":            "mongo_user",
+	"MONGO_PASSWORD":        "mongo_password",
+	"REDIS_PASSWORD":        "redis_password",
+	"GOOGLE_CLIENT_ID":      "google_client_id",
+	"GOOGLE_CLIENT_SECRET":  "google_client_secret",
 }
 
 // Load loads configuration from environment variables and docker secrets
@@ -150,6 +162,12 @@ func Load() (*Config, error) {
 		},
 		GRPCServer: GRPCServerConfig{
 			Port: getEnvAsInt("GRPC_SERVER_PORT", 50052),
+		},
+		GoogleCalendar: GoogleCalendarConfig{
+			ClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
+			ClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
+			RedirectURL:  getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/v1/integration/google/callback"),
+			WebhookURL:   getEnv("GOOGLE_WEBHOOK_URL", ""),
 		},
 	}
 

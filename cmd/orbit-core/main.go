@@ -75,6 +75,9 @@ func main() {
 	locationService := location.NewService(cfg, log, locationRepo)
 	integrationService := integration.NewService(cfg, log)
 
+	// Set calendar service for integration import/export functionality
+	integrationService.SetCalendarService(calendarService)
+
 	// Initialize gRPC client for Orbi agent
 	grpcClient, err := grpc.NewCalendarGRPCClient(cfg, log)
 	if err != nil {
