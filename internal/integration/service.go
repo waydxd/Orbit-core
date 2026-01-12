@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
+	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -247,7 +247,12 @@ func (s *Service) importCalendar(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "file is required"})
 		return
 	}
-	defer file.Close()
+	defer func(file multipart.File) {
+		err := file.Close()
+		if err != nil {
+			s.logger.Error("failed to close uploaded file", "error", err)
+		}
+	}(file)
 
 	// Determine file format from extension or Content-Type
 	filename := header.Filename
@@ -319,6 +324,7 @@ func (s *Service) importCalendar(w http.ResponseWriter, r *http.Request) {
 // GET /api/v1/integration/export
 // Query params: user_id (required), format (optional, default: ics), start_time, end_time
 func (s *Service) exportCalendar(w http.ResponseWriter, r *http.Request) {
+	// Check service availability
 	if s.calendarService == nil {
 		w.Header().Set("Content-Type", "application/json")
 		s.logger.Error("calendar service not configured")
@@ -327,49 +333,20 @@ func (s *Service) exportCalendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
+	// Parse and validate parameters
+	userID, format, startTime, endTime, status, err := s.parseExportParams(r)
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user_id query parameter is required"})
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
-	// Get format (default to ICS)
-	format := strings.ToLower(r.URL.Query().Get("format"))
-	if format == "" {
-		format = "ics"
-	}
-	if format != "ics" && format != "csv" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "unsupported format. Supported formats: ics, csv",
-		})
-		return
-	}
-
-	// Parse time range (default to 1 year from now)
-	now := time.Now()
-	startTime := now.AddDate(-1, 0, 0).Unix() // 1 year ago
-	endTime := now.AddDate(1, 0, 0).Unix()    // 1 year from now
-
-	if startTimeStr := r.URL.Query().Get("start_time"); startTimeStr != "" {
-		if t, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
-			startTime = t.Unix()
-		}
-	}
-	if endTimeStr := r.URL.Query().Get("end_time"); endTimeStr != "" {
-		if t, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
-			endTime = t.Unix()
-		}
-	}
-
-	// Fetch events from calendar service
+	// Fetch and filter events
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	eventsInterface, err := s.calendarService.ListEventsAdapter(ctx, startTime, endTime, "")
+	events, err := s.fetchEventsFiltered(ctx, startTime, endTime, userID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		s.logger.Error("failed to fetch events for export", "error", err)
@@ -378,31 +355,8 @@ func (s *Service) exportCalendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Filter events by user_id and convert to []*models.Event
-	var events []*models.Event
-	for _, e := range eventsInterface {
-		if event, ok := e.(*models.Event); ok {
-			if event.UserID == userID {
-				events = append(events, event)
-			}
-		}
-	}
-
-	// Generate export file
-	var data []byte
-	var contentType, filename string
-
-	switch format {
-	case "ics":
-		data, err = formats.GenerateICS(events)
-		contentType = "text/calendar; charset=utf-8"
-		filename = "calendar_export.ics"
-	case "csv":
-		data, err = formats.GenerateCSV(events)
-		contentType = "text/csv; charset=utf-8"
-		filename = "calendar_export.csv"
-	}
-
+	// Generate export data
+	data, contentType, filename, err := s.generateExportData(format, events)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		s.logger.Error("failed to generate export", "error", err, "format", format)
@@ -420,9 +374,75 @@ func (s *Service) exportCalendar(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 	w.WriteHeader(http.StatusOK)
-	_, err = io.WriteString(w, string(data))
+	_, err = w.Write(data)
 	if err != nil {
 		s.logger.Error("failed to write export response", "error", err)
+	}
+}
+
+// parseExportParams parses and validates export query parameters.
+// Returns userID, format, startTime, endTime, httpStatus (non-0 when err!=nil), and error.
+func (s *Service) parseExportParams(r *http.Request) (string, string, int64, int64, int, error) {
+	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		return "", "", 0, 0, http.StatusBadRequest, fmt.Errorf("user_id query parameter is required")
+	}
+
+	format := strings.ToLower(r.URL.Query().Get("format"))
+	if format == "" {
+		format = "ics"
+	}
+	if format != "ics" && format != "csv" {
+		return "", "", 0, 0, http.StatusBadRequest, fmt.Errorf("unsupported format. Supported formats: ics, csv")
+	}
+
+	now := time.Now()
+	startTime := now.AddDate(-1, 0, 0).Unix() // 1 year ago
+	endTime := now.AddDate(1, 0, 0).Unix()    // 1 year from now
+
+	if startTimeStr := r.URL.Query().Get("start_time"); startTimeStr != "" {
+		if t, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
+			startTime = t.Unix()
+		}
+	}
+	if endTimeStr := r.URL.Query().Get("end_time"); endTimeStr != "" {
+		if t, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
+			endTime = t.Unix()
+		}
+	}
+
+	return userID, format, startTime, endTime, 0, nil
+}
+
+// fetchEventsFiltered retrieves events from the calendar service and filters them by userID.
+func (s *Service) fetchEventsFiltered(ctx context.Context, startTime, endTime int64, userID string) ([]*models.Event, error) {
+	eventsInterface, err := s.calendarService.ListEventsAdapter(ctx, startTime, endTime, "")
+	if err != nil {
+		return nil, err
+	}
+
+	var events []*models.Event
+	for _, e := range eventsInterface {
+		if event, ok := e.(*models.Event); ok {
+			if event.UserID == userID {
+				events = append(events, event)
+			}
+		}
+	}
+	return events, nil
+}
+
+// generateExportData produces export bytes, content-type and filename based on format.
+func (s *Service) generateExportData(format string, events []*models.Event) ([]byte, string, string, error) {
+	switch format {
+	case "ics":
+		data, err := formats.GenerateICS(events)
+		return data, "text/calendar; charset=utf-8", "calendar_export.ics", err
+	case "csv":
+		data, err := formats.GenerateCSV(events)
+		return data, "text/csv; charset=utf-8", "calendar_export.csv", err
+	default:
+		return nil, "", "", fmt.Errorf("unsupported format: %s", format)
 	}
 }
 

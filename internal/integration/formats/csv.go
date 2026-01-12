@@ -54,41 +54,63 @@ func ParseCSV(r io.Reader, userID string) ([]*models.Event, error) {
 			continue
 		}
 
-		event := &models.Event{
-			ID:        uuid.New().String(),
-			UserID:    userID,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-
-		// Extract values based on column mapping
-		if idx, ok := colIndex["title"]; ok && idx < len(row) {
-			event.Title = strings.TrimSpace(row[idx])
-		}
-		if idx, ok := colIndex["description"]; ok && idx < len(row) {
-			event.Description = strings.TrimSpace(row[idx])
-		}
-		if idx, ok := colIndex["start_time"]; ok && idx < len(row) {
-			if t, err := parseCSVDateTime(row[idx]); err == nil {
-				event.StartTime = t
-			}
-		}
-		if idx, ok := colIndex["end_time"]; ok && idx < len(row) {
-			if t, err := parseCSVDateTime(row[idx]); err == nil {
-				event.EndTime = t
-			}
-		}
-		if idx, ok := colIndex["location"]; ok && idx < len(row) {
-			event.Location = strings.TrimSpace(row[idx])
-		}
-
-		// Only add events with at least a title
-		if event.Title != "" {
-			events = append(events, event)
+		if ev := createEventFromRow(row, colIndex, userID); ev != nil {
+			events = append(events, ev)
 		}
 	}
 
 	return events, nil
+}
+
+// safeGet returns the trimmed string at index idx or an empty string if out of range
+func safeGet(row []string, idx int) string {
+	if idx < 0 || idx >= len(row) {
+		return ""
+	}
+	return strings.TrimSpace(row[idx])
+}
+
+// createEventFromRow builds an Event from a CSV row using the provided column mapping.
+// Returns nil when the row doesn't contain enough data to form an event (e.g., empty title).
+func createEventFromRow(row []string, colIndex map[string]int, userID string) *models.Event {
+	event := &models.Event{
+		ID:        uuid.New().String(),
+		UserID:    userID,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	// Extract values based on column mapping using safeGet
+	if idx, ok := colIndex["title"]; ok {
+		event.Title = safeGet(row, idx)
+	} else if len(row) > 0 {
+		// Fallback to first column if header wasn't recognized
+		event.Title = strings.TrimSpace(row[0])
+
+	}
+	if idx, ok := colIndex["description"]; ok {
+		event.Description = safeGet(row, idx)
+	}
+	if idx, ok := colIndex["start_time"]; ok {
+		if t, err := parseCSVDateTime(safeGet(row, idx)); err == nil {
+			event.StartTime = t
+		}
+	}
+	if idx, ok := colIndex["end_time"]; ok {
+		if t, err := parseCSVDateTime(safeGet(row, idx)); err == nil {
+			event.EndTime = t
+		}
+	}
+	if idx, ok := colIndex["location"]; ok {
+		event.Location = safeGet(row, idx)
+	}
+
+	// Only add events with at least a title
+	if event.Title == "" {
+		return nil
+	}
+
+	return event
 }
 
 // mapCSVHeaders creates a mapping from normalized header names to column indices

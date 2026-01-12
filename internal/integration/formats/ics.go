@@ -49,7 +49,8 @@ func ParseICS(r io.Reader, userID string) ([]*models.Event, error) {
 
 		// Check for BEGIN/END markers
 		upperLine := strings.ToUpper(line)
-		if upperLine == "BEGIN:VEVENT" {
+		switch upperLine {
+		case "BEGIN:VEVENT":
 			inEvent = true
 			currentEvent = &models.Event{
 				ID:        uuid.New().String(),
@@ -57,7 +58,7 @@ func ParseICS(r io.Reader, userID string) ([]*models.Event, error) {
 				CreatedAt: time.Now(),
 				UpdatedAt: time.Now(),
 			}
-		} else if upperLine == "END:VEVENT" {
+		case "END:VEVENT":
 			if currentEvent != nil {
 				// Process the last property before END:VEVENT
 				if propertyBuffer.Len() > 0 && !strings.HasPrefix(strings.ToUpper(propertyBuffer.String()), "END:") {

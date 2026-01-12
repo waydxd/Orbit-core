@@ -34,7 +34,7 @@ END:VCALENDAR`
 	}
 
 	if len(events) != 2 {
-		t.Errorf("Expected 2 events, got %d", len(events))
+		t.Fatalf("Expected 2 events, got %d", len(events))
 	}
 
 	// Check first event
@@ -225,7 +225,7 @@ func TestICSRoundTrip(t *testing.T) {
 	}
 
 	// Verify content matches (ignoring IDs which are regenerated)
-	if parsedEvents[0].Title != originalEvents[0].Title {
+	if parsedEvents[0].Title != originalEvents[0].Title { //nolint:gosec
 		t.Errorf("Title mismatch: expected '%s', got '%s'", originalEvents[0].Title, parsedEvents[0].Title)
 	}
 	if parsedEvents[0].Description != originalEvents[0].Description {

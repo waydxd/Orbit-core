@@ -2,7 +2,6 @@ package google
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -516,14 +515,4 @@ func (s *Service) GetConnectionStatus(ctx context.Context, userID string) (map[s
 	status["status"] = "active"
 	status["message"] = "Connected to Google Calendar"
 	return status, nil
-}
-
-// MarshalJSON implements custom JSON marshaling for Token to avoid exposing refresh token
-func marshalTokenSafe(token *oauth2.Token) json.RawMessage {
-	safe := map[string]interface{}{
-		"expiry": token.Expiry,
-		"valid":  token.Valid(),
-	}
-	data, _ := json.Marshal(safe)
-	return data
 }

@@ -19,7 +19,7 @@ Meeting 2,Second meeting,2024-01-16 14:00:00,2024-01-16 15:00:00,Room B`
 	}
 
 	if len(events) != 2 {
-		t.Errorf("Expected 2 events, got %d", len(events))
+		t.Fatalf("Expected 2 events, got %d", len(events))
 	}
 
 	// Check first event
@@ -210,7 +210,7 @@ func TestCSVRoundTrip(t *testing.T) {
 	}
 
 	// Verify content matches (ignoring IDs which are regenerated)
-	if parsedEvents[0].Title != originalEvents[0].Title {
+	if parsedEvents[0].Title != originalEvents[0].Title { //nolint:gosec
 		t.Errorf("Title mismatch: expected '%s', got '%s'", originalEvents[0].Title, parsedEvents[0].Title)
 	}
 	if parsedEvents[0].Description != originalEvents[0].Description {
