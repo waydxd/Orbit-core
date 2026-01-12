@@ -29,12 +29,15 @@ type ServerConfig struct {
 
 // DatabaseConfig holds PostgreSQL configuration
 type DatabaseConfig struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	DBName   string
-	SSLMode  string
+	Host        string
+	Port        int
+	User        string
+	Password    string
+	DBName      string
+	SSLMode     string
+	SSLRootCert string
+	SSLCert     string
+	SSLKey      string
 }
 
 // MongoDBConfig holds MongoDB configuration
@@ -110,12 +113,15 @@ func Load() (*Config, error) {
 			Host: getEnv("SERVER_HOST", "0.0.0.0"),
 		},
 		Database: DatabaseConfig{
-			Host:     getEnv("DB_HOST", "localhost"),
-			Port:     getEnvAsInt("DB_PORT", 5432),
-			User:     getEnv("DB_USER", "postgres"),
-			Password: getEnv("DB_PASSWORD", "postgres"),
-			DBName:   getEnv("DB_NAME", "orbit"),
-			SSLMode:  getEnv("DB_SSLMODE", "disable"),
+			Host:        getEnv("DB_HOST", "localhost"),
+			Port:        getEnvAsInt("DB_PORT", 5432),
+			User:        getEnv("DB_USER", "postgres"),
+			Password:    getEnv("DB_PASSWORD", "postgres"),
+			DBName:      getEnv("DB_NAME", "orbit"),
+			SSLMode:     getEnv("DB_SSLMODE", "disable"),
+			SSLRootCert: getEnv("DB_SSLROOTCERT", ""),
+			SSLCert:     getEnv("DB_SSLCERT", ""),
+			SSLKey:      getEnv("DB_SSLKEY", ""),
 		},
 		MongoDB: MongoDBConfig{
 			User:     getEnv("MONGO_USER", ""),
@@ -216,10 +222,21 @@ func readSecret(name string) (string, error) {
 
 // ConnectionString returns PostgreSQL connection string
 func (c *DatabaseConfig) ConnectionString() string {
-	return fmt.Sprintf(
+	base := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		c.Host, c.Port, c.User, c.Password, c.DBName, c.SSLMode,
 	)
+	// append SSL file params if provided
+	if c.SSLRootCert != "" {
+		base += fmt.Sprintf(" sslrootcert=%s", c.SSLRootCert)
+	}
+	if c.SSLCert != "" {
+		base += fmt.Sprintf(" sslcert=%s", c.SSLCert)
+	}
+	if c.SSLKey != "" {
+		base += fmt.Sprintf(" sslkey=%s", c.SSLKey)
+	}
+	return base
 }
 
 // RedisAddr returns Redis address
