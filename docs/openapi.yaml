@@ -1551,7 +1551,7 @@ components:
       properties:
         direction:
           type: string
-          enum: [import, export, bidirectional]
+          enum: [from_google, to_google, bidirectional]
           example: bidirectional
         user_id:
           type: string
