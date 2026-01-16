@@ -279,7 +279,7 @@ func (s *Service) importCalendar(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("failed to parse file", "error", parseErr, "format", ext)
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf("failed to parse file: %v", parseErr),
+			"error": "failed to parse file",
 		})
 		return
 	}
