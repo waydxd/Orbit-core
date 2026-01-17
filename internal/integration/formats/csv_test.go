@@ -76,8 +76,18 @@ func TestParseCSVDateFormats(t *testing.T) {
 	}{
 		{"RFC3339", "2024-01-15T10:00:00Z", time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
 		{"ISO with space", "2024-01-15 10:00:00", time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
-		{"Date only", "2024-01-15", time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)},
-		{"US format", "01/15/2024 10:00:00", time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{"ISO without seconds", "2024-01-15 10:00", time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{"Date only ISO", "2024-01-15", time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)},
+		{"US format with time", "01/15/2024 10:00:00", time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{"US format without seconds", "01/15/2024 10:00", time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{"US format date only", "01/15/2024", time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)},
+		{"EU format with time", "15/01/2024 10:00:00", time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{"EU format without seconds", "15/01/2024 10:00", time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{"EU format date only", "15/01/2024", time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)},
+		{"Day first month name full", "15 Jan 2024 10:00:00", time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{"Day first month name no seconds", "15 Jan 2024 10:00", time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
+		{"Day first month name date only", "15 Jan 2024", time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)},
+		{"ISO T format no Z", "2024-01-15T10:00:00", time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)},
 	}
 
 	for _, tc := range testCases {

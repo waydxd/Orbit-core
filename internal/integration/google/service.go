@@ -75,6 +75,12 @@ func (s *InMemoryTokenStore) DeleteToken(_ context.Context, userID string) error
 	return nil
 }
 
+// pendingAuthEntry stores a userID and creation time for OAuth state validation
+type pendingAuthEntry struct {
+	userID    string
+	createdAt time.Time
+}
+
 // Service provides Google Calendar integration
 type Service struct {
 	config          *config.Config
@@ -83,20 +89,28 @@ type Service struct {
 	tokenStore      TokenStore
 	calendarService CalendarServiceInterface
 
-	// pendingAuth stores state -> userID mapping for OAuth flow
-	pendingAuth   map[string]string
+	// pendingAuth stores state -> pendingAuthEntry mapping for OAuth flow
+	// Entries expire after pendingAuthTTL to prevent memory leaks
+	pendingAuth   map[string]pendingAuthEntry
 	pendingAuthMu sync.RWMutex
 }
+
+const (
+	// pendingAuthTTL is the maximum time a pending auth state is valid
+	pendingAuthTTL = 10 * time.Minute
+	// pendingAuthMaxSize is the maximum number of pending auth entries before cleanup
+	pendingAuthMaxSize = 1000
+)
 
 // NewService creates a new Google Calendar integration service
 func NewService(cfg *config.Config, log *logger.Logger, tokenStore TokenStore) *Service {
 	// Create OAuth2 config for Google Calendar
+	// Using only CalendarEventsScope which provides read and write access to calendar events
 	oauthConfig := &oauth2.Config{
 		ClientID:     cfg.GoogleCalendar.ClientID,
 		ClientSecret: cfg.GoogleCalendar.ClientSecret,
 		RedirectURL:  cfg.GoogleCalendar.RedirectURL,
 		Scopes: []string{
-			gcal.CalendarReadonlyScope,
 			gcal.CalendarEventsScope,
 		},
 		Endpoint: google.Endpoint,
@@ -107,7 +121,7 @@ func NewService(cfg *config.Config, log *logger.Logger, tokenStore TokenStore) *
 		logger:      log,
 		oauthConfig: oauthConfig,
 		tokenStore:  tokenStore,
-		pendingAuth: make(map[string]string),
+		pendingAuth: make(map[string]pendingAuthEntry),
 	}
 }
 
@@ -131,9 +145,16 @@ func (s *Service) GetAuthURL(userID string) (string, error) {
 	// Generate a state token for CSRF protection
 	state := uuid.New().String()
 
-	// Store the state -> userID mapping
+	// Store the state -> userID mapping with timestamp
 	s.pendingAuthMu.Lock()
-	s.pendingAuth[state] = userID
+	// Clean up expired entries if map is getting large
+	if len(s.pendingAuth) >= pendingAuthMaxSize {
+		s.cleanupExpiredPendingAuth()
+	}
+	s.pendingAuth[state] = pendingAuthEntry{
+		userID:    userID,
+		createdAt: time.Now(),
+	}
 	s.pendingAuthMu.Unlock()
 
 	// Generate the OAuth URL
@@ -141,11 +162,22 @@ func (s *Service) GetAuthURL(userID string) (string, error) {
 	return url, nil
 }
 
+// cleanupExpiredPendingAuth removes expired entries from pendingAuth map
+// Must be called with pendingAuthMu lock held
+func (s *Service) cleanupExpiredPendingAuth() {
+	now := time.Now()
+	for state, entry := range s.pendingAuth {
+		if now.Sub(entry.createdAt) > pendingAuthTTL {
+			delete(s.pendingAuth, state)
+		}
+	}
+}
+
 // HandleCallback processes the OAuth callback from Google
 func (s *Service) HandleCallback(ctx context.Context, state, code string) (string, error) {
 	// Validate state and get userID
 	s.pendingAuthMu.Lock()
-	userID, ok := s.pendingAuth[state]
+	entry, ok := s.pendingAuth[state]
 	if ok {
 		delete(s.pendingAuth, state)
 	}
@@ -154,6 +186,13 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) (strin
 	if !ok {
 		return "", errors.New("invalid state parameter")
 	}
+
+	// Check if the state has expired
+	if time.Since(entry.createdAt) > pendingAuthTTL {
+		return "", errors.New("state parameter has expired")
+	}
+
+	userID := entry.userID
 
 	// Exchange the authorization code for tokens
 	token, err := s.oauthConfig.Exchange(ctx, code)

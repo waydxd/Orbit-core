@@ -32,24 +32,30 @@ func ParseCSV(r io.Reader, userID string) ([]*models.Event, error) {
 	reader.FieldsPerRecord = -1 // Allow variable number of fields
 	reader.TrimLeadingSpace = true
 
-	records, err := reader.ReadAll()
+	// Read header row
+	headerRow, err := reader.Read()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read CSV: %w", err)
-	}
-
-	if len(records) == 0 {
-		return []*models.Event{}, nil
+		if err == io.EOF {
+			// Empty file
+			return []*models.Event{}, nil
+		}
+		return nil, fmt.Errorf("failed to read CSV header: %w", err)
 	}
 
 	// Parse header row to determine column indices
-	headerRow := records[0]
 	colIndex := mapCSVHeaders(headerRow)
 
 	var events []*models.Event
 
-	// Parse data rows (skip header)
-	for i := 1; i < len(records); i++ {
-		row := records[i]
+	// Parse data rows (streaming, one record at a time)
+	for {
+		row, err := reader.Read()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("failed to read CSV record: %w", err)
+		}
 		if len(row) == 0 {
 			continue
 		}

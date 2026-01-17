@@ -241,3 +241,107 @@ func TestICSRoundTrip(t *testing.T) {
 		t.Errorf("EndTime mismatch: expected %v, got %v", originalEvents[0].EndTime, parsedEvents[0].EndTime)
 	}
 }
+
+func TestParseICSWithTimezone(t *testing.T) {
+	// Test event with TZID parameter (America/New_York)
+	icsContent := `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//Test//EN
+BEGIN:VEVENT
+UID:tz-event@test.com
+DTSTART;TZID=America/New_York:20240115T100000
+DTEND;TZID=America/New_York:20240115T110000
+SUMMARY:Timezone Event
+END:VEVENT
+END:VCALENDAR`
+
+	events, err := ParseICS(strings.NewReader(icsContent), "user123")
+	if err != nil {
+		t.Fatalf("ParseICS failed: %v", err)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("Expected 1 event, got %d", len(events))
+	}
+
+	// Verify the event was parsed (timezone handling may vary by system)
+	if events[0].Title != "Timezone Event" {
+		t.Errorf("Expected title 'Timezone Event', got '%s'", events[0].Title)
+	}
+
+	// The time should be parsed in the specified timezone
+	loc, err := time.LoadLocation("America/New_York")
+	if err == nil {
+		expectedStart := time.Date(2024, 1, 15, 10, 0, 0, 0, loc)
+		if !events[0].StartTime.Equal(expectedStart) {
+			t.Errorf("Expected start time %v, got %v", expectedStart, events[0].StartTime)
+		}
+	}
+}
+
+func TestParseICSWithLineFolding(t *testing.T) {
+	// Test line folding (RFC 5545 compliant) - continuation lines start with space or tab
+	icsContent := `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:folded@test.com
+DTSTART:20240115T100000Z
+DTEND:20240115T110000Z
+SUMMARY:This is a very long title that needs to be folded across
+ multiple lines in the ICS file
+DESCRIPTION:This is a description that also spans
+	multiple lines using tab continuation
+END:VEVENT
+END:VCALENDAR`
+
+	events, err := ParseICS(strings.NewReader(icsContent), "user123")
+	if err != nil {
+		t.Fatalf("ParseICS failed: %v", err)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("Expected 1 event, got %d", len(events))
+	}
+
+	// Line folding removes leading whitespace from continuation lines
+	expectedTitle := "This is a very long title that needs to be folded acrossmultiple lines in the ICS file"
+	if events[0].Title != expectedTitle {
+		t.Errorf("Expected folded title '%s', got '%s'", expectedTitle, events[0].Title)
+	}
+
+	expectedDesc := "This is a description that also spansmultiple lines using tab continuation"
+	if events[0].Description != expectedDesc {
+		t.Errorf("Expected folded description '%s', got '%s'", expectedDesc, events[0].Description)
+	}
+}
+
+func TestParseICSLocalTime(t *testing.T) {
+	// Test event with local time (no Z suffix, no TZID)
+	icsContent := `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:local@test.com
+DTSTART:20240115T100000
+DTEND:20240115T110000
+SUMMARY:Local Time Event
+END:VEVENT
+END:VCALENDAR`
+
+	events, err := ParseICS(strings.NewReader(icsContent), "user123")
+	if err != nil {
+		t.Fatalf("ParseICS failed: %v", err)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("Expected 1 event, got %d", len(events))
+	}
+
+	if events[0].Title != "Local Time Event" {
+		t.Errorf("Expected title 'Local Time Event', got '%s'", events[0].Title)
+	}
+
+	// Verify time components (parsed as local time without timezone)
+	if events[0].StartTime.Hour() != 10 || events[0].StartTime.Minute() != 0 {
+		t.Errorf("Expected start time 10:00, got %v", events[0].StartTime)
+	}
+}

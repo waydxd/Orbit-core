@@ -36,8 +36,11 @@ type Service struct {
 
 // NewService creates a new Integration Service
 func NewService(cfg *config.Config, log *logger.Logger) *Service {
-	// Initialize Google Calendar service with in-memory token store
-	// TODO: Replace with database-backed token store in production
+	// Initialize Google Calendar service with in-memory token store.
+	// WARNING: The in-memory token store is not suitable for production use because
+	// tokens are lost on server restart and cannot be shared across multiple instances.
+	// Replace google.NewInMemoryTokenStore with a database-backed implementation
+	// before deploying this service to a production environment.
 	tokenStore := google.NewInMemoryTokenStore()
 	googleSvc := google.NewService(cfg, log, tokenStore)
 
@@ -231,8 +234,8 @@ func (s *Service) importCalendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse multipart form with a 10MB max size
-	const maxFileSize = 10 << 20 // 10MB
+	// Parse multipart form with a 50MB max size
+	const maxFileSize = 50 << 20 // 50MB
 	if err := r.ParseMultipartForm(maxFileSize); err != nil {
 		s.logger.Error("failed to parse multipart form", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
@@ -279,7 +282,7 @@ func (s *Service) importCalendar(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("failed to parse file", "error", parseErr, "format", ext)
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf("failed to parse file: %v", parseErr),
+			"error": "failed to parse file",
 		})
 		return
 	}
@@ -671,17 +674,28 @@ func (s *Service) googleSync(w http.ResponseWriter, r *http.Request) {
 		result["message"] = "Sync to Google Calendar completed"
 
 	case "bidirectional":
-		importCount, err := s.googleService.SyncFromGoogle(ctx, req.UserID, startTime, endTime)
-		if err != nil {
-			s.logger.Warn("sync from Google failed during bidirectional sync", "error", err)
+		importCount, importErr := s.googleService.SyncFromGoogle(ctx, req.UserID, startTime, endTime)
+		if importErr != nil {
+			s.logger.Warn("sync from Google failed during bidirectional sync", "error", importErr, "user_id", req.UserID)
 		}
-		exportCount, err := s.googleService.SyncToGoogle(ctx, req.UserID, startTime, endTime)
-		if err != nil {
-			s.logger.Warn("sync to Google failed during bidirectional sync", "error", err)
+		exportCount, exportErr := s.googleService.SyncToGoogle(ctx, req.UserID, startTime, endTime)
+		if exportErr != nil {
+			s.logger.Warn("sync to Google failed during bidirectional sync", "error", exportErr, "user_id", req.UserID)
 		}
 		result["imported_count"] = importCount
 		result["exported_count"] = exportCount
-		result["message"] = "Bidirectional sync completed"
+
+		if importErr != nil || exportErr != nil {
+			result["message"] = "Bidirectional sync completed with errors"
+			if importErr != nil {
+				result["from_google_error"] = importErr.Error()
+			}
+			if exportErr != nil {
+				result["to_google_error"] = exportErr.Error()
+			}
+		} else {
+			result["message"] = "Bidirectional sync completed"
+		}
 
 	default:
 		w.WriteHeader(http.StatusBadRequest)
