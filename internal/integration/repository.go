@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -70,7 +71,7 @@ func (r *SQLRepository) GetIntegrationByID(ctx context.Context, id string) (*mod
 		&integration.UpdatedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("integration not found")
 		}
 		return nil, fmt.Errorf("failed to get integration: %w", err)

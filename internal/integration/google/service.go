@@ -342,31 +342,34 @@ func googleEventToModel(gEvent *gcal.Event, userID string) *models.Event {
 
 	// Parse start time
 	if gEvent.Start != nil {
-		if gEvent.Start.DateTime != "" {
-			if t, err := time.Parse(time.RFC3339, gEvent.Start.DateTime); err == nil {
-				event.StartTime = t
-			}
-		} else if gEvent.Start.Date != "" {
-			if t, err := time.Parse("2006-01-02", gEvent.Start.Date); err == nil {
-				event.StartTime = t
-			}
+		if t := parseGoogleEventDateTime(gEvent.Start.DateTime, gEvent.Start.Date); !t.IsZero() {
+			event.StartTime = t
 		}
 	}
 
 	// Parse end time
 	if gEvent.End != nil {
-		if gEvent.End.DateTime != "" {
-			if t, err := time.Parse(time.RFC3339, gEvent.End.DateTime); err == nil {
-				event.EndTime = t
-			}
-		} else if gEvent.End.Date != "" {
-			if t, err := time.Parse("2006-01-02", gEvent.End.Date); err == nil {
-				event.EndTime = t
-			}
+		if t := parseGoogleEventDateTime(gEvent.End.DateTime, gEvent.End.Date); !t.IsZero() {
+			event.EndTime = t
 		}
 	}
 
 	return event
+}
+
+// parseGoogleEventDateTime parses either an RFC3339 datetime or a YYYY-MM-DD date.
+// Returns zero time if parsing fails or values are empty.
+func parseGoogleEventDateTime(dateTime, date string) time.Time {
+	if dateTime != "" {
+		if t, err := time.Parse(time.RFC3339, dateTime); err == nil {
+			return t
+		}
+	} else if date != "" {
+		if t, err := time.Parse("2006-01-02", date); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 // modelToGoogleEvent converts our event model to a Google Calendar event
@@ -394,7 +397,7 @@ type WatchNotification struct {
 }
 
 // HandleWebhook processes incoming Google Calendar push notifications
-func (s *Service) HandleWebhook(ctx context.Context, r *http.Request) error {
+func (s *Service) HandleWebhook(r *http.Request) error {
 	// Parse the notification headers
 	channelID := r.Header.Get("X-Goog-Channel-ID")
 	resourceState := r.Header.Get("X-Goog-Resource-State")

@@ -1,231 +1,128 @@
 package formats
 
 import (
-	"bufio"
-	"bytes"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
+	ics "github.com/arran4/golang-ical"
 	"github.com/google/uuid"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 )
 
-const (
-	icsDateFormat     = "20060102T150405Z"
-	icsDateOnlyFormat = "20060102"
-)
-
-// ParseICS parses an ICS file and returns a slice of events.
-// It supports VEVENT components with standard properties.
+// ParseICS parses an ICS file and returns a slice of events using github.com/arran4/golang-ical.
 func ParseICS(r io.Reader, userID string) ([]*models.Event, error) {
-	var events []*models.Event
-	scanner := bufio.NewScanner(r)
-
-	var currentEvent *models.Event
-	var inEvent bool
-	var propertyBuffer strings.Builder
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// Handle line folding (lines starting with space or tab are continuations)
-		if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') {
-			propertyBuffer.WriteString(strings.TrimLeft(line, " \t"))
-			continue
-		}
-
-		// Process the previous property if we have one
-		if propertyBuffer.Len() > 0 {
-			if inEvent && currentEvent != nil {
-				parseICSProperty(propertyBuffer.String(), currentEvent)
-			}
-			propertyBuffer.Reset()
-		}
-
-		// Start buffering the new property
-		propertyBuffer.WriteString(line)
-
-		// Check for BEGIN/END markers
-		upperLine := strings.ToUpper(line)
-		switch upperLine {
-		case "BEGIN:VEVENT":
-			inEvent = true
-			currentEvent = &models.Event{
-				ID:        uuid.New().String(),
-				UserID:    userID,
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-			}
-		case "END:VEVENT":
-			if currentEvent != nil {
-				// Process the last property before END:VEVENT
-				if propertyBuffer.Len() > 0 && !strings.HasPrefix(strings.ToUpper(propertyBuffer.String()), "END:") {
-					parseICSProperty(propertyBuffer.String(), currentEvent)
-				}
-				events = append(events, currentEvent)
-			}
-			inEvent = false
-			currentEvent = nil
-			propertyBuffer.Reset()
-		}
+	cal, err := ics.ParseCalendar(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ICS: %w", err)
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read ICS file: %w", err)
+	var events []*models.Event
+	for _, vEvent := range cal.Events() {
+		events = append(events, vEventToEvent(vEvent, userID))
 	}
 
 	return events, nil
 }
 
-// parseICSProperty parses a single ICS property line and updates the event
-func parseICSProperty(line string, event *models.Event) {
-	// Split property name and value
-	colonIdx := strings.Index(line, ":")
-	if colonIdx == -1 {
-		return
+// vEventToEvent converts a library VEvent into our models.Event.
+func vEventToEvent(vEvent *ics.VEvent, userID string) *models.Event {
+	event := &models.Event{
+		ID:        vEvent.Id(),
+		UserID:    userID,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
-	propertyPart := line[:colonIdx]
-	value := line[colonIdx+1:]
+	// Basic string properties
+	event.Title = getPropValue(vEvent, ics.ComponentPropertySummary)
+	event.Description = getPropValue(vEvent, ics.ComponentPropertyDescription)
+	event.Location = getPropValue(vEvent, ics.ComponentPropertyLocation)
 
-	// Extract property name (before any parameters)
-	semicolonIdx := strings.Index(propertyPart, ";")
-	var propertyName string
-	if semicolonIdx == -1 {
-		propertyName = propertyPart
-	} else {
-		propertyName = propertyPart[:semicolonIdx]
+	// Parse start/end times (handles DATE-only and full datetimes)
+	start, end := parseStartEnd(vEvent)
+	if !start.IsZero() {
+		event.StartTime = start
+	}
+	if !end.IsZero() {
+		event.EndTime = end
 	}
 
-	propertyName = strings.ToUpper(propertyName)
-
-	switch propertyName {
-	case "SUMMARY":
-		event.Title = unescapeICSValue(value)
-	case "DESCRIPTION":
-		event.Description = unescapeICSValue(value)
-	case "LOCATION":
-		event.Location = unescapeICSValue(value)
-	case "DTSTART":
-		if t, err := parseICSDateTime(value, propertyPart); err == nil {
-			event.StartTime = t
-		}
-	case "DTEND":
-		if t, err := parseICSDateTime(value, propertyPart); err == nil {
-			event.EndTime = t
-		}
-	case "UID":
-		// Optionally use UID if needed for external tracking
-		// event.ExternalID = value
+	// Ensure we have a valid ID
+	if event.ID == "" {
+		event.ID = uuid.New().String()
 	}
+
+	return event
 }
 
-// parseICSDateTime parses an ICS date-time value
-func parseICSDateTime(value, propertyPart string) (time.Time, error) {
-	value = strings.TrimSpace(value)
-
-	// Check for VALUE=DATE parameter (date-only format)
-	if strings.Contains(strings.ToUpper(propertyPart), "VALUE=DATE") {
-		return time.Parse(icsDateOnlyFormat, value)
+// getPropValue safely retrieves the IANA property value for a component property.
+func getPropValue(vEvent *ics.VEvent, prop ics.ComponentProperty) string {
+	p := vEvent.GetProperty(prop)
+	if p == nil {
+		return ""
 	}
+	return p.Value
+}
 
-	// Check for TZID parameter
-	if strings.Contains(strings.ToUpper(propertyPart), "TZID=") {
-		// Extract timezone
-		params := strings.Split(propertyPart, ";")
-		for _, param := range params {
-			if strings.HasPrefix(strings.ToUpper(param), "TZID=") {
-				tzName := strings.TrimPrefix(param, "TZID=")
-				tzName = strings.TrimPrefix(tzName, "tzid=")
-				if loc, err := time.LoadLocation(tzName); err == nil {
-					// Parse as local time in the specified timezone
-					localFormat := "20060102T150405"
-					t, err := time.ParseInLocation(localFormat, value, loc)
-					if err == nil {
-						return t, nil
-					}
-				}
+// parseStartEnd returns start and end times for the event. DATE-only properties are parsed as UTC midnight.
+func parseStartEnd(vEvent *ics.VEvent) (time.Time, time.Time) {
+	var start time.Time
+	var end time.Time
+
+	// Start
+	if prop := vEvent.GetProperty(ics.ComponentPropertyDtStart); prop != nil {
+		if prop.GetValueType() == ics.ValueDataTypeDate {
+			if t, err := time.Parse("20060102", prop.Value); err == nil {
+				start = t.UTC()
 			}
 		}
 	}
-
-	// Try UTC format (with Z suffix)
-	if strings.HasSuffix(value, "Z") {
-		return time.Parse(icsDateFormat, value)
+	if start.IsZero() {
+		if s, err := vEvent.GetStartAt(); err == nil {
+			start = s.UTC()
+		}
 	}
 
-	// Try local time format
-	localFormat := "20060102T150405"
-	return time.Parse(localFormat, value)
+	// End
+	if prop := vEvent.GetProperty(ics.ComponentPropertyDtEnd); prop != nil {
+		if prop.GetValueType() == ics.ValueDataTypeDate {
+			if t, err := time.Parse("20060102", prop.Value); err == nil {
+				end = t.UTC()
+			}
+		}
+	}
+	if end.IsZero() {
+		if e, err := vEvent.GetEndAt(); err == nil {
+			end = e.UTC()
+		}
+	}
+
+	return start, end
 }
 
-// unescapeICSValue unescapes ICS property values
-func unescapeICSValue(value string) string {
-	value = strings.ReplaceAll(value, "\\n", "\n")
-	value = strings.ReplaceAll(value, "\\N", "\n")
-	value = strings.ReplaceAll(value, "\\,", ",")
-	value = strings.ReplaceAll(value, "\\;", ";")
-	value = strings.ReplaceAll(value, "\\\\", "\\")
-	return value
-}
-
-// GenerateICS generates an ICS file from a slice of events
+// GenerateICS generates an ICS file from a slice of events using github.com/arran4/golang-ical.
 func GenerateICS(events []*models.Event) ([]byte, error) {
-	var buf bytes.Buffer
+	cal := ics.NewCalendar()
+	cal.SetMethod(ics.MethodPublish)
+	cal.SetProductId("-//Orbit-core//Calendar//EN")
 
-	// Write calendar header
-	buf.WriteString("BEGIN:VCALENDAR\r\n")
-	buf.WriteString("VERSION:2.0\r\n")
-	buf.WriteString("PRODID:-//Orbit-core//Calendar//EN\r\n")
-	buf.WriteString("CALSCALE:GREGORIAN\r\n")
-	buf.WriteString("METHOD:PUBLISH\r\n")
-
-	// Write events
-	for _, event := range events {
-		buf.WriteString("BEGIN:VEVENT\r\n")
-
-		// UID
-		buf.WriteString(fmt.Sprintf("UID:%s@orbit-core\r\n", event.ID))
-
-		// Timestamps
-		buf.WriteString(fmt.Sprintf("DTSTAMP:%s\r\n", time.Now().UTC().Format(icsDateFormat)))
-		buf.WriteString(fmt.Sprintf("DTSTART:%s\r\n", event.StartTime.UTC().Format(icsDateFormat)))
-		buf.WriteString(fmt.Sprintf("DTEND:%s\r\n", event.EndTime.UTC().Format(icsDateFormat)))
-
-		// Summary (title)
-		if event.Title != "" {
-			buf.WriteString(fmt.Sprintf("SUMMARY:%s\r\n", escapeICSValue(event.Title)))
+	for _, e := range events {
+		id := e.ID
+		if id == "" {
+			id = uuid.New().String()
 		}
+		event := cal.AddEvent(id)
 
-		// Description
-		if event.Description != "" {
-			buf.WriteString(fmt.Sprintf("DESCRIPTION:%s\r\n", escapeICSValue(event.Description)))
-		}
-
-		// Location
-		if event.Location != "" {
-			buf.WriteString(fmt.Sprintf("LOCATION:%s\r\n", escapeICSValue(event.Location)))
-		}
-
-		// Created/Last-Modified
-		buf.WriteString(fmt.Sprintf("CREATED:%s\r\n", event.CreatedAt.UTC().Format(icsDateFormat)))
-		buf.WriteString(fmt.Sprintf("LAST-MODIFIED:%s\r\n", event.UpdatedAt.UTC().Format(icsDateFormat)))
-
-		buf.WriteString("END:VEVENT\r\n")
+		event.SetSummary(e.Title)
+		event.SetDescription(e.Description)
+		event.SetLocation(e.Location)
+		event.SetStartAt(e.StartTime)
+		event.SetEndAt(e.EndTime)
+		event.SetCreatedTime(e.CreatedAt)
+		event.SetModifiedAt(e.UpdatedAt)
+		event.SetDtStampTime(time.Now())
 	}
 
-	buf.WriteString("END:VCALENDAR\r\n")
-
-	return buf.Bytes(), nil
-}
-
-// escapeICSValue escapes special characters in ICS property values
-func escapeICSValue(value string) string {
-	value = strings.ReplaceAll(value, "\\", "\\\\")
-	value = strings.ReplaceAll(value, ";", "\\;")
-	value = strings.ReplaceAll(value, ",", "\\,")
-	value = strings.ReplaceAll(value, "\n", "\\n")
-	return value
+	return []byte(cal.Serialize()), nil
 }

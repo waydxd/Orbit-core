@@ -697,10 +697,10 @@ func (s *Service) googleSync(w http.ResponseWriter, r *http.Request) {
 // googleWebhook handles incoming push notifications from Google Calendar
 // POST /api/v1/integration/google/webhook
 func (s *Service) googleWebhook(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	_, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	if err := s.googleService.HandleWebhook(ctx, r); err != nil {
+	if err := s.googleService.HandleWebhook(r); err != nil {
 		s.logger.Error("failed to handle Google webhook", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
