@@ -57,6 +57,32 @@ func (s *Service) SetCalendarService(calSvc CalendarServiceInterface) {
 	s.googleService.SetCalendarService(calSvc)
 }
 
+// respondWithJSON helper for writing JSON responses
+func (s *Service) respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	if payload != nil {
+		if err := json.NewEncoder(w).Encode(payload); err != nil {
+			s.logger.Error("failed to write response", "error", err)
+		}
+	}
+}
+
+// respondWithError helper for writing error responses
+func (s *Service) respondWithError(w http.ResponseWriter, code int, message string, err error) {
+	if err != nil {
+		s.logger.Error(message, "error", err)
+	} else {
+		s.logger.Error(message)
+	}
+	s.respondWithJSON(w, code, map[string]string{"error": message})
+}
+
+// decodeJSON helper for decoding JSON request bodies
+func (s *Service) decodeJSON(r *http.Request, v interface{}) error {
+	return json.NewDecoder(r.Body).Decode(v)
+}
+
 // RegisterRoutes registers integration routes
 func (s *Service) RegisterRoutes(router *mux.Router) {
 	integrationRouter := router.PathPrefix("/integration").Subrouter()
@@ -91,124 +117,75 @@ type SyncRequest struct {
 
 // syncData handles data synchronization between external APIs
 func (s *Service) syncData(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	var req SyncRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.logger.Error("failed to decode sync request", "error", err)
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
-			s.logger.Error("failed to write sync error response", "error", err)
-			return
-		}
+	if err := s.decodeJSON(r, &req); err != nil {
+		s.respondWithError(w, http.StatusBadRequest, "invalid request", err)
 		return
 	}
 
 	// TODO: Implement data synchronization logic
 	s.logger.Info("Data sync initiated", "source", req.Source, "target", req.Target)
 
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(map[string]string{"message": "sync completed"}); err != nil {
-		s.logger.Error("failed to write sync success response", "error", err)
-		return
-	}
+	s.respondWithJSON(w, http.StatusOK, map[string]string{"message": "sync completed"})
 }
 
 // handleWebhook processes incoming webhooks from external services
 func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	var payload map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		s.logger.Error("failed to decode webhook payload", "error", err)
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid webhook payload"}); err != nil {
-			s.logger.Error("failed to write webhook error response", "error", err)
-			return
-		}
+	if err := s.decodeJSON(r, &payload); err != nil {
+		s.respondWithError(w, http.StatusBadRequest, "invalid webhook payload", err)
 		return
 	}
 
 	// TODO: Process webhook based on source
 	s.logger.Info("Webhook received", "payload", payload)
 
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(map[string]string{"message": "webhook processed"}); err != nil {
-		s.logger.Error("failed to write webhook success response", "error", err)
-		return
-	}
+	s.respondWithJSON(w, http.StatusOK, map[string]string{"message": "webhook processed"})
 }
 
 // connectExternal connects to an external API
 func (s *Service) connectExternal(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	var req struct {
 		Service string `json:"service"`
 		APIKey  string `json:"api_key"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.logger.Error("failed to decode connect request", "error", err)
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
-			s.logger.Error("failed to write connect error response", "error", err)
-			return
-		}
+	if err := s.decodeJSON(r, &req); err != nil {
+		s.respondWithError(w, http.StatusBadRequest, "invalid request", err)
 		return
 	}
 
 	// TODO: Store external API credentials securely
 	s.logger.Info("External service connected", "service", req.Service)
 
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(map[string]string{"message": "external service connected"}); err != nil {
-		s.logger.Error("failed to write connect success response", "error", err)
-		return
-	}
+	s.respondWithJSON(w, http.StatusOK, map[string]string{"message": "external service connected"})
 }
 
 // disconnectExternal disconnects from an external API
 func (s *Service) disconnectExternal(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	var req struct {
 		Service string `json:"service"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.logger.Error("failed to decode disconnect request", "error", err)
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
-			s.logger.Error("failed to write disconnect error response", "error", err)
-			return
-		}
+	if err := s.decodeJSON(r, &req); err != nil {
+		s.respondWithError(w, http.StatusBadRequest, "invalid request", err)
 		return
 	}
 
 	// TODO: Remove external API credentials
 	s.logger.Info("External service disconnected", "service", req.Service)
 
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(map[string]string{"message": "external service disconnected"}); err != nil {
-		s.logger.Error("failed to write disconnect success response", "error", err)
-		return
-	}
+	s.respondWithJSON(w, http.StatusOK, map[string]string{"message": "external service disconnected"})
 }
 
 // getExternalStatus retrieves status of external integrations
 func (s *Service) getExternalStatus(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	// TODO: Fetch integration status from database
 	status := map[string]interface{}{
 		"integrations": []map[string]interface{}{},
 	}
 
-	if err := json.NewEncoder(w).Encode(status); err != nil {
-		s.logger.Error("failed to write external status response", "error", err)
-		return
-	}
+	s.respondWithJSON(w, http.StatusOK, status)
 }
 
 // ===== Calendar Import/Export Handlers =====
@@ -218,36 +195,27 @@ func (s *Service) getExternalStatus(w http.ResponseWriter, _ *http.Request) {
 // Content-Type: multipart/form-data
 // Query params: user_id (required)
 func (s *Service) importCalendar(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	if s.calendarService == nil {
-		s.logger.Error("calendar service not configured")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "calendar service not available"})
+		s.respondWithError(w, http.StatusServiceUnavailable, "calendar service not available", nil)
 		return
 	}
 
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user_id query parameter is required"})
+		s.respondWithError(w, http.StatusBadRequest, "user_id query parameter is required", nil)
 		return
 	}
 
 	// Parse multipart form with a 50MB max size
 	const maxFileSize = 50 << 20 // 50MB
 	if err := r.ParseMultipartForm(maxFileSize); err != nil {
-		s.logger.Error("failed to parse multipart form", "error", err)
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid multipart form"})
+		s.respondWithError(w, http.StatusBadRequest, "invalid multipart form", err)
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		s.logger.Error("failed to get file from form", "error", err)
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "file is required"})
+		s.respondWithError(w, http.StatusBadRequest, "file is required", err)
 		return
 	}
 	defer func(file multipart.File) {
@@ -271,19 +239,12 @@ func (s *Service) importCalendar(w http.ResponseWriter, r *http.Request) {
 	case ext == ".csv" || strings.Contains(contentType, "text/csv"):
 		events, parseErr = formats.ParseCSV(file, userID)
 	default:
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "unsupported file format. Supported formats: .ics, .csv",
-		})
+		s.respondWithError(w, http.StatusBadRequest, "unsupported file format. Supported formats: .ics, .csv", nil)
 		return
 	}
 
 	if parseErr != nil {
-		s.logger.Error("failed to parse file", "error", parseErr, "format", ext)
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "failed to parse file",
-		})
+		s.respondWithError(w, http.StatusBadRequest, "failed to parse file", parseErr)
 		return
 	}
 
@@ -319,8 +280,7 @@ func (s *Service) importCalendar(w http.ResponseWriter, r *http.Request) {
 		response["errors"] = importErrors
 	}
 
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(response)
+	s.respondWithJSON(w, http.StatusOK, response)
 }
 
 // exportCalendar handles exporting calendar data to ICS or CSV format
@@ -329,19 +289,14 @@ func (s *Service) importCalendar(w http.ResponseWriter, r *http.Request) {
 func (s *Service) exportCalendar(w http.ResponseWriter, r *http.Request) {
 	// Check service availability
 	if s.calendarService == nil {
-		w.Header().Set("Content-Type", "application/json")
-		s.logger.Error("calendar service not configured")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "calendar service not available"})
+		s.respondWithError(w, http.StatusServiceUnavailable, "calendar service not available", nil)
 		return
 	}
 
 	// Parse and validate parameters
 	userID, format, startTime, endTime, status, err := s.parseExportParams(r)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		s.respondWithError(w, status, err.Error(), nil)
 		return
 	}
 
@@ -351,20 +306,14 @@ func (s *Service) exportCalendar(w http.ResponseWriter, r *http.Request) {
 
 	events, err := s.fetchEventsFiltered(ctx, startTime, endTime, userID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		s.logger.Error("failed to fetch events for export", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to fetch events"})
+		s.respondWithError(w, http.StatusInternalServerError, "failed to fetch events", err)
 		return
 	}
 
 	// Generate export data
 	data, contentType, filename, err := s.generateExportData(format, events)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		s.logger.Error("failed to generate export", "error", err, "format", format)
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to generate export"})
+		s.respondWithError(w, http.StatusInternalServerError, "failed to generate export", err)
 		return
 	}
 
@@ -377,10 +326,7 @@ func (s *Service) exportCalendar(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 	w.WriteHeader(http.StatusOK)
-	_, err = w.Write(data)
-	if err != nil {
-		s.logger.Error("failed to write export response", "error", err)
-	}
+	_, _ = w.Write(data)
 }
 
 // parseExportParams parses and validates export query parameters.
@@ -454,36 +400,24 @@ func (s *Service) generateExportData(format string, events []*models.Event) ([]b
 // googleAuth initiates the Google OAuth flow
 // GET /api/v1/integration/google/auth?user_id=xxx
 func (s *Service) googleAuth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	if !s.googleService.IsConfigured() {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "Google Calendar integration is not configured",
-		})
+		s.respondWithError(w, http.StatusServiceUnavailable, "Google Calendar integration is not configured", nil)
 		return
 	}
 
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "user_id query parameter is required",
-		})
+		s.respondWithError(w, http.StatusBadRequest, "user_id query parameter is required", nil)
 		return
 	}
 
 	authURL, err := s.googleService.GetAuthURL(userID)
 	if err != nil {
-		s.logger.Error("failed to generate auth URL", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "failed to generate authorization URL",
-		})
+		s.respondWithError(w, http.StatusInternalServerError, "failed to generate authorization URL", err)
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	s.respondWithJSON(w, http.StatusOK, map[string]string{
 		"auth_url": authURL,
 		"message":  "Redirect the user to auth_url to authorize Google Calendar access",
 	})
@@ -518,9 +452,7 @@ func (s *Service) googleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Redirect to success page or return JSON
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	s.respondWithJSON(w, http.StatusOK, map[string]string{
 		"message": "Google Calendar connected successfully",
 		"user_id": userID,
 	})
@@ -529,21 +461,17 @@ func (s *Service) googleCallback(w http.ResponseWriter, r *http.Request) {
 // googleDisconnect disconnects Google Calendar for a user
 // POST /api/v1/integration/google/disconnect
 func (s *Service) googleDisconnect(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	var req struct {
 		UserID string `json:"user_id"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+	if err := s.decodeJSON(r, &req); err != nil {
+		s.respondWithError(w, http.StatusBadRequest, "invalid request", err)
 		return
 	}
 
 	if req.UserID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user_id is required"})
+		s.respondWithError(w, http.StatusBadRequest, "user_id is required", nil)
 		return
 	}
 
@@ -551,24 +479,18 @@ func (s *Service) googleDisconnect(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := s.googleService.Disconnect(ctx, req.UserID); err != nil {
-		s.logger.Error("failed to disconnect Google Calendar", "error", err, "user_id", req.UserID)
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to disconnect"})
+		s.respondWithError(w, http.StatusInternalServerError, "failed to disconnect", err)
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"message": "Google Calendar disconnected successfully",
-	})
+	s.respondWithJSON(w, http.StatusOK, map[string]string{"message": "Google Calendar disconnected successfully"})
 }
 
 // googleStatus returns the Google Calendar connection status for a user
 // GET /api/v1/integration/google/status?user_id=xxx
 func (s *Service) googleStatus(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	if !s.googleService.IsConfigured() {
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		s.respondWithJSON(w, http.StatusOK, map[string]interface{}{
 			"configured": false,
 			"connected":  false,
 			"message":    "Google Calendar integration is not configured",
@@ -578,8 +500,7 @@ func (s *Service) googleStatus(w http.ResponseWriter, r *http.Request) {
 
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user_id query parameter is required"})
+		s.respondWithError(w, http.StatusBadRequest, "user_id query parameter is required", nil)
 		return
 	}
 
@@ -588,124 +509,135 @@ func (s *Service) googleStatus(w http.ResponseWriter, r *http.Request) {
 
 	status, err := s.googleService.GetConnectionStatus(ctx, userID)
 	if err != nil {
-		s.logger.Error("failed to get connection status", "error", err, "user_id", userID)
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to get status"})
+		s.respondWithError(w, http.StatusInternalServerError, "failed to get status", err)
 		return
 	}
 
 	status["configured"] = true
-	_ = json.NewEncoder(w).Encode(status)
+	s.respondWithJSON(w, http.StatusOK, status)
+}
+
+// GoogleSyncRequest represents a Google Calendar sync request
+type GoogleSyncRequest struct {
+	UserID    string `json:"user_id"`
+	Direction string `json:"direction"`  // "from_google", "to_google", or "bidirectional"
+	StartTime string `json:"start_time"` // optional, RFC3339 format
+	EndTime   string `json:"end_time"`   // optional, RFC3339 format
 }
 
 // googleSync triggers a sync between local calendar and Google Calendar
 // POST /api/v1/integration/google/sync
 func (s *Service) googleSync(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	var req struct {
-		UserID    string `json:"user_id"`
-		Direction string `json:"direction"`  // "from_google", "to_google", or "bidirectional"
-		StartTime string `json:"start_time"` // optional, RFC3339 format
-		EndTime   string `json:"end_time"`   // optional, RFC3339 format
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+	var req GoogleSyncRequest
+	if err := s.decodeJSON(r, &req); err != nil {
+		s.respondWithError(w, http.StatusBadRequest, "invalid request", err)
 		return
 	}
 
 	if req.UserID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user_id is required"})
+		s.respondWithError(w, http.StatusBadRequest, "user_id is required", nil)
 		return
 	}
 
-	// Default direction
-	if req.Direction == "" {
-		req.Direction = "from_google"
-	}
-
-	// Parse time range (default to 30 days from now)
-	now := time.Now()
-	startTime := now.AddDate(0, -1, 0) // 1 month ago
-	endTime := now.AddDate(0, 1, 0)    // 1 month from now
-
-	if req.StartTime != "" {
-		if t, err := time.Parse(time.RFC3339, req.StartTime); err == nil {
-			startTime = t
-		}
-	}
-	if req.EndTime != "" {
-		if t, err := time.Parse(time.RFC3339, req.EndTime); err == nil {
-			endTime = t
-		}
-	}
+	startTime, endTime := s.parseSyncTimeRange(req.StartTime, req.EndTime)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 
-	result := map[string]interface{}{
-		"direction": req.Direction,
+	result, err := s.executeGoogleSync(ctx, req.UserID, req.Direction, startTime, endTime)
+	if err != nil {
+		// executeGoogleSync already handles specific errors, but we wrap it here if needed
+		s.respondWithError(w, http.StatusInternalServerError, "sync failed", err)
+		return
 	}
 
-	switch req.Direction {
+	s.respondWithJSON(w, http.StatusOK, result)
+}
+
+// parseSyncTimeRange parses start and end times or returns defaults
+func (s *Service) parseSyncTimeRange(startStr, endStr string) (time.Time, time.Time) {
+	now := time.Now()
+	startTime := now.AddDate(0, -1, 0) // 1 month ago
+	endTime := now.AddDate(0, 1, 0)    // 1 month from now
+
+	if startStr != "" {
+		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
+			startTime = t
+		}
+	}
+	if endStr != "" {
+		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
+			endTime = t
+		}
+	}
+
+	return startTime, endTime
+}
+
+// executeGoogleSync runs the requested sync logic
+func (s *Service) executeGoogleSync(ctx context.Context, userID, direction string, startTime, endTime time.Time) (map[string]interface{}, error) {
+	if direction == "" {
+		direction = "from_google"
+	}
+
+	result := map[string]interface{}{
+		"direction": direction,
+	}
+
+	switch direction {
 	case "from_google":
-		count, err := s.googleService.SyncFromGoogle(ctx, req.UserID, startTime, endTime)
+		count, err := s.googleService.SyncFromGoogle(ctx, userID, startTime, endTime)
 		if err != nil {
-			s.logger.Error("sync from Google failed", "error", err, "user_id", req.UserID)
-			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("sync failed: %v", err)})
-			return
+			return nil, fmt.Errorf("sync from Google failed: %w", err)
 		}
 		result["imported_count"] = count
 		result["message"] = "Sync from Google Calendar completed"
 
 	case "to_google":
-		count, err := s.googleService.SyncToGoogle(ctx, req.UserID, startTime, endTime)
+		count, err := s.googleService.SyncToGoogle(ctx, userID, startTime, endTime)
 		if err != nil {
-			s.logger.Error("sync to Google failed", "error", err, "user_id", req.UserID)
-			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("sync failed: %v", err)})
-			return
+			return nil, fmt.Errorf("sync to Google failed: %w", err)
 		}
 		result["exported_count"] = count
 		result["message"] = "Sync to Google Calendar completed"
 
 	case "bidirectional":
-		importCount, importErr := s.googleService.SyncFromGoogle(ctx, req.UserID, startTime, endTime)
-		if importErr != nil {
-			s.logger.Warn("sync from Google failed during bidirectional sync", "error", importErr, "user_id", req.UserID)
-		}
-		exportCount, exportErr := s.googleService.SyncToGoogle(ctx, req.UserID, startTime, endTime)
-		if exportErr != nil {
-			s.logger.Warn("sync to Google failed during bidirectional sync", "error", exportErr, "user_id", req.UserID)
-		}
-		result["imported_count"] = importCount
-		result["exported_count"] = exportCount
-
-		if importErr != nil || exportErr != nil {
-			result["message"] = "Bidirectional sync completed with errors"
-			if importErr != nil {
-				result["from_google_error"] = importErr.Error()
-			}
-			if exportErr != nil {
-				result["to_google_error"] = exportErr.Error()
-			}
-		} else {
-			result["message"] = "Bidirectional sync completed"
-		}
+		return s.performBidirectionalSync(ctx, userID, startTime, endTime), nil
 
 	default:
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": "invalid direction. Use 'from_google', 'to_google', or 'bidirectional'",
-		})
-		return
+		return nil, fmt.Errorf("invalid direction. Use 'from_google', 'to_google', or 'bidirectional'")
 	}
 
-	_ = json.NewEncoder(w).Encode(result)
+	return result, nil
+}
+
+// performBidirectionalSync handles two-way synchronization
+func (s *Service) performBidirectionalSync(ctx context.Context, userID string, startTime, endTime time.Time) map[string]interface{} {
+	result := map[string]interface{}{
+		"direction": "bidirectional",
+	}
+
+	importCount, importErr := s.googleService.SyncFromGoogle(ctx, userID, startTime, endTime)
+	if importErr != nil {
+		s.logger.Warn("sync from Google failed during bidirectional sync", "error", importErr, "user_id", userID)
+		result["from_google_error"] = importErr.Error()
+	}
+	result["imported_count"] = importCount
+
+	exportCount, exportErr := s.googleService.SyncToGoogle(ctx, userID, startTime, endTime)
+	if exportErr != nil {
+		s.logger.Warn("sync to Google failed during bidirectional sync", "error", exportErr, "user_id", userID)
+		result["to_google_error"] = exportErr.Error()
+	}
+	result["exported_count"] = exportCount
+
+	if importErr != nil || exportErr != nil {
+		result["message"] = "Bidirectional sync completed with errors"
+	} else {
+		result["message"] = "Bidirectional sync completed"
+	}
+
+	return result
 }
 
 // googleWebhook handles incoming push notifications from Google Calendar
@@ -727,21 +659,17 @@ func (s *Service) googleWebhook(w http.ResponseWriter, r *http.Request) {
 // googleWatch sets up a watch channel for Google Calendar push notifications
 // POST /api/v1/integration/google/watch
 func (s *Service) googleWatch(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	var req struct {
 		UserID string `json:"user_id"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
+	if err := s.decodeJSON(r, &req); err != nil {
+		s.respondWithError(w, http.StatusBadRequest, "invalid request", err)
 		return
 	}
 
 	if req.UserID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user_id is required"})
+		s.respondWithError(w, http.StatusBadRequest, "user_id is required", nil)
 		return
 	}
 
@@ -750,13 +678,11 @@ func (s *Service) googleWatch(w http.ResponseWriter, r *http.Request) {
 
 	channel, err := s.googleService.SetupWatch(ctx, req.UserID)
 	if err != nil {
-		s.logger.Error("failed to setup watch", "error", err, "user_id", req.UserID)
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to setup watch: %v", err)})
+		s.respondWithError(w, http.StatusInternalServerError, "failed to setup watch", err)
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	s.respondWithJSON(w, http.StatusOK, map[string]interface{}{
 		"message":     "Watch channel created successfully",
 		"channel_id":  channel.Id,
 		"resource_id": channel.ResourceId,
