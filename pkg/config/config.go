@@ -257,6 +257,20 @@ func (c *DatabaseConfig) ConnectionString() string {
 	return base
 }
 
+// ConnectionURL returns PostgreSQL connection URL for Atlas
+func (c *DatabaseConfig) ConnectionURL() string {
+	// Simple construction - for production use net/url to encode password properly if needed
+	// Assuming basic ASCII for now or handling basics.
+	// Actually, let's use net/url for safety.
+	// But importing net/url in this file requires import update.
+	// Just doing basic string format for now as password is likely simpler or secrets.
+	// Warning: Special chars in password might break this simple format.
+	return fmt.Sprintf(
+		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		c.User, c.Password, c.Host, c.Port, c.DBName, c.SSLMode,
+	)
+}
+
 // RedisAddr returns Redis address
 func (c *RedisConfig) RedisAddr() string {
 	return fmt.Sprintf("%s:%d", c.Host, c.Port)

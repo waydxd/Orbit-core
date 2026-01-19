@@ -2,12 +2,13 @@ package integration
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/waydxd/Orbit-core/internal/shared/database"
+	"github.com/waydxd/Orbit-core/internal/shared/database/db"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 )
 
@@ -24,29 +25,31 @@ type Repository interface {
 
 // SQLRepository implements Repository using PostgreSQL
 type SQLRepository struct {
-	db *database.DB
+	queries *db.Queries
+	pool    *database.DB
 }
 
 // NewSQLRepository creates a new SQL repository
-func NewSQLRepository(db *database.DB) Repository {
-	return &SQLRepository{db: db}
+func NewSQLRepository(pool *database.DB) Repository {
+	return &SQLRepository{
+		queries: db.New(pool.Pool),
+		pool:    pool,
+	}
 }
 
 // CreateIntegration inserts a new integration into the database
 func (r *SQLRepository) CreateIntegration(ctx context.Context, integration *models.Integration) error {
-	query := `
-		INSERT INTO integrations (id, user_id, service_name, api_key_encrypted, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
-	_, err := r.db.ExecContext(ctx, query,
-		integration.ID,
-		integration.UserID,
-		integration.ServiceName,
-		integration.APIKeyEncrypted,
-		integration.Status,
-		integration.CreatedAt,
-		integration.UpdatedAt,
-	)
+	params := db.CreateIntegrationParams{
+		ID:              database.StringToUUID(integration.ID),
+		UserID:          database.StringToUUID(integration.UserID),
+		ServiceName:     integration.ServiceName,
+		ApiKeyEncrypted: integration.APIKeyEncrypted,
+		Status:          pgtype.Text{String: integration.Status, Valid: integration.Status != ""},
+		CreatedAt:       database.TimeToTimestamptz(integration.CreatedAt),
+		UpdatedAt:       database.TimeToTimestamptz(integration.UpdatedAt),
+	}
+
+	err := r.queries.CreateIntegration(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to create integration: %w", err)
 	}
@@ -55,96 +58,71 @@ func (r *SQLRepository) CreateIntegration(ctx context.Context, integration *mode
 
 // GetIntegrationByID retrieves an integration by ID
 func (r *SQLRepository) GetIntegrationByID(ctx context.Context, id string) (*models.Integration, error) {
-	query := `
-		SELECT id, user_id, service_name, api_key_encrypted, status, last_sync, created_at, updated_at
-		FROM integrations WHERE id = $1
-	`
-	integration := &models.Integration{}
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&integration.ID,
-		&integration.UserID,
-		&integration.ServiceName,
-		&integration.APIKeyEncrypted,
-		&integration.Status,
-		&integration.LastSync,
-		&integration.CreatedAt,
-		&integration.UpdatedAt,
-	)
+	row, err := r.queries.GetIntegrationByID(ctx, database.StringToUUID(id))
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("integration not found")
 		}
 		return nil, fmt.Errorf("failed to get integration: %w", err)
 	}
-	return integration, nil
+
+	return &models.Integration{
+		ID:              database.UUIDToString(row.ID),
+		UserID:          database.UUIDToString(row.UserID),
+		ServiceName:     row.ServiceName,
+		APIKeyEncrypted: row.ApiKeyEncrypted,
+		Status:          database.TextToString(row.Status),
+		LastSync:        database.TimestamptzToTime(row.LastSync),
+		CreatedAt:       database.TimestamptzToTime(row.CreatedAt),
+		UpdatedAt:       database.TimestamptzToTime(row.UpdatedAt),
+	}, nil
 }
 
 // GetIntegrationByService retrieves an integration by user ID and service name
 func (r *SQLRepository) GetIntegrationByService(ctx context.Context, userID, serviceName string) (*models.Integration, error) {
-	query := `
-		SELECT id, user_id, service_name, api_key_encrypted, status, last_sync, created_at, updated_at
-		FROM integrations WHERE user_id = $1 AND service_name = $2
-	`
-	integration := &models.Integration{}
-	err := r.db.QueryRowContext(ctx, query, userID, serviceName).Scan(
-		&integration.ID,
-		&integration.UserID,
-		&integration.ServiceName,
-		&integration.APIKeyEncrypted,
-		&integration.Status,
-		&integration.LastSync,
-		&integration.CreatedAt,
-		&integration.UpdatedAt,
-	)
+	params := db.GetIntegrationByServiceParams{
+		UserID:      database.StringToUUID(userID),
+		ServiceName: serviceName,
+	}
+	row, err := r.queries.GetIntegrationByService(ctx, params)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("integration not found")
 		}
 		return nil, fmt.Errorf("failed to get integration: %w", err)
 	}
-	return integration, nil
+
+	return &models.Integration{
+		ID:              database.UUIDToString(row.ID),
+		UserID:          database.UUIDToString(row.UserID),
+		ServiceName:     row.ServiceName,
+		APIKeyEncrypted: row.ApiKeyEncrypted,
+		Status:          database.TextToString(row.Status),
+		LastSync:        database.TimestamptzToTime(row.LastSync),
+		CreatedAt:       database.TimestamptzToTime(row.CreatedAt),
+		UpdatedAt:       database.TimestamptzToTime(row.UpdatedAt),
+	}, nil
 }
 
 // ListIntegrations retrieves all integrations for a user
 func (r *SQLRepository) ListIntegrations(ctx context.Context, userID string) ([]*models.Integration, error) {
-	query := `
-		SELECT id, user_id, service_name, api_key_encrypted, status, last_sync, created_at, updated_at
-		FROM integrations
-		WHERE user_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := r.db.QueryContext(ctx, query, userID)
+	rows, err := r.queries.ListIntegrations(ctx, database.StringToUUID(userID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to list integrations: %w", err)
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			fmt.Printf("failed to close rows: %v\n", err)
-		}
-	}(rows)
 
 	var integrations []*models.Integration
-	for rows.Next() {
-		integration := &models.Integration{}
-		err := rows.Scan(
-			&integration.ID,
-			&integration.UserID,
-			&integration.ServiceName,
-			&integration.APIKeyEncrypted,
-			&integration.Status,
-			&integration.LastSync,
-			&integration.CreatedAt,
-			&integration.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan integration: %w", err)
-		}
-		integrations = append(integrations, integration)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating integrations: %w", err)
+	for _, row := range rows {
+		integrations = append(integrations, &models.Integration{
+			ID:              database.UUIDToString(row.ID),
+			UserID:          database.UUIDToString(row.UserID),
+			ServiceName:     row.ServiceName,
+			APIKeyEncrypted: row.ApiKeyEncrypted,
+			Status:          database.TextToString(row.Status),
+			LastSync:        database.TimestamptzToTime(row.LastSync),
+			CreatedAt:       database.TimestamptzToTime(row.CreatedAt),
+			UpdatedAt:       database.TimestamptzToTime(row.UpdatedAt),
+		})
 	}
 
 	return integrations, nil
@@ -152,18 +130,15 @@ func (r *SQLRepository) ListIntegrations(ctx context.Context, userID string) ([]
 
 // UpdateIntegration updates an existing integration
 func (r *SQLRepository) UpdateIntegration(ctx context.Context, integration *models.Integration) error {
-	query := `
-		UPDATE integrations
-		SET service_name = $1, api_key_encrypted = $2, status = $3, updated_at = $4
-		WHERE id = $5
-	`
-	_, err := r.db.ExecContext(ctx, query,
-		integration.ServiceName,
-		integration.APIKeyEncrypted,
-		integration.Status,
-		time.Now(),
-		integration.ID,
-	)
+	params := db.UpdateIntegrationParams{
+		ServiceName:     integration.ServiceName,
+		ApiKeyEncrypted: integration.APIKeyEncrypted,
+		Status:          pgtype.Text{String: integration.Status, Valid: integration.Status != ""},
+		UpdatedAt:       database.TimeToTimestamptz(time.Now()),
+		ID:              database.StringToUUID(integration.ID),
+	}
+
+	err := r.queries.UpdateIntegration(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to update integration: %w", err)
 	}
@@ -172,8 +147,7 @@ func (r *SQLRepository) UpdateIntegration(ctx context.Context, integration *mode
 
 // DeleteIntegration deletes an integration
 func (r *SQLRepository) DeleteIntegration(ctx context.Context, id string) error {
-	query := "DELETE FROM integrations WHERE id = $1"
-	_, err := r.db.ExecContext(ctx, query, id)
+	err := r.queries.DeleteIntegration(ctx, database.StringToUUID(id))
 	if err != nil {
 		return fmt.Errorf("failed to delete integration: %w", err)
 	}
@@ -182,12 +156,7 @@ func (r *SQLRepository) DeleteIntegration(ctx context.Context, id string) error 
 
 // UpdateLastSync updates the last sync time for an integration
 func (r *SQLRepository) UpdateLastSync(ctx context.Context, id string) error {
-	query := `
-		UPDATE integrations
-		SET last_sync = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $1
-	`
-	_, err := r.db.ExecContext(ctx, query, id)
+	err := r.queries.UpdateLastSync(ctx, database.StringToUUID(id))
 	if err != nil {
 		return fmt.Errorf("failed to update last sync: %w", err)
 	}

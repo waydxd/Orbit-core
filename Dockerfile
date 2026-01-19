@@ -18,12 +18,18 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o orbit-core cmd/or
 # Runtime stage
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates curl
+
+# Install Atlas
+RUN curl -sSf https://atlasgo.sh | sh
 
 WORKDIR /root/
 
 # Copy the binary from builder
 COPY --from=builder /app/orbit-core .
+
+# Copy migrations
+COPY migrations ./migrations
 
 # Expose port
 EXPOSE 8080

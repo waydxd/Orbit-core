@@ -12,6 +12,28 @@ PROTO_DIRS := proto
 PROTO_FILES := $(shell find $(PROTO_DIRS) -name '*.proto')
 GOBIN ?= $(shell go env GOPATH)/bin
 
+install-tools: ## Install development tools (sqlc, atlas)
+	@echo "Installing tools..."
+	@go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+	@go install ariga.io/atlas/cmd/atlas@latest
+	@echo "Tools installed"
+
+generate: install-tools ## Generate code
+	@echo "Generating SQL code..."
+	@sqlc generate
+	@echo "SQL code generated"
+
+generate-migration: ## Generate a new migration file (usage: make generate-migration name=add_users)
+	@echo "Generating migration: $(name)"
+	@atlas migrate diff $(name) \
+		--env local
+
+migrate-apply: ## Apply migrations
+	@echo "Applying migrations..."
+	@atlas migrate apply \
+		--env local \
+		--url "$(DATABASE_URL)"
+
 help: ## Display this help message
 	@echo "Available targets:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
