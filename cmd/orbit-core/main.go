@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -35,22 +34,6 @@ func main() {
 	if err != nil {
 		log.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
-	}
-
-	// Run database migrations (Backend driving the migration)
-	log.Info("Running database migrations...")
-	connURL := cfg.Database.ConnectionURL()
-	// Using "atlas" binary which is expected to be in path (installed in Dockerfile)
-	// We point to local migrations directory
-	cmd := exec.Command("atlas", "migrate", "apply", "--url", connURL, "--dir", "file://migrations") //nolint:gosec
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		log.Warn("Failed to run migrations (atlas migrate apply)", "error", err)
-		// We don't exit here strict, to allow running locally without atlas if needed,
-		// but in docker it should work.
-	} else {
-		log.Info("Database migrations completed successfully")
 	}
 
 	// Connect to PostgreSQL database

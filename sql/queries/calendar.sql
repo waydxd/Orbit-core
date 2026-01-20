@@ -1,27 +1,27 @@
 -- name: CreateEvent :exec
-INSERT INTO events (id, user_id, title, description, start_time, end_time, location, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
+INSERT INTO events (id, user_id, title, description, start_time, end_time, location, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
 
 -- name: GetEventByID :one
-SELECT id, user_id, title, description, start_time, end_time, location, created_at, updated_at
+SELECT id, user_id, title, description, start_time, end_time, location, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
 FROM events WHERE id = $1;
 
 -- name: ListEventsByTime :many
-SELECT id, user_id, title, description, start_time, end_time, location, created_at, updated_at
+SELECT id, user_id, title, description, start_time, end_time, location, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
 FROM events
 WHERE start_time >= $1 AND end_time <= $2
 ORDER BY start_time;
 
 -- name: ListEventsByUserAndTime :many
-SELECT id, user_id, title, description, start_time, end_time, location, created_at, updated_at
+SELECT id, user_id, title, description, start_time, end_time, location, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
 FROM events
 WHERE user_id = $1 AND start_time >= $2 AND end_time <= $3
 ORDER BY start_time;
 
 -- name: UpdateEvent :exec
 UPDATE events
-SET title = $1, description = $2, start_time = $3, end_time = $4, location = $5, updated_at = $6
-WHERE id = $7;
+SET title = $1, description = $2, start_time = $3, end_time = $4, location = $5, is_recurring = $6, recurrence_rule = $7, recurrence_exception = $8, updated_at = $9
+WHERE id = $10;
 
 -- name: DeleteEvent :exec
 DELETE FROM events WHERE id = $1;

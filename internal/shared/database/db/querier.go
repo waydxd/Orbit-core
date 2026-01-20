@@ -24,7 +24,7 @@ type Querier interface {
 	DeleteUser(ctx context.Context, id pgtype.UUID) error
 	FindNearby(ctx context.Context, arg FindNearbyParams) ([]Location, error)
 	GetCurrentLocation(ctx context.Context, userID pgtype.UUID) (Location, error)
-	GetEventByID(ctx context.Context, id pgtype.UUID) (Event, error)
+	GetEventByID(ctx context.Context, id pgtype.UUID) (GetEventByIDRow, error)
 	GetIntegrationByID(ctx context.Context, id pgtype.UUID) (Integration, error)
 	GetIntegrationByService(ctx context.Context, arg GetIntegrationByServiceParams) (Integration, error)
 	GetLocationByID(ctx context.Context, id pgtype.UUID) (Location, error)
@@ -33,8 +33,8 @@ type Querier interface {
 	GetTaskByID(ctx context.Context, id pgtype.UUID) (Task, error)
 	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
-	ListEventsByTime(ctx context.Context, arg ListEventsByTimeParams) ([]Event, error)
-	ListEventsByUserAndTime(ctx context.Context, arg ListEventsByUserAndTimeParams) ([]Event, error)
+	ListEventsByTime(ctx context.Context, arg ListEventsByTimeParams) ([]ListEventsByTimeRow, error)
+	ListEventsByUserAndTime(ctx context.Context, arg ListEventsByUserAndTimeParams) ([]ListEventsByUserAndTimeRow, error)
 	ListIntegrations(ctx context.Context, userID pgtype.UUID) ([]Integration, error)
 	ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, error)
 	UpdateEvent(ctx context.Context, arg UpdateEventParams) error

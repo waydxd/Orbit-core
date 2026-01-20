@@ -3,6 +3,7 @@ package formats
 import (
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	ics "github.com/arran4/golang-ical"
@@ -27,8 +28,27 @@ func ParseICS(r io.Reader, userID string) ([]*models.Event, error) {
 
 // vEventToEvent converts a library VEvent into our models.Event.
 func vEventToEvent(vEvent *ics.VEvent, userID string) *models.Event {
+	uid := vEvent.Id()
+	recurrenceID := getPropValue(vEvent, ics.ComponentPropertyRecurrenceId)
+
+	id := uid
+	if recurrenceID != "" {
+		id = uid + "_" + recurrenceID
+	}
+
+	// Ensure we have a valid UUID for our database.
+	// If the ICS UID is not a valid UUID (or if it's a combination with recurrence ID),
+	// generate a deterministic one from it to maintain idempotency.
+	if _, err := uuid.Parse(id); err != nil {
+		if id != "" {
+			id = uuid.NewSHA1(uuid.NameSpaceDNS, []byte(id)).String()
+		} else {
+			id = uuid.New().String()
+		}
+	}
+
 	event := &models.Event{
-		ID:        vEvent.Id(),
+		ID:        id,
 		UserID:    userID,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
@@ -46,11 +66,6 @@ func vEventToEvent(vEvent *ics.VEvent, userID string) *models.Event {
 	}
 	if !end.IsZero() {
 		event.EndTime = end
-	}
-
-	// Ensure we have a valid ID
-	if event.ID == "" {
-		event.ID = uuid.New().String()
 	}
 
 	return event
@@ -71,30 +86,52 @@ func parseStartEnd(vEvent *ics.VEvent) (time.Time, time.Time) {
 	var end time.Time
 
 	// Start
-	if prop := vEvent.GetProperty(ics.ComponentPropertyDtStart); prop != nil {
-		if prop.GetValueType() == ics.ValueDataTypeDate {
-			if t, err := time.Parse("20060102", prop.Value); err == nil {
-				start = t.UTC()
+	propStart := vEvent.GetProperty(ics.ComponentPropertyDtStart)
+	if s, err := vEvent.GetStartAt(); err == nil && !s.IsZero() {
+		start = s.UTC()
+		// If it's floating time (no Z and no TZID), the library parses in local time.
+		// We want to treat floating time as UTC to avoid system-local dependency.
+		if propStart != nil && !strings.HasSuffix(propStart.Value, "Z") {
+			if _, hasTZID := propStart.ICalParameters["TZID"]; !hasTZID {
+				for _, layout := range []string{"20060102T150405", "20060102"} {
+					if t, err := time.Parse(layout, propStart.Value); err == nil {
+						start = t.UTC()
+						break
+					}
+				}
 			}
 		}
-	}
-	if start.IsZero() {
-		if s, err := vEvent.GetStartAt(); err == nil {
-			start = s.UTC()
+	} else if propStart != nil {
+		// Fallback manual parsing if GetStartAt failed but we have a property
+		for _, layout := range []string{"20060102T150405Z", "20060102T150405", "20060102"} {
+			if t, err := time.Parse(layout, propStart.Value); err == nil {
+				start = t.UTC()
+				break
+			}
 		}
 	}
 
 	// End
-	if prop := vEvent.GetProperty(ics.ComponentPropertyDtEnd); prop != nil {
-		if prop.GetValueType() == ics.ValueDataTypeDate {
-			if t, err := time.Parse("20060102", prop.Value); err == nil {
-				end = t.UTC()
+	propEnd := vEvent.GetProperty(ics.ComponentPropertyDtEnd)
+	if e, err := vEvent.GetEndAt(); err == nil && !e.IsZero() {
+		end = e.UTC()
+		// Handle floating time for End
+		if propEnd != nil && !strings.HasSuffix(propEnd.Value, "Z") {
+			if _, hasTZID := propEnd.ICalParameters["TZID"]; !hasTZID {
+				for _, layout := range []string{"20060102T150405", "20060102"} {
+					if t, err := time.Parse(layout, propEnd.Value); err == nil {
+						end = t.UTC()
+						break
+					}
+				}
 			}
 		}
-	}
-	if end.IsZero() {
-		if e, err := vEvent.GetEndAt(); err == nil {
-			end = e.UTC()
+	} else if propEnd != nil {
+		for _, layout := range []string{"20060102T150405Z", "20060102T150405", "20060102"} {
+			if t, err := time.Parse(layout, propEnd.Value); err == nil {
+				end = t.UTC()
+				break
+			}
 		}
 	}
 
@@ -122,6 +159,18 @@ func GenerateICS(events []*models.Event) ([]byte, error) {
 		event.SetCreatedTime(e.CreatedAt)
 		event.SetModifiedAt(e.UpdatedAt)
 		event.SetDtStampTime(time.Now())
+
+		if e.IsRecurring && e.RecurrenceRule != "" {
+			event.SetProperty(ics.ComponentPropertyRrule, e.RecurrenceRule)
+		}
+		if e.RecurrenceException != "" {
+			// Split by newline if we stored multiple exceptions
+			for _, ex := range strings.Split(e.RecurrenceException, "\n") {
+				if strings.TrimSpace(ex) != "" {
+					event.AddProperty(ics.ComponentPropertyExdate, ex)
+				}
+			}
+		}
 	}
 
 	return []byte(cal.Serialize()), nil

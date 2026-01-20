@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -413,7 +414,7 @@ func parseGoogleEventDateTime(dateTime, date string) time.Time {
 
 // modelToGoogleEvent converts our event model to a Google Calendar event
 func modelToGoogleEvent(event *models.Event) *gcal.Event {
-	return &gcal.Event{
+	gEvent := &gcal.Event{
 		Summary:     event.Title,
 		Description: event.Description,
 		Location:    event.Location,
@@ -424,6 +425,20 @@ func modelToGoogleEvent(event *models.Event) *gcal.Event {
 			DateTime: event.EndTime.Format(time.RFC3339),
 		},
 	}
+
+	if event.IsRecurring {
+		var recurrence []string
+		if event.RecurrenceRule != "" {
+			recurrence = append(recurrence, event.RecurrenceRule)
+		}
+		if event.RecurrenceException != "" {
+			// Split by newline if we stored multiple exceptions
+			recurrence = append(recurrence, strings.Split(event.RecurrenceException, "\n")...)
+		}
+		gEvent.Recurrence = recurrence
+	}
+
+	return gEvent
 }
 
 // WatchNotification represents a Google Calendar push notification

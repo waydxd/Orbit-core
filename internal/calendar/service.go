@@ -112,12 +112,15 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var req struct {
-		UserID      string `json:"user_id"`
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		StartTime   string `json:"start_time"`
-		EndTime     string `json:"end_time"`
-		Location    string `json:"location"`
+		UserID              string `json:"user_id"`
+		Title               string `json:"title"`
+		Description         string `json:"description"`
+		StartTime           string `json:"start_time"`
+		EndTime             string `json:"end_time"`
+		Location            string `json:"location"`
+		IsRecurring         bool   `json:"is_recurring"`
+		RecurrenceRule      string `json:"recurrence_rule"`
+		RecurrenceException string `json:"recurrence_exception"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -150,15 +153,18 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	event := &models.Event{
-		ID:          uuid.New().String(),
-		UserID:      req.UserID,
-		Title:       req.Title,
-		Description: req.Description,
-		StartTime:   startTime,
-		EndTime:     endTime,
-		Location:    req.Location,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:                  uuid.New().String(),
+		UserID:              req.UserID,
+		Title:               req.Title,
+		Description:         req.Description,
+		StartTime:           startTime,
+		EndTime:             endTime,
+		Location:            req.Location,
+		IsRecurring:         req.IsRecurring,
+		RecurrenceRule:      req.RecurrenceRule,
+		RecurrenceException: req.RecurrenceException,
+		CreatedAt:           time.Now(),
+		UpdatedAt:           time.Now(),
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -213,11 +219,14 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 
 	var req struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		StartTime   string `json:"start_time"`
-		EndTime     string `json:"end_time"`
-		Location    string `json:"location"`
+		Title               string  `json:"title"`
+		Description         string  `json:"description"`
+		StartTime           string  `json:"start_time"`
+		EndTime             string  `json:"end_time"`
+		Location            string  `json:"location"`
+		IsRecurring         *bool   `json:"is_recurring"`
+		RecurrenceRule      *string `json:"recurrence_rule"`
+		RecurrenceException *string `json:"recurrence_exception"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -250,6 +259,15 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Location != "" {
 		event.Location = req.Location
+	}
+	if req.IsRecurring != nil {
+		event.IsRecurring = *req.IsRecurring
+	}
+	if req.RecurrenceRule != nil {
+		event.RecurrenceRule = *req.RecurrenceRule
+	}
+	if req.RecurrenceException != nil {
+		event.RecurrenceException = *req.RecurrenceException
 	}
 	if req.StartTime != "" {
 		if t, err := time.Parse(time.RFC3339, req.StartTime); err == nil {
@@ -972,6 +990,8 @@ func (s *Service) GetAvailableSlots(ctx context.Context, req *pb.GetAvailableSlo
 	// This is a simplified implementation. In a real-world scenario, you would
 	// calculate available slots based on existing events and working hours.
 	s.logger.Info("GetAvailableSlots called via gRPC", "user_id", req.UserId)
+	// Suppress unused context warning by using it in logger or ignoring
+	_ = ctx
 
 	return &pb.GetAvailableSlotsResponse{
 		Slots:   []*pb.TimeSlot{},

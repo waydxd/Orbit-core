@@ -106,9 +106,7 @@ func (r *SQLEventRepository) GetEventByID(ctx context.Context, id string) (*mode
 
 // ListEvents retrieves events for a user within a time range
 func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, startTime, endTime time.Time) ([]*models.Event, error) {
-	var rows []db.Event
-	var err error
-
+	var events []*models.Event
 	sTime := database.TimeToTimestamptz(startTime)
 	eTime := database.TimeToTimestamptz(endTime)
 
@@ -117,34 +115,52 @@ func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, star
 			StartTime: sTime,
 			EndTime:   eTime,
 		}
-		// NOTE: I generated ListEventsByTime, checking if it matches expectation
-		rows, err = r.queries.ListEventsByTime(ctx, params)
+		rows, err := r.queries.ListEventsByTime(ctx, params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list events: %w", err)
+		}
+		for _, row := range rows {
+			events = append(events, &models.Event{
+				ID:                  database.UUIDToString(row.ID),
+				UserID:              database.UUIDToString(row.UserID),
+				Title:               row.Title,
+				Description:         database.TextToString(row.Description),
+				StartTime:           database.TimestamptzToTime(row.StartTime),
+				EndTime:             database.TimestamptzToTime(row.EndTime),
+				Location:            database.TextToString(row.Location),
+				IsRecurring:         row.IsRecurring.Bool,
+				RecurrenceRule:      database.TextToString(row.RecurrenceRule),
+				RecurrenceException: database.TextToString(row.RecurrenceException),
+				CreatedAt:           database.TimestamptzToTime(row.CreatedAt),
+				UpdatedAt:           database.TimestamptzToTime(row.UpdatedAt),
+			})
+		}
 	} else {
 		params := db.ListEventsByUserAndTimeParams{
 			UserID:    database.StringToUUID(userID),
 			StartTime: sTime,
 			EndTime:   eTime,
 		}
-		rows, err = r.queries.ListEventsByUserAndTime(ctx, params)
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to list events: %w", err)
-	}
-
-	var events []*models.Event
-	for _, row := range rows {
-		events = append(events, &models.Event{
-			ID:          database.UUIDToString(row.ID),
-			UserID:      database.UUIDToString(row.UserID),
-			Title:       row.Title,
-			Description: database.TextToString(row.Description),
-			StartTime:   database.TimestamptzToTime(row.StartTime),
-			EndTime:     database.TimestamptzToTime(row.EndTime),
-			Location:    database.TextToString(row.Location),
-			CreatedAt:   database.TimestamptzToTime(row.CreatedAt),
-			UpdatedAt:   database.TimestamptzToTime(row.UpdatedAt),
-		})
+		rows, err := r.queries.ListEventsByUserAndTime(ctx, params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list events: %w", err)
+		}
+		for _, row := range rows {
+			events = append(events, &models.Event{
+				ID:                  database.UUIDToString(row.ID),
+				UserID:              database.UUIDToString(row.UserID),
+				Title:               row.Title,
+				Description:         database.TextToString(row.Description),
+				StartTime:           database.TimestamptzToTime(row.StartTime),
+				EndTime:             database.TimestamptzToTime(row.EndTime),
+				Location:            database.TextToString(row.Location),
+				IsRecurring:         row.IsRecurring.Bool,
+				RecurrenceRule:      database.TextToString(row.RecurrenceRule),
+				RecurrenceException: database.TextToString(row.RecurrenceException),
+				CreatedAt:           database.TimestamptzToTime(row.CreatedAt),
+				UpdatedAt:           database.TimestamptzToTime(row.UpdatedAt),
+			})
+		}
 	}
 
 	return events, nil
@@ -153,13 +169,16 @@ func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, star
 // UpdateEvent updates an existing event
 func (r *SQLEventRepository) UpdateEvent(ctx context.Context, event *models.Event) error {
 	params := db.UpdateEventParams{
-		Title:       event.Title,
-		Description: database.StringToText(event.Description),
-		StartTime:   database.TimeToTimestamptz(event.StartTime),
-		EndTime:     database.TimeToTimestamptz(event.EndTime),
-		Location:    database.StringToText(event.Location),
-		UpdatedAt:   database.TimeToTimestamptz(time.Now()),
-		ID:          database.StringToUUID(event.ID),
+		Title:               event.Title,
+		Description:         database.StringToText(event.Description),
+		StartTime:           database.TimeToTimestamptz(event.StartTime),
+		EndTime:             database.TimeToTimestamptz(event.EndTime),
+		Location:            database.StringToText(event.Location),
+		IsRecurring:         pgtype.Bool{Bool: event.IsRecurring, Valid: true},
+		RecurrenceRule:      database.StringToText(event.RecurrenceRule),
+		RecurrenceException: database.StringToText(event.RecurrenceException),
+		UpdatedAt:           database.TimeToTimestamptz(time.Now()),
+		ID:                  database.StringToUUID(event.ID),
 	}
 
 	err := r.queries.UpdateEvent(ctx, params)

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 )
 
@@ -60,6 +61,64 @@ END:VCALENDAR`
 	// Check second event
 	if events[1].Title != "Another Meeting" {
 		t.Errorf("Expected title 'Another Meeting', got '%s'", events[1].Title)
+	}
+}
+
+func TestParseICS_UUIDGeneration(t *testing.T) {
+	icsContent := `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:non-uuid-uid-string
+DTSTART:20240115T100000Z
+DTEND:20240115T110000Z
+SUMMARY:Test Meeting
+END:VEVENT
+END:VCALENDAR`
+
+	events, err := ParseICS(strings.NewReader(icsContent), "user123")
+	if err != nil {
+		t.Fatalf("ParseICS failed: %v", err)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("Expected 1 event, got %d", len(events))
+	}
+
+	eventID := events[0].ID
+	if _, err := uuid.Parse(eventID); err != nil {
+		t.Errorf("Expected event ID to be a valid UUID, got %s (error: %v)", eventID, err)
+	}
+
+	// Test idempotency: parsing the same UID again should yield the same UUID
+	events2, _ := ParseICS(strings.NewReader(icsContent), "user123")
+	if events2[0].ID != eventID {
+		t.Errorf("Expected idempotent UUID generation, got %s and %s", eventID, events2[0].ID)
+	}
+}
+
+func TestParseICS_ExistingUUID(t *testing.T) {
+	existingUUID := uuid.New().String()
+	icsContent := `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:` + existingUUID + `
+DTSTART:20240115T100000Z
+DTEND:20240115T110000Z
+SUMMARY:Test Meeting
+END:VEVENT
+END:VCALENDAR`
+
+	events, err := ParseICS(strings.NewReader(icsContent), "user123")
+	if err != nil {
+		t.Fatalf("ParseICS failed: %v", err)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("Expected 1 event, got %d", len(events))
+	}
+
+	if events[0].ID != existingUUID {
+		t.Errorf("Expected existing UUID to be preserved, got %s, expected %s", events[0].ID, existingUUID)
 	}
 }
 

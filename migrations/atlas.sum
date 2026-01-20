@@ -1,0 +1,4 @@
+h1:rIcSWRhY0MQnY7Ku67qjERV749D64n4RoBeTi7WzwVE=
+001_initial_schema.sql h1:klCy9xBZBkcEMT+OwqM3ieZ/wLf4NC65OeNWWL9UgtI=
+002_add_email_verified_to_users.sql h1:75Dh9RZHHaBnuyiBUT6+RxwDXhUFGxKEN44VjedVE/0=
+003_add_recurrence_to_events.sql h1:sekV/q3lH7VPRjHlhM51cW/8jVNfdta+qLo+JBD/C84=

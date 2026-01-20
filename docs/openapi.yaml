@@ -1142,6 +1142,15 @@ components:
         location:
           type: string
           example: Conference Room A
+        is_recurring:
+          type: boolean
+          example: false
+        recurrence_rule:
+          type: string
+          example: "FREQ=WEEKLY;INTERVAL=1"
+        recurrence_exception:
+          type: string
+          example: "20240120T100000Z"
         created_at:
           type: string
           format: date-time
@@ -1177,6 +1186,15 @@ components:
         location:
           type: string
           example: Conference Room A
+        is_recurring:
+          type: boolean
+          example: false
+        recurrence_rule:
+          type: string
+          example: "FREQ=WEEKLY;INTERVAL=1"
+        recurrence_exception:
+          type: string
+          example: "20240120T100000Z"
 
     Task:
       type: object

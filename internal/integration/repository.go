@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -29,14 +30,6 @@ type SQLRepository struct {
 	pool    *database.DB
 }
 
-// NewSQLRepository creates a new SQL repository
-func NewSQLRepository(pool *database.DB) Repository {
-	return &SQLRepository{
-		queries: db.New(pool.Pool),
-		pool:    pool,
-	}
-}
-
 // CreateIntegration inserts a new integration into the database
 func (r *SQLRepository) CreateIntegration(ctx context.Context, integration *models.Integration) error {
 	params := db.CreateIntegrationParams{
@@ -60,7 +53,7 @@ func (r *SQLRepository) CreateIntegration(ctx context.Context, integration *mode
 func (r *SQLRepository) GetIntegrationByID(ctx context.Context, id string) (*models.Integration, error) {
 	row, err := r.queries.GetIntegrationByID(ctx, database.StringToUUID(id))
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("integration not found")
 		}
 		return nil, fmt.Errorf("failed to get integration: %w", err)
@@ -86,7 +79,7 @@ func (r *SQLRepository) GetIntegrationByService(ctx context.Context, userID, ser
 	}
 	row, err := r.queries.GetIntegrationByService(ctx, params)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("integration not found")
 		}
 		return nil, fmt.Errorf("failed to get integration: %w", err)

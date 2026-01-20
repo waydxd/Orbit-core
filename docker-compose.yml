@@ -60,6 +60,15 @@ services:
       retries: 5
       start_period: 10s
 
+  atlas:
+    image: arigaio/atlas:latest
+    volumes:
+      - ./migrations:/migrations
+    command: migrate apply --url "postgres://postgres@postgres:5432/orbit?sslmode=disable" --dir "file:///migrations"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   orbit-core:
     build:
       context: .
@@ -102,6 +111,8 @@ services:
         condition: service_healthy
       orbit-orbi:
         condition: service_healthy
+      atlas:
+        condition: service_completed_successfully
 
 
 volumes:

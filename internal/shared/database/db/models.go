@@ -9,15 +9,18 @@ import (
 )
 
 type Event struct {
-	ID          pgtype.UUID        `json:"id"`
-	UserID      pgtype.UUID        `json:"user_id"`
-	Title       string             `json:"title"`
-	Description pgtype.Text        `json:"description"`
-	StartTime   pgtype.Timestamptz `json:"start_time"`
-	EndTime     pgtype.Timestamptz `json:"end_time"`
-	Location    pgtype.Text        `json:"location"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ID                  pgtype.UUID        `json:"id"`
+	UserID              pgtype.UUID        `json:"user_id"`
+	Title               string             `json:"title"`
+	Description         pgtype.Text        `json:"description"`
+	StartTime           pgtype.Timestamptz `json:"start_time"`
+	EndTime             pgtype.Timestamptz `json:"end_time"`
+	Location            pgtype.Text        `json:"location"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	IsRecurring         pgtype.Bool        `json:"is_recurring"`
+	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
+	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
 }
 
 type Integration struct {

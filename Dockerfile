@@ -20,8 +20,6 @@ FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates curl
 
-# Install Atlas
-RUN curl -sSf https://atlasgo.sh | sh
 
 WORKDIR /root/
 
