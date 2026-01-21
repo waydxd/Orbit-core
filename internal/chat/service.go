@@ -419,27 +419,7 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.validateActionForConfirmation(ctx, action, req.IdempotencyKey); err != nil {
-		switch {
-		case errors.Is(err, ErrInvalidIdempotencyKey):
-			s.respondError(w, http.StatusBadRequest, "invalid_idempotency_key", err.Error(), "")
-			m.IncrementErrors()
-		case errors.Is(err, ErrActionNotPending):
-			s.respondError(w, http.StatusConflict, "action_not_pending", err.Error(), "")
-			m.IncrementErrors()
-		case errors.Is(err, ErrActionExpired):
-			s.respondError(w, http.StatusGone, "action_expired", err.Error(), "")
-			m.IncrementExpiredActions()
-		case errors.Is(err, ErrActionValidation):
-			s.respondError(w, http.StatusBadRequest, "validation_failed", err.Error(), "")
-			m.IncrementValidationErrors()
-			m.IncrementFailedActions()
-		case errors.Is(err, ErrActionConflict):
-			s.respondError(w, http.StatusConflict, "conflict_detected", err.Error(), "")
-			m.IncrementConflictErrors()
-		default:
-			s.respondError(w, http.StatusInternalServerError, "internal_error", "An unexpected error occurred during validation", err.Error())
-			m.IncrementErrors()
-		}
+		s.handleValidationError(w, err)
 		return
 	}
 
@@ -471,6 +451,31 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		s.logger.Error("Failed to encode response", "error", err)
+	}
+}
+
+func (s *Service) handleValidationError(w http.ResponseWriter, err error) {
+	m := metrics.GetInstance()
+	switch {
+	case errors.Is(err, ErrInvalidIdempotencyKey):
+		s.respondError(w, http.StatusBadRequest, "invalid_idempotency_key", err.Error(), "")
+		m.IncrementErrors()
+	case errors.Is(err, ErrActionNotPending):
+		s.respondError(w, http.StatusConflict, "action_not_pending", err.Error(), "")
+		m.IncrementErrors()
+	case errors.Is(err, ErrActionExpired):
+		s.respondError(w, http.StatusGone, "action_expired", err.Error(), "")
+		m.IncrementExpiredActions()
+	case errors.Is(err, ErrActionValidation):
+		s.respondError(w, http.StatusBadRequest, "validation_failed", err.Error(), "")
+		m.IncrementValidationErrors()
+		m.IncrementFailedActions()
+	case errors.Is(err, ErrActionConflict):
+		s.respondError(w, http.StatusConflict, "conflict_detected", err.Error(), "")
+		m.IncrementConflictErrors()
+	default:
+		s.respondError(w, http.StatusInternalServerError, "internal_error", "An unexpected error occurred during validation", err.Error())
+		m.IncrementErrors()
 	}
 }
 

@@ -240,24 +240,14 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	var req struct {
-		Title               string `json:"title"`
-		Description         string `json:"description"`
-		StartTime           string `json:"start_time"`
-		EndTime             string `json:"end_time"`
-		Location            string `json:"location"`
-		IsRecurring         bool   `json:"is_recurring"`
-		RecurrenceRule      string `json:"recurrence_rule"`
-		RecurrenceException string `json:"recurrence_exception"`
-	}
-
+	var req updateEventRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
 		return
 	}
 
-	// Verify ownership before update
+	// Verify ownership
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
@@ -268,36 +258,8 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Apply updates from request
-	if req.Title != "" {
-		existing.Title = req.Title
-	}
-	if req.Description != "" {
-		existing.Description = req.Description
-	}
-	if req.Location != "" {
-		existing.Location = req.Location
-	}
-	if req.IsRecurring {
-		existing.IsRecurring = req.IsRecurring
-	}
-	if req.RecurrenceRule != "" {
-		existing.RecurrenceRule = req.RecurrenceRule
-	}
-	if req.RecurrenceException != "" {
-		existing.RecurrenceException = req.RecurrenceException
-	}
-	if req.StartTime != "" {
-		if t, err := time.Parse(time.RFC3339, req.StartTime); err == nil {
-			existing.StartTime = t
-		}
-	}
-	if req.EndTime != "" {
-		if t, err := time.Parse(time.RFC3339, req.EndTime); err == nil {
-			existing.EndTime = t
-		}
-	}
-	existing.UpdatedAt = time.Now()
+	// Apply updates (helper handles parsing & optional fields)
+	applyUpdateToEvent(existing, &req)
 
 	if err := s.eventRepo.UpdateEvent(ctx, existing); err != nil {
 		s.logger.Error("failed to update event", "err", err)
@@ -1062,3 +1024,45 @@ func (s *Service) GetAvailableSlots(ctx context.Context, req *pb.GetAvailableSlo
 
 // applyUpdateToEvent applies non-empty fields from req to the provided event and
 // updates the UpdatedAt timestamp. Parsing errors for times are ignored (no-op).
+func applyUpdateToEvent(event *models.Event, req *updateEventRequest) {
+	if req.Title != "" {
+		event.Title = req.Title
+	}
+	if req.Description != "" {
+		event.Description = req.Description
+	}
+	if req.Location != "" {
+		event.Location = req.Location
+	}
+	if req.IsRecurring {
+		event.IsRecurring = req.IsRecurring
+	}
+	if req.RecurrenceRule != "" {
+		event.RecurrenceRule = req.RecurrenceRule
+	}
+	if req.RecurrenceException != "" {
+		event.RecurrenceException = req.RecurrenceException
+	}
+	if req.StartTime != "" {
+		if t, err := time.Parse(time.RFC3339, req.StartTime); err == nil {
+			event.StartTime = t
+		}
+	}
+	if req.EndTime != "" {
+		if t, err := time.Parse(time.RFC3339, req.EndTime); err == nil {
+			event.EndTime = t
+		}
+	}
+	event.UpdatedAt = time.Now()
+}
+
+type updateEventRequest struct {
+	Title               string `json:"title,omitempty"`
+	Description         string `json:"description,omitempty"`
+	StartTime           string `json:"start_time,omitempty"`
+	EndTime             string `json:"end_time,omitempty"`
+	Location            string `json:"location,omitempty"`
+	IsRecurring         bool   `json:"is_recurring,omitempty"`
+	RecurrenceRule      string `json:"recurrence_rule,omitempty"`
+	RecurrenceException string `json:"recurrence_exception,omitempty"`
+}
