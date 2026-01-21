@@ -27,7 +27,7 @@ type Repository interface {
 // SQLRepository implements Repository using PostgreSQL
 type SQLRepository struct {
 	queries *db.Queries
-	pool    *database.DB
+	// pool    *database.DB
 }
 
 // CreateIntegration inserts a new integration into the database

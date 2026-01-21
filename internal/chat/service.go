@@ -15,6 +15,7 @@ import (
 	"github.com/waydxd/Orbit-core/pkg/grpc"
 	"github.com/waydxd/Orbit-core/pkg/logger"
 	"github.com/waydxd/Orbit-core/pkg/metrics"
+	"github.com/waydxd/Orbit-core/pkg/middleware"
 	pb "github.com/waydxd/Orbit-core/proto/calendar"
 )
 
@@ -65,7 +66,6 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 type PostMessageRequest struct {
 	Message        string                 `json:"message"`
 	ConversationID string                 `json:"conversation_id,omitempty"`
-	UserID         string                 `json:"user_id"`
 	Context        map[string]interface{} `json:"context,omitempty"`
 }
 
@@ -118,6 +118,12 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	w.Header().Set("Content-Type", "application/json")
 
+	userID := middleware.GetUserIDFromContext(ctx)
+	if userID == "" {
+		s.respondError(w, http.StatusUnauthorized, "unauthorized", "User ID not found in context", "")
+		return
+	}
+
 	m := metrics.GetInstance()
 	m.IncrementMessages()
 
@@ -142,18 +148,12 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.UserID == "" {
-		s.respondError(w, http.StatusBadRequest, "missing_user_id", "User ID is required", "")
-		m.IncrementErrors()
-		return
-	}
-
 	// Generate correlation ID
 	correlationID := GenerateCorrelationID()
-	s.logger.Info("Processing chat message", "correlation_id", correlationID, "user_id", req.UserID)
+	s.logger.Info("Processing chat message", "correlation_id", correlationID, "user_id", userID)
 
-	// Get or create conversation
-	conv, err := s.getOrCreateConversation(ctx, &req, correlationID)
+	// Get or create conversation (updates userID internal usage)
+	conv, err := s.getOrCreateConversation(ctx, &req, userID, correlationID)
 	if err != nil {
 		s.respondError(w, http.StatusInternalServerError, "conversation_error", "Failed to get or create conversation", err.Error())
 		m.IncrementErrors()
@@ -161,17 +161,17 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist user message
-	s.persistUserMessage(ctx, conv.ID, req.UserID, req.Message, req.Context)
+	s.persistUserMessage(ctx, conv.ID, userID, req.Message, req.Context)
 
 	// Forward to Agent Runner via gRPC
-	agentReply, proposedAction, err := s.forwardToAgent(ctx, req.UserID, req.Message, correlationID, conv.ID)
+	agentReply, proposedAction, err := s.forwardToAgent(ctx, userID, req.Message, correlationID, conv.ID)
 	if err != nil {
 		s.logger.Error("Agent communication failed", "error", err, "correlation_id", correlationID)
 		agentReply = "I'm sorry, I'm having trouble processing your request right now. Please try again."
 	}
 
 	// Persist agent reply
-	s.persistAssistantMessage(ctx, conv.ID, req.UserID, agentReply)
+	s.persistAssistantMessage(ctx, conv.ID, userID, agentReply)
 
 	response := PostMessageResponse{
 		ConversationID: conv.ID,
@@ -254,17 +254,20 @@ func (s *Service) handleProposedAction(ctx context.Context, conv *models.Convers
 	}
 }
 
-func (s *Service) getOrCreateConversation(ctx context.Context, req *PostMessageRequest, correlationID string) (*models.Conversation, error) {
+func (s *Service) getOrCreateConversation(ctx context.Context, req *PostMessageRequest, userID, correlationID string) (*models.Conversation, error) {
 	m := metrics.GetInstance()
 	if req.ConversationID != "" {
 		conv, err := s.repo.GetConversationByID(ctx, req.ConversationID)
 		if err == nil {
+			if conv.UserID != userID {
+				return nil, errors.New("conversation does not belong to user")
+			}
 			return conv, nil
 		}
 		s.logger.Warn("Conversation not found, creating new", "conversation_id", req.ConversationID, "error", err)
 	}
 
-	conv, err := s.repo.CreateConversation(ctx, req.UserID, correlationID)
+	conv, err := s.repo.CreateConversation(ctx, userID, correlationID)
 	if err != nil {
 		return nil, err
 	}
@@ -311,6 +314,12 @@ func (s *Service) handleGetConversation(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	w.Header().Set("Content-Type", "application/json")
 
+	userID := middleware.GetUserIDFromContext(ctx)
+	if userID == "" {
+		s.respondError(w, http.StatusUnauthorized, "unauthorized", "User ID not found in context", "")
+		return
+	}
+
 	vars := mux.Vars(r)
 	conversationID := vars["conversation_id"]
 
@@ -327,6 +336,11 @@ func (s *Service) handleGetConversation(w http.ResponseWriter, r *http.Request) 
 	conv, err := s.repo.GetConversationByID(ctx, conversationID)
 	if err != nil {
 		s.respondError(w, http.StatusNotFound, "conversation_not_found", "Conversation not found", err.Error())
+		return
+	}
+
+	if conv.UserID != userID {
+		s.respondError(w, http.StatusForbidden, "forbidden", "You do not have permission to access this conversation", "")
 		return
 	}
 
@@ -362,6 +376,13 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	ctx := r.Context()
 	w.Header().Set("Content-Type", "application/json")
+
+	userID := middleware.GetUserIDFromContext(ctx)
+	if userID == "" {
+		s.respondError(w, http.StatusUnauthorized, "unauthorized", "User ID not found in context", "")
+		return
+	}
+
 	m := metrics.GetInstance()
 
 	vars := mux.Vars(r)
@@ -387,6 +408,12 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	action, err := s.repo.GetPendingActionByID(ctx, actionID)
 	if err != nil {
 		s.respondError(w, http.StatusNotFound, "action_not_found", "Action not found", err.Error())
+		m.IncrementErrors()
+		return
+	}
+
+	if action.UserID != userID {
+		s.respondError(w, http.StatusForbidden, "forbidden", "You do not have permission to confirm this action", "")
 		m.IncrementErrors()
 		return
 	}
@@ -484,6 +511,12 @@ func (s *Service) handleCancelAction(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	w.Header().Set("Content-Type", "application/json")
 
+	userID := middleware.GetUserIDFromContext(ctx)
+	if userID == "" {
+		s.respondError(w, http.StatusUnauthorized, "unauthorized", "User ID not found in context", "")
+		return
+	}
+
 	m := metrics.GetInstance()
 
 	vars := mux.Vars(r)
@@ -503,6 +536,12 @@ func (s *Service) handleCancelAction(w http.ResponseWriter, r *http.Request) {
 	action, err := s.repo.GetPendingActionByID(ctx, actionID)
 	if err != nil {
 		s.respondError(w, http.StatusNotFound, "action_not_found", "Action not found", err.Error())
+		m.IncrementErrors()
+		return
+	}
+
+	if action.UserID != userID {
+		s.respondError(w, http.StatusForbidden, "forbidden", "You do not have permission to cancel this action", "")
 		m.IncrementErrors()
 		return
 	}
@@ -541,6 +580,12 @@ func (s *Service) handleGetAction(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	w.Header().Set("Content-Type", "application/json")
 
+	userID := middleware.GetUserIDFromContext(ctx)
+	if userID == "" {
+		s.respondError(w, http.StatusUnauthorized, "unauthorized", "User ID not found in context", "")
+		return
+	}
+
 	vars := mux.Vars(r)
 	actionID := vars["action_id"]
 	if actionID == "" {
@@ -556,6 +601,11 @@ func (s *Service) handleGetAction(w http.ResponseWriter, r *http.Request) {
 	action, err := s.repo.GetPendingActionByID(ctx, actionID)
 	if err != nil {
 		s.respondError(w, http.StatusNotFound, "action_not_found", "Action not found", err.Error())
+		return
+	}
+
+	if action.UserID != userID {
+		s.respondError(w, http.StatusForbidden, "forbidden", "You do not have permission to access this action", "")
 		return
 	}
 
@@ -600,6 +650,9 @@ func (s *Service) forwardToAgent(ctx context.Context, userID, message, correlati
 		Metadata:  metadata,
 	}
 
+	// Propagate userID via metadata
+	ctx = middleware.PassUserIDToMetadata(ctx)
+
 	resp, err := s.grpcClient.ProcessMessage(ctx, req)
 	if err != nil {
 		s.logger.Error("Failed to call agent ProcessMessage", "error", err, "correlation_id", correlationID)
@@ -635,18 +688,21 @@ func (s *Service) executeAction(ctx context.Context, action *models.PendingActio
 	// Execute based on action type
 	switch action.ActionType {
 	case "create_event":
-		return s.executeCreateEvent(ctx, actionData, action)
+		return s.executeCreateEvent(ctx, actionData)
 	case "update_event":
-		return s.executeUpdateEvent(ctx, actionData, action)
+		return s.executeUpdateEvent(ctx, actionData)
 	case "delete_event":
-		return s.executeDeleteEvent(ctx, actionData, action)
+		return s.executeDeleteEvent(ctx, actionData)
 	default:
 		return nil, "", fmt.Errorf("unsupported action type: %s", action.ActionType)
 	}
 }
 
-func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]interface{}, action *models.PendingAction) (map[string]interface{}, string, error) {
+func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]interface{}) (map[string]interface{}, string, error) {
 	client := s.grpcClient.GetCalendarServiceClient()
+
+	// Propagate userID via metadata
+	ctx = middleware.PassUserIDToMetadata(ctx)
 
 	// Extract event data
 	title, _ := actionData["title"].(string)
@@ -712,8 +768,11 @@ func extractTimeFields(actionData map[string]interface{}) (startTime int64, endT
 	return startTime, endTime, hasStart, hasEnd
 }
 
-func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]interface{}, action *models.PendingAction) (map[string]interface{}, string, error) {
+func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]interface{}) (map[string]interface{}, string, error) {
 	client := s.grpcClient.GetCalendarServiceClient()
+
+	// Propagate userID via metadata
+	ctx = middleware.PassUserIDToMetadata(ctx)
 
 	// Extract event data
 	eventID, _ := actionData["id"].(string)
@@ -748,8 +807,11 @@ func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]
 	return result, res.Event.Id, nil
 }
 
-func (s *Service) executeDeleteEvent(ctx context.Context, actionData map[string]interface{}, action *models.PendingAction) (map[string]interface{}, string, error) {
+func (s *Service) executeDeleteEvent(ctx context.Context, actionData map[string]interface{}) (map[string]interface{}, string, error) {
 	client := s.grpcClient.GetCalendarServiceClient()
+
+	// Propagate userID via metadata
+	ctx = middleware.PassUserIDToMetadata(ctx)
 
 	// Extract event ID
 	eventID, _ := actionData["id"].(string)
@@ -825,7 +887,7 @@ func (s *Service) CleanupExpiredActions(ctx context.Context) error {
 }
 
 // checkConflicts checks for conflicts before executing an action
-func (s *Service) checkConflicts(ctx context.Context, action *models.PendingAction) error {
+func (s *Service) checkConflicts(_ context.Context, action *models.PendingAction) error {
 	// This is a simplified conflict check
 	// In production, this would:
 	// 1. Check for overlapping calendar events
@@ -860,7 +922,7 @@ func (s *Service) checkConflicts(ctx context.Context, action *models.PendingActi
 // parseProposedAction retrieves pending actions created by the gRPC interceptor
 // When the agent calls CalendarService methods, the interceptor creates PendingAction records
 // We retrieve the most recent one for this conversation and return it
-func (s *Service) parseProposedAction(ctx context.Context, resp *pb.ProcessMessageResponse, conversationID, correlationID string) *ProposedAction {
+func (s *Service) parseProposedAction(ctx context.Context, _ *pb.ProcessMessageResponse, conversationID, correlationID string) *ProposedAction {
 	// Get pending actions created during this conversation/correlation
 	// The interceptor stores them with the correlation_id
 	pendingActions, err := s.repo.GetPendingActionsByConversation(ctx, conversationID)
@@ -931,7 +993,7 @@ func generateActionSummary(actionType string, actionData map[string]interface{})
 }
 
 // GET /chat/metrics - Get chat metrics
-func (s *Service) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleGetMetrics(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	m := metrics.GetInstance()

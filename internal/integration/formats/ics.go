@@ -80,61 +80,45 @@ func getPropValue(vEvent *ics.VEvent, prop ics.ComponentProperty) string {
 	return p.Value
 }
 
+// parseICalTime centralizes parsing logic used for DTSTART/DTEND handling.
+// It attempts to use the library getter (GetStartAt/GetEndAt) and falls back to
+// parsing the raw property value. It also handles "floating" times (no trailing Z
+// and no TZID) by interpreting them as UTC.
+func parseICalTime(vEvent *ics.VEvent, propType ics.ComponentProperty, getter func(*ics.VEvent) (time.Time, error)) time.Time {
+	prop := vEvent.GetProperty(propType)
+
+	// Prefer the library's parsed value when available
+	if t, err := getter(vEvent); err == nil && !t.IsZero() {
+		t = t.UTC()
+		// If it's floating time (no Z and no TZID), treat as UTC
+		if prop != nil && !strings.HasSuffix(prop.Value, "Z") {
+			if _, hasTZID := prop.ICalParameters["TZID"]; !hasTZID {
+				for _, layout := range []string{"20060102T150405", "20060102"} {
+					if parsed, err := time.Parse(layout, prop.Value); err == nil {
+						return parsed.UTC()
+					}
+				}
+			}
+		}
+		return t
+	}
+
+	// Fallback: parse raw property value if library parsing not available
+	if prop != nil {
+		for _, layout := range []string{"20060102T150405Z", "20060102T150405", "20060102"} {
+			if parsed, err := time.Parse(layout, prop.Value); err == nil {
+				return parsed.UTC()
+			}
+		}
+	}
+
+	return time.Time{}
+}
+
 // parseStartEnd returns start and end times for the event. DATE-only properties are parsed as UTC midnight.
 func parseStartEnd(vEvent *ics.VEvent) (time.Time, time.Time) {
-	var start time.Time
-	var end time.Time
-
-	// Start
-	propStart := vEvent.GetProperty(ics.ComponentPropertyDtStart)
-	if s, err := vEvent.GetStartAt(); err == nil && !s.IsZero() {
-		start = s.UTC()
-		// If it's floating time (no Z and no TZID), the library parses in local time.
-		// We want to treat floating time as UTC to avoid system-local dependency.
-		if propStart != nil && !strings.HasSuffix(propStart.Value, "Z") {
-			if _, hasTZID := propStart.ICalParameters["TZID"]; !hasTZID {
-				for _, layout := range []string{"20060102T150405", "20060102"} {
-					if t, err := time.Parse(layout, propStart.Value); err == nil {
-						start = t.UTC()
-						break
-					}
-				}
-			}
-		}
-	} else if propStart != nil {
-		// Fallback manual parsing if GetStartAt failed but we have a property
-		for _, layout := range []string{"20060102T150405Z", "20060102T150405", "20060102"} {
-			if t, err := time.Parse(layout, propStart.Value); err == nil {
-				start = t.UTC()
-				break
-			}
-		}
-	}
-
-	// End
-	propEnd := vEvent.GetProperty(ics.ComponentPropertyDtEnd)
-	if e, err := vEvent.GetEndAt(); err == nil && !e.IsZero() {
-		end = e.UTC()
-		// Handle floating time for End
-		if propEnd != nil && !strings.HasSuffix(propEnd.Value, "Z") {
-			if _, hasTZID := propEnd.ICalParameters["TZID"]; !hasTZID {
-				for _, layout := range []string{"20060102T150405", "20060102"} {
-					if t, err := time.Parse(layout, propEnd.Value); err == nil {
-						end = t.UTC()
-						break
-					}
-				}
-			}
-		}
-	} else if propEnd != nil {
-		for _, layout := range []string{"20060102T150405Z", "20060102T150405", "20060102"} {
-			if t, err := time.Parse(layout, propEnd.Value); err == nil {
-				end = t.UTC()
-				break
-			}
-		}
-	}
-
+	start := parseICalTime(vEvent, ics.ComponentPropertyDtStart, func(v *ics.VEvent) (time.Time, error) { return v.GetStartAt() })
+	end := parseICalTime(vEvent, ics.ComponentPropertyDtEnd, func(v *ics.VEvent) (time.Time, error) { return v.GetEndAt() })
 	return start, end
 }
 

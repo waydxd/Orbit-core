@@ -16,6 +16,7 @@ import (
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/logger"
+	"github.com/waydxd/Orbit-core/pkg/middleware"
 )
 
 // CalendarServiceInterface defines the methods needed from calendar service
@@ -193,16 +194,15 @@ func (s *Service) getExternalStatus(w http.ResponseWriter, _ *http.Request) {
 // importCalendar handles importing calendar data from ICS or CSV files
 // POST /api/v1/integration/import
 // Content-Type: multipart/form-data
-// Query params: user_id (required)
 func (s *Service) importCalendar(w http.ResponseWriter, r *http.Request) {
 	if s.calendarService == nil {
 		s.respondWithError(w, http.StatusServiceUnavailable, "calendar service not available", nil)
 		return
 	}
 
-	userID := r.URL.Query().Get("user_id")
+	userID := middleware.GetUserIDFromContext(r.Context())
 	if userID == "" {
-		s.respondWithError(w, http.StatusBadRequest, "user_id query parameter is required", nil)
+		s.respondWithError(w, http.StatusUnauthorized, "unauthorized", nil)
 		return
 	}
 
@@ -285,7 +285,7 @@ func (s *Service) importCalendar(w http.ResponseWriter, r *http.Request) {
 
 // exportCalendar handles exporting calendar data to ICS or CSV format
 // GET /api/v1/integration/export
-// Query params: user_id (required), format (optional, default: ics), start_time, end_time
+// Query params: format (optional, default: ics), start_time, end_time
 func (s *Service) exportCalendar(w http.ResponseWriter, r *http.Request) {
 	// Check service availability
 	if s.calendarService == nil {
@@ -293,8 +293,14 @@ func (s *Service) exportCalendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		s.respondWithError(w, http.StatusUnauthorized, "unauthorized", nil)
+		return
+	}
+
 	// Parse and validate parameters
-	userID, format, startTime, endTime, status, err := s.parseExportParams(r)
+	format, startTime, endTime, status, err := s.parseExportParams(r)
 	if err != nil {
 		s.respondWithError(w, status, err.Error(), nil)
 		return
@@ -330,19 +336,14 @@ func (s *Service) exportCalendar(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseExportParams parses and validates export query parameters.
-// Returns userID, format, startTime, endTime, httpStatus (non-0 when err!=nil), and error.
-func (s *Service) parseExportParams(r *http.Request) (string, string, int64, int64, int, error) {
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
-		return "", "", 0, 0, http.StatusBadRequest, fmt.Errorf("user_id query parameter is required")
-	}
-
+// Returns format, startTime, endTime, httpStatus (non-0 when err!=nil), and error.
+func (s *Service) parseExportParams(r *http.Request) (string, int64, int64, int, error) {
 	format := strings.ToLower(r.URL.Query().Get("format"))
 	if format == "" {
 		format = "ics"
 	}
 	if format != "ics" && format != "csv" {
-		return "", "", 0, 0, http.StatusBadRequest, fmt.Errorf("unsupported format. Supported formats: ics, csv")
+		return "", 0, 0, http.StatusBadRequest, fmt.Errorf("unsupported format. Supported formats: ics, csv")
 	}
 
 	now := time.Now()
@@ -360,7 +361,7 @@ func (s *Service) parseExportParams(r *http.Request) (string, string, int64, int
 		}
 	}
 
-	return userID, format, startTime, endTime, 0, nil
+	return format, startTime, endTime, 0, nil
 }
 
 // fetchEventsFiltered retrieves events from the calendar service and filters them by userID.
@@ -398,16 +399,16 @@ func (s *Service) generateExportData(format string, events []*models.Event) ([]b
 // ===== Google Calendar Integration Handlers (Phase 2) =====
 
 // googleAuth initiates the Google OAuth flow
-// GET /api/v1/integration/google/auth?user_id=xxx
+// GET /api/v1/integration/google/auth
 func (s *Service) googleAuth(w http.ResponseWriter, r *http.Request) {
 	if !s.googleService.IsConfigured() {
 		s.respondWithError(w, http.StatusServiceUnavailable, "Google Calendar integration is not configured", nil)
 		return
 	}
 
-	userID := r.URL.Query().Get("user_id")
+	userID := middleware.GetUserIDFromContext(r.Context())
 	if userID == "" {
-		s.respondWithError(w, http.StatusBadRequest, "user_id query parameter is required", nil)
+		s.respondWithError(w, http.StatusUnauthorized, "unauthorized", nil)
 		return
 	}
 
@@ -461,24 +462,16 @@ func (s *Service) googleCallback(w http.ResponseWriter, r *http.Request) {
 // googleDisconnect disconnects Google Calendar for a user
 // POST /api/v1/integration/google/disconnect
 func (s *Service) googleDisconnect(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		UserID string `json:"user_id"`
-	}
-
-	if err := s.decodeJSON(r, &req); err != nil {
-		s.respondWithError(w, http.StatusBadRequest, "invalid request", err)
-		return
-	}
-
-	if req.UserID == "" {
-		s.respondWithError(w, http.StatusBadRequest, "user_id is required", nil)
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		s.respondWithError(w, http.StatusUnauthorized, "unauthorized", nil)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	if err := s.googleService.Disconnect(ctx, req.UserID); err != nil {
+	if err := s.googleService.Disconnect(ctx, userID); err != nil {
 		s.respondWithError(w, http.StatusInternalServerError, "failed to disconnect", err)
 		return
 	}
@@ -487,7 +480,7 @@ func (s *Service) googleDisconnect(w http.ResponseWriter, r *http.Request) {
 }
 
 // googleStatus returns the Google Calendar connection status for a user
-// GET /api/v1/integration/google/status?user_id=xxx
+// GET /api/v1/integration/google/status
 func (s *Service) googleStatus(w http.ResponseWriter, r *http.Request) {
 	if !s.googleService.IsConfigured() {
 		s.respondWithJSON(w, http.StatusOK, map[string]interface{}{
@@ -498,9 +491,9 @@ func (s *Service) googleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := r.URL.Query().Get("user_id")
+	userID := middleware.GetUserIDFromContext(r.Context())
 	if userID == "" {
-		s.respondWithError(w, http.StatusBadRequest, "user_id query parameter is required", nil)
+		s.respondWithError(w, http.StatusUnauthorized, "unauthorized", nil)
 		return
 	}
 
@@ -519,7 +512,6 @@ func (s *Service) googleStatus(w http.ResponseWriter, r *http.Request) {
 
 // GoogleSyncRequest represents a Google Calendar sync request
 type GoogleSyncRequest struct {
-	UserID    string `json:"user_id"`
 	Direction string `json:"direction"`  // "from_google", "to_google", or "bidirectional"
 	StartTime string `json:"start_time"` // optional, RFC3339 format
 	EndTime   string `json:"end_time"`   // optional, RFC3339 format
@@ -528,14 +520,15 @@ type GoogleSyncRequest struct {
 // googleSync triggers a sync between local calendar and Google Calendar
 // POST /api/v1/integration/google/sync
 func (s *Service) googleSync(w http.ResponseWriter, r *http.Request) {
-	var req GoogleSyncRequest
-	if err := s.decodeJSON(r, &req); err != nil {
-		s.respondWithError(w, http.StatusBadRequest, "invalid request", err)
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		s.respondWithError(w, http.StatusUnauthorized, "unauthorized", nil)
 		return
 	}
 
-	if req.UserID == "" {
-		s.respondWithError(w, http.StatusBadRequest, "user_id is required", nil)
+	var req GoogleSyncRequest
+	if err := s.decodeJSON(r, &req); err != nil {
+		s.respondWithError(w, http.StatusBadRequest, "invalid request", err)
 		return
 	}
 
@@ -544,7 +537,7 @@ func (s *Service) googleSync(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 
-	result, err := s.executeGoogleSync(ctx, req.UserID, req.Direction, startTime, endTime)
+	result, err := s.executeGoogleSync(ctx, userID, req.Direction, startTime, endTime)
 	if err != nil {
 		// executeGoogleSync already handles specific errors, but we wrap it here if needed
 		s.respondWithError(w, http.StatusInternalServerError, "sync failed", err)
@@ -659,24 +652,16 @@ func (s *Service) googleWebhook(w http.ResponseWriter, r *http.Request) {
 // googleWatch sets up a watch channel for Google Calendar push notifications
 // POST /api/v1/integration/google/watch
 func (s *Service) googleWatch(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		UserID string `json:"user_id"`
-	}
-
-	if err := s.decodeJSON(r, &req); err != nil {
-		s.respondWithError(w, http.StatusBadRequest, "invalid request", err)
-		return
-	}
-
-	if req.UserID == "" {
-		s.respondWithError(w, http.StatusBadRequest, "user_id is required", nil)
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		s.respondWithError(w, http.StatusUnauthorized, "unauthorized", nil)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	channel, err := s.googleService.SetupWatch(ctx, req.UserID)
+	channel, err := s.googleService.SetupWatch(ctx, userID)
 	if err != nil {
 		s.respondWithError(w, http.StatusInternalServerError, "failed to setup watch", err)
 		return

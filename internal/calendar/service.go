@@ -12,6 +12,7 @@ import (
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/logger"
+	"github.com/waydxd/Orbit-core/pkg/middleware"
 	pb "github.com/waydxd/Orbit-core/proto/calendar"
 )
 
@@ -60,10 +61,10 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 func (s *Service) listEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := r.URL.Query().Get("user_id")
+	userID := middleware.GetUserIDFromContext(r.Context())
 	if userID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"}); err != nil {
 			s.logger.Error("failed to write listEvents error response", "error", err)
 			return
 		}
@@ -111,8 +112,14 @@ func (s *Service) listEvents(w http.ResponseWriter, r *http.Request) {
 func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
 	var req struct {
-		UserID              string `json:"user_id"`
 		Title               string `json:"title"`
 		Description         string `json:"description"`
 		StartTime           string `json:"start_time"`
@@ -154,7 +161,7 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 
 	event := &models.Event{
 		ID:                  uuid.New().String(),
-		UserID:              req.UserID,
+		UserID:              userID,
 		Title:               req.Title,
 		Description:         req.Description,
 		StartTime:           startTime,
@@ -191,13 +198,20 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 func (s *Service) getEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
 	id := mux.Vars(r)["id"]
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	event, err := s.eventRepo.GetEventByID(ctx, id)
-	if err != nil {
-		s.logger.Error("failed to get event", "err", err)
+	if err != nil || event.UserID != userID {
+		s.logger.Error("failed to get event or unauthorized", "err", err)
 		w.WriteHeader(http.StatusNotFound)
 		if err := json.NewEncoder(w).Encode(map[string]string{"error": "event not found"}); err != nil {
 			s.logger.Error("failed to write getEvent error response", "error", err)
@@ -216,71 +230,76 @@ func (s *Service) getEvent(w http.ResponseWriter, r *http.Request) {
 func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	id := mux.Vars(r)["id"]
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	vars := mux.Vars(r)
+	id := vars["id"]
 
 	var req struct {
-		Title               string  `json:"title"`
-		Description         string  `json:"description"`
-		StartTime           string  `json:"start_time"`
-		EndTime             string  `json:"end_time"`
-		Location            string  `json:"location"`
-		IsRecurring         *bool   `json:"is_recurring"`
-		RecurrenceRule      *string `json:"recurrence_rule"`
-		RecurrenceException *string `json:"recurrence_exception"`
+		Title               string `json:"title"`
+		Description         string `json:"description"`
+		StartTime           string `json:"start_time"`
+		EndTime             string `json:"end_time"`
+		Location            string `json:"location"`
+		IsRecurring         bool   `json:"is_recurring"`
+		RecurrenceRule      string `json:"recurrence_rule"`
+		RecurrenceException string `json:"recurrence_exception"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
-			s.logger.Error("failed to write updateEvent error response", "error", err)
-			return
-		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
 		return
 	}
 
+	// Verify ownership before update
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	event, err := s.eventRepo.GetEventByID(ctx, id)
-	if err != nil {
+	existing, err := s.eventRepo.GetEventByID(ctx, id)
+	if err != nil || existing.UserID != userID {
 		w.WriteHeader(http.StatusNotFound)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "event not found"}); err != nil {
-			s.logger.Error("failed to write updateEvent error response", "error", err)
-			return
-		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "event not found"})
 		return
 	}
 
+	// Apply updates from request
 	if req.Title != "" {
-		event.Title = req.Title
+		existing.Title = req.Title
 	}
 	if req.Description != "" {
-		event.Description = req.Description
+		existing.Description = req.Description
 	}
 	if req.Location != "" {
-		event.Location = req.Location
+		existing.Location = req.Location
 	}
-	if req.IsRecurring != nil {
-		event.IsRecurring = *req.IsRecurring
+	if req.IsRecurring {
+		existing.IsRecurring = req.IsRecurring
 	}
-	if req.RecurrenceRule != nil {
-		event.RecurrenceRule = *req.RecurrenceRule
+	if req.RecurrenceRule != "" {
+		existing.RecurrenceRule = req.RecurrenceRule
 	}
-	if req.RecurrenceException != nil {
-		event.RecurrenceException = *req.RecurrenceException
+	if req.RecurrenceException != "" {
+		existing.RecurrenceException = req.RecurrenceException
 	}
 	if req.StartTime != "" {
 		if t, err := time.Parse(time.RFC3339, req.StartTime); err == nil {
-			event.StartTime = t
+			existing.StartTime = t
 		}
 	}
 	if req.EndTime != "" {
 		if t, err := time.Parse(time.RFC3339, req.EndTime); err == nil {
-			event.EndTime = t
+			existing.EndTime = t
 		}
 	}
+	existing.UpdatedAt = time.Now()
 
-	if err := s.eventRepo.UpdateEvent(ctx, event); err != nil {
+	if err := s.eventRepo.UpdateEvent(ctx, existing); err != nil {
 		s.logger.Error("failed to update event", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to update event"}); err != nil {
@@ -290,7 +309,7 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := json.NewEncoder(w).Encode(event); err != nil {
+	if err := json.NewEncoder(w).Encode(existing); err != nil {
 		s.logger.Error("failed to write updateEvent response", "error", err)
 		return
 	}
@@ -298,19 +317,34 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 
 // deleteEvent deletes an event
 func (s *Service) deleteEvent(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
 
-	id := mux.Vars(r)["id"]
+	vars := mux.Vars(r)
+	id := vars["id"]
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
+	// Verify ownership before delete
+	existing, err := s.eventRepo.GetEventByID(ctx, id)
+	if err != nil || existing.UserID != userID {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "event not found"})
+		return
+	}
+
 	if err := s.eventRepo.DeleteEvent(ctx, id); err != nil {
 		s.logger.Error("failed to delete event", "err", err)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete event"}); err != nil {
-			s.logger.Error("failed to write deleteEvent error response", "error", err)
-			return
-		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete event"})
 		return
 	}
 
@@ -323,13 +357,10 @@ func (s *Service) deleteEvent(w http.ResponseWriter, r *http.Request) {
 func (s *Service) listTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := r.URL.Query().Get("user_id")
+	userID := middleware.GetUserIDFromContext(r.Context())
 	if userID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
-			s.logger.Error("failed to write listTasks error response", "error", err)
-			return
-		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 		return
 	}
 
@@ -364,8 +395,14 @@ func (s *Service) listTasks(w http.ResponseWriter, r *http.Request) {
 func (s *Service) createTask(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
 	var req struct {
-		UserID      string `json:"user_id"`
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		DueDate     string `json:"due_date"`
@@ -390,7 +427,7 @@ func (s *Service) createTask(w http.ResponseWriter, r *http.Request) {
 
 	task := &models.Task{
 		ID:          uuid.New().String(),
-		UserID:      req.UserID,
+		UserID:      userID,
 		Title:       req.Title,
 		Description: req.Description,
 		DueDate:     dueDate,
@@ -424,13 +461,20 @@ func (s *Service) createTask(w http.ResponseWriter, r *http.Request) {
 func (s *Service) getTask(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
 	id := mux.Vars(r)["id"]
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
 	task, err := s.taskRepo.GetTaskByID(ctx, id)
-	if err != nil {
-		s.logger.Error("failed to get task", "err", err)
+	if err != nil || task.UserID != userID {
+		s.logger.Error("failed to get task or unauthorized", "err", err)
 		w.WriteHeader(http.StatusNotFound)
 		if err := json.NewEncoder(w).Encode(map[string]string{"error": "task not found"}); err != nil {
 			s.logger.Error("failed to write getTask error response", "error", err)
@@ -449,57 +493,58 @@ func (s *Service) getTask(w http.ResponseWriter, r *http.Request) {
 func (s *Service) updateTask(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	id := mux.Vars(r)["id"]
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	vars := mux.Vars(r)
+	id := vars["id"]
 
 	var req struct {
 		Title       string `json:"title"`
 		Description string `json:"description"`
 		DueDate     string `json:"due_date"`
-		Completed   *bool  `json:"completed"`
+		Completed   bool   `json:"completed"`
 		Priority    string `json:"priority"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
-			s.logger.Error("failed to write updateTask error response", "error", err)
-			return
-		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
 		return
 	}
 
+	// Verify ownership
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	task, err := s.taskRepo.GetTaskByID(ctx, id)
-	if err != nil {
+	existing, err := s.taskRepo.GetTaskByID(ctx, id)
+	if err != nil || existing.UserID != userID {
 		w.WriteHeader(http.StatusNotFound)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "task not found"}); err != nil {
-			s.logger.Error("failed to write updateTask error response", "error", err)
-			return
-		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "task not found"})
 		return
 	}
 
 	if req.Title != "" {
-		task.Title = req.Title
+		existing.Title = req.Title
 	}
 	if req.Description != "" {
-		task.Description = req.Description
+		existing.Description = req.Description
 	}
 	if req.Priority != "" {
-		task.Priority = req.Priority
+		existing.Priority = req.Priority
 	}
 	if req.DueDate != "" {
 		if t, err := time.Parse(time.RFC3339, req.DueDate); err == nil {
-			task.DueDate = t
+			existing.DueDate = t
 		}
 	}
-	if req.Completed != nil {
-		task.Completed = *req.Completed
-	}
+	existing.Completed = req.Completed
 
-	if err := s.taskRepo.UpdateTask(ctx, task); err != nil {
+	if err := s.taskRepo.UpdateTask(ctx, existing); err != nil {
 		s.logger.Error("failed to update task", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to update task"}); err != nil {
@@ -509,7 +554,7 @@ func (s *Service) updateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := json.NewEncoder(w).Encode(task); err != nil {
+	if err := json.NewEncoder(w).Encode(existing); err != nil {
 		s.logger.Error("failed to write updateTask response", "error", err)
 		return
 	}
@@ -517,19 +562,34 @@ func (s *Service) updateTask(w http.ResponseWriter, r *http.Request) {
 
 // deleteTask deletes a task
 func (s *Service) deleteTask(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
 
-	id := mux.Vars(r)["id"]
+	vars := mux.Vars(r)
+	id := vars["id"]
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
+	// Verify ownership
+	existing, err := s.taskRepo.GetTaskByID(ctx, id)
+	if err != nil || existing.UserID != userID {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "task not found"})
+		return
+	}
+
 	if err := s.taskRepo.DeleteTask(ctx, id); err != nil {
 		s.logger.Error("failed to delete task", "err", err)
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete task"}); err != nil {
-			s.logger.Error("failed to write deleteTask error response", "error", err)
-			return
-		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to delete task"})
 		return
 	}
 
@@ -999,3 +1059,6 @@ func (s *Service) GetAvailableSlots(ctx context.Context, req *pb.GetAvailableSlo
 		Message: "Available slots retrieval not fully implemented",
 	}, nil
 }
+
+// applyUpdateToEvent applies non-empty fields from req to the provided event and
+// updates the UpdatedAt timestamp. Parsing errors for times are ignored (no-op).

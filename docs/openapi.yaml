@@ -532,13 +532,6 @@ paths:
         - Location
       security:
         - BearerAuth: []
-      parameters:
-        - name: user_id
-          in: query
-          required: true
-          schema:
-            type: string
-          description: User ID
       responses:
         '200':
           description: Location history
@@ -549,7 +542,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/Location'
         '400':
-          description: Missing user_id parameter
+          description: Invalid request
           content:
             application/json:
               schema:
@@ -562,13 +555,6 @@ paths:
         - Location
       security:
         - BearerAuth: []
-      parameters:
-        - name: user_id
-          in: query
-          required: true
-          schema:
-            type: string
-          description: User ID
       responses:
         '200':
           description: Current location
@@ -586,7 +572,7 @@ paths:
                     type: number
                     format: double
         '400':
-          description: Missing user_id parameter
+          description: Invalid request
           content:
             application/json:
               schema:
@@ -780,19 +766,12 @@ paths:
     post:
       summary: Import events via ICS or CSV file (uses internal/integration/formats/*.go)
       description: |
-        Accepts a multipart/form-data upload containing a single .ics or .csv file and imports events/tasks for the specified user.
+        Accepts a multipart/form-data upload containing a single .ics or .csv file and imports events/tasks for the authenticated user.
         The implementation uses the ICS and CSV parsers/generators located at `internal/integration/formats/ics.go` and `internal/integration/formats/csv.go`.
       tags:
         - Integration
       security:
         - BearerAuth: []
-      parameters:
-        - name: user_id
-          in: query
-          required: true
-          schema:
-            type: string
-          description: User ID to import events for
       requestBody:
         required: true
         content:
@@ -829,18 +808,12 @@ paths:
   /api/v1/integration/export:
     get:
       summary: Export a user's calendar data as ICS or CSV
-      description: "Export events/tasks for the given user in the requested format. Supported formats: `ics`, `csv`."
+      description: "Export events/tasks for the authenticated user in the requested format. Supported formats: `ics`, `csv`."
       tags:
         - Integration
       security:
         - BearerAuth: []
       parameters:
-        - name: user_id
-          in: query
-          required: true
-          schema:
-            type: string
-          description: User ID to export events for
         - name: format
           in: query
           required: true
@@ -883,18 +856,11 @@ paths:
     get:
       summary: Start Google OAuth flow for a user
       description: |
-        Initiates the OAuth authorization flow for Google Calendar on behalf of the specified user. A CSRF state will be generated and validated during the callback.
+        Initiates the OAuth authorization flow for Google Calendar on behalf of the authenticated user. A CSRF state will be generated and validated during the callback.
       tags:
         - Integration
       security:
         - BearerAuth: []
-      parameters:
-        - name: user_id
-          in: query
-          required: true
-          schema:
-            type: string
-          description: User ID initiating the OAuth flow
       responses:
         '200':
           description: Returns an authorization URL to redirect the user's browser to Google
@@ -944,6 +910,63 @@ paths:
                     type: string
         '400':
           description: Invalid request or failed token exchange
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/disconnect:
+    post:
+      summary: Disconnect Google Calendar for a user
+      description: |
+        Removes the Google Calendar integration for the authenticated user and deletes stored tokens.
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Google Calendar disconnected successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Google Calendar disconnected successfully
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/status:
+    get:
+      summary: Get Google Calendar connection status
+      description: |
+        Returns whether Google Calendar is configured and connected for the authenticated user.
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Connection status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+                  connected:
+                    type: boolean
+                  message:
+                    type: string
+        '401':
+          description: Unauthorized
           content:
             application/json:
               schema:
@@ -1161,14 +1184,10 @@ components:
     EventInput:
       type: object
       required:
-        - user_id
         - title
         - start_time
         - end_time
       properties:
-        user_id:
-          type: string
-          example: user-123
         title:
           type: string
           example: Team Meeting
@@ -1232,13 +1251,9 @@ components:
     TaskInput:
       type: object
       required:
-        - user_id
         - title
         - due_date
       properties:
-        user_id:
-          type: string
-          example: user-123
         title:
           type: string
           example: Complete project documentation
@@ -1284,13 +1299,9 @@ components:
     LocationRequest:
       type: object
       required:
-        - user_id
         - latitude
         - longitude
       properties:
-        user_id:
-          type: string
-          example: user-123
         latitude:
           type: number
           format: double
@@ -1353,7 +1364,6 @@ components:
       type: object
       required:
         - message
-        - user_id
       properties:
         message:
           type: string
@@ -1361,9 +1371,6 @@ components:
         conversation_id:
           type: string
           example: conv-uuid-123
-        user_id:
-          type: string
-          example: user-uuid-456
         context:
           type: object
           additionalProperties: true
@@ -1571,9 +1578,6 @@ components:
           type: string
           enum: [from_google, to_google, bidirectional]
           example: bidirectional
-        user_id:
-          type: string
-          example: user-123
         calendar_id:
           type: string
           example: primary
@@ -1595,12 +1599,9 @@ components:
 
     GoogleWatchRequest:
       type: object
-      required:
-        - user_id
       properties:
-        user_id:
-          type: string
-          example: user-123
+        # No extra fields needed, user_id is from token
+        {}
 
     GoogleWatchResponse:
       type: object
