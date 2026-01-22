@@ -271,6 +271,23 @@ paths:
         - Calendar
       security:
         - BearerAuth: []
+      parameters:
+        - name: start_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Start of time window (RFC3339). If omitted, events from the past are included by default.
+          example: 2024-01-01T00:00:00Z
+        - name: end_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: End of time window (RFC3339). If omitted, a far-future end time is used to include all upcoming events.
+          example: 2024-12-31T23:59:59Z
       responses:
         '200':
           description: List of events
@@ -532,13 +549,6 @@ paths:
         - Location
       security:
         - BearerAuth: []
-      parameters:
-        - name: user_id
-          in: query
-          required: true
-          schema:
-            type: string
-          description: User ID
       responses:
         '200':
           description: Location history
@@ -549,7 +559,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/Location'
         '400':
-          description: Missing user_id parameter
+          description: Invalid request
           content:
             application/json:
               schema:
@@ -562,13 +572,6 @@ paths:
         - Location
       security:
         - BearerAuth: []
-      parameters:
-        - name: user_id
-          in: query
-          required: true
-          schema:
-            type: string
-          description: User ID
       responses:
         '200':
           description: Current location
@@ -586,7 +589,7 @@ paths:
                     type: number
                     format: double
         '400':
-          description: Missing user_id parameter
+          description: Invalid request
           content:
             application/json:
               schema:
@@ -775,11 +778,225 @@ paths:
                     items:
                       type: object
 
-  /api/v1/chat/messages:
+  # Phase 1: Manual Import/Export endpoints
+  /api/v1/integration/import:
     post:
-      summary: Send a chat message to the AI assistant
+      summary: Import events via ICS or CSV file (uses internal/integration/formats/*.go)
+      description: |
+        Accepts a multipart/form-data upload containing a single .ics or .csv file and imports events/tasks for the authenticated user.
+        The implementation uses the ICS and CSV parsers/generators located at `internal/integration/formats/ics.go` and `internal/integration/formats/csv.go`.
       tags:
-        - Chat
+        - Integration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: ICS (.ics) or CSV (.csv) file to import
+      responses:
+        '200':
+          description: Import completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResponse'
+        '400':
+          description: Invalid input or unsupported file format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/export:
+    get:
+      summary: Export a user's calendar data as ICS or CSV
+      description: "Export events/tasks for the authenticated user in the requested format. Supported formats: `ics`, `csv`."
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: format
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [ics, csv]
+          description: Desired export format
+      responses:
+        '200':
+          description: File download containing exported events
+          content:
+            text/calendar:
+              schema:
+                type: string
+                format: binary
+              example: |-
+                BEGIN:VCALENDAR
+                ...
+            text/csv:
+              schema:
+                type: string
+                format: binary
+              example: |-
+                Subject,Start Date,Start Time,End Date,End Time,Description
+        '400':
+          description: Missing parameters or unsupported format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Phase 2: Google Calendar Integration endpoints
+  /api/v1/integration/google/auth:
+    get:
+      summary: Start Google OAuth flow for a user
+      description: |
+        Initiates the OAuth authorization flow for Google Calendar on behalf of the authenticated user. A CSRF state will be generated and validated during the callback.
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Returns an authorization URL to redirect the user's browser to Google
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleAuthResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/callback:
+    get:
+      summary: OAuth callback endpoint for Google
+      description: |
+        Callback endpoint that Google will redirect to with `code` and `state` query parameters. The server must validate the CSRF `state` and exchange the `code` for access and refresh tokens.
+      tags:
+        - Integration
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Authorization code returned by Google
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: CSRF state to validate
+      responses:
+        '200':
+          description: OAuth exchange successful and integration established
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: google oauth successful
+                  user_id:
+                    type: string
+        '400':
+          description: Invalid request or failed token exchange
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/disconnect:
+    post:
+      summary: Disconnect Google Calendar for a user
+      description: |
+        Removes the Google Calendar integration for the authenticated user and deletes stored tokens.
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Google Calendar disconnected successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Google Calendar disconnected successfully
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/status:
+    get:
+      summary: Get Google Calendar connection status
+      description: |
+        Returns whether Google Calendar is configured and connected for the authenticated user.
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Connection status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+                  connected:
+                    type: boolean
+                  message:
+                    type: string
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/sync:
+    post:
+      summary: Trigger a Google Calendar synchronization for a user
+      description: |
+        Perform a one-off synchronization between Orbit and Google Calendar. The `direction` controls whether data is imported from Google, exported to Google, or bidirectionally synced.
+        The server will use stored OAuth tokens and perform token refresh if needed.
+      tags:
+        - Integration
       security:
         - BearerAuth: []
       requestBody:
@@ -787,225 +1004,102 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PostMessageRequest'
+              $ref: '#/components/schemas/GoogleSyncRequest'
       responses:
         '200':
-          description: Message processed successfully
+          description: Sync completed or scheduled
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PostMessageResponse'
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: sync scheduled
+                  details:
+                    type: object
+                    additionalProperties: true
         '400':
           description: Invalid input
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChatError'
-        '500':
-          description: Internal server error
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized or missing Google credentials
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChatError'
+                $ref: '#/components/schemas/Error'
 
-  /api/v1/chat/conversations/{conversation_id}:
-    get:
-      summary: Get conversation history and pending actions
-      tags:
-        - Chat
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: conversation_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Conversation ID
-      responses:
-        '200':
-          description: Conversation retrieved successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ConversationResponse'
-        '404':
-          description: Conversation not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatError'
-
-  /api/v1/chat/actions/{action_id}:
-    get:
-      summary: Get pending action details
-      tags:
-        - Chat
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: action_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Action ID
-      responses:
-        '200':
-          description: Action details retrieved successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ActionResponse'
-        '404':
-          description: Action not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatError'
-
-  /api/v1/chat/actions/{action_id}/confirm:
+  /api/v1/integration/google/watch:
     post:
-      summary: Confirm and execute a pending action
+      summary: Create a Google Calendar watch channel for push notifications
+      description: |
+        Register a watch channel with Google Calendar's push API to receive event-driven notifications for a user's calendar. The server will store the channel metadata for future verification and processing.
       tags:
-        - Chat
+        - Integration
       security:
         - BearerAuth: []
-      parameters:
-        - name: action_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Action ID
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ConfirmActionRequest'
+              $ref: '#/components/schemas/GoogleWatchRequest'
       responses:
         '200':
-          description: Action executed successfully
+          description: Watch channel created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ConfirmActionResponse'
+                $ref: '#/components/schemas/GoogleWatchResponse'
         '400':
-          description: Invalid request
+          description: Invalid input
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChatError'
-        '404':
-          description: Action not found
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChatError'
-        '409':
-          description: Action already processed or not pending
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatError'
-        '410':
-          description: Action expired
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatError'
+                $ref: '#/components/schemas/Error'
 
-  /api/v1/chat/actions/{action_id}/cancel:
+  /api/v1/integration/google/webhook:
     post:
-      summary: Cancel a pending action
+      summary: Receive Google Calendar push notifications (webhook)
+      description: |
+        Endpoint for receiving push notifications from Google Calendar watch channels. Google will POST event notifications here. The server should verify the notification headers and channel information.
       tags:
-        - Chat
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: action_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Action ID
+        - Integration
+      # Google pushes are typically unauthenticated (header verification). Keep this endpoint unauthenticated or validate using stored channel secrets.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
       responses:
         '200':
-          description: Action cancelled successfully
+          description: Notification received and processed
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  success:
-                    type: boolean
-                    example: true
                   message:
                     type: string
-                    example: Action cancelled successfully
-        '404':
-          description: Action not found
+                    example: notification processed
+        '400':
+          description: Invalid notification
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChatError'
-        '409':
-          description: Action cannot be cancelled
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatError'
-
-  /api/v1/chat/metrics:
-    get:
-      summary: Get chat service metrics
-      tags:
-        - Chat
-      security:
-        - BearerAuth: []
-      responses:
-        '200':
-          description: Metrics retrieved successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  total_messages:
-                    type: integer
-                  total_conversations:
-                    type: integer
-                  total_pending_actions:
-                    type: integer
-                  total_confirmed_actions:
-                    type: integer
-                  total_cancelled_actions:
-                    type: integer
-                  total_expired_actions:
-                    type: integer
-                  total_failed_actions:
-                    type: integer
-                  avg_message_latency_ms:
-                    type: integer
-                  avg_action_latency_ms:
-                    type: integer
-                  confirmation_rate_pct:
-                    type: number
-                  success_rate_pct:
-                    type: number
-                  total_errors:
-                    type: integer
-                  validation_errors:
-                    type: integer
-                  policy_violations:
-                    type: integer
-                  conflict_errors:
-                    type: integer
-                  messages_per_minute:
-                    type: number
-                  actions_per_minute:
-                    type: number
+                $ref: '#/components/schemas/Error'
 
 components:
   securitySchemes:
@@ -1088,6 +1182,15 @@ components:
         location:
           type: string
           example: Conference Room A
+        is_recurring:
+          type: boolean
+          example: false
+        recurrence_rule:
+          type: string
+          example: "FREQ=WEEKLY;INTERVAL=1"
+        recurrence_exception:
+          type: string
+          example: "20240120T100000Z"
         created_at:
           type: string
           format: date-time
@@ -1098,14 +1201,10 @@ components:
     EventInput:
       type: object
       required:
-        - user_id
         - title
         - start_time
         - end_time
       properties:
-        user_id:
-          type: string
-          example: user-123
         title:
           type: string
           example: Team Meeting
@@ -1123,6 +1222,15 @@ components:
         location:
           type: string
           example: Conference Room A
+        is_recurring:
+          type: boolean
+          example: false
+        recurrence_rule:
+          type: string
+          example: "FREQ=WEEKLY;INTERVAL=1"
+        recurrence_exception:
+          type: string
+          example: "20240120T100000Z"
 
     Task:
       type: object
@@ -1160,13 +1268,9 @@ components:
     TaskInput:
       type: object
       required:
-        - user_id
         - title
         - due_date
       properties:
-        user_id:
-          type: string
-          example: user-123
         title:
           type: string
           example: Complete project documentation
@@ -1212,13 +1316,9 @@ components:
     LocationRequest:
       type: object
       required:
-        - user_id
         - latitude
         - longitude
       properties:
-        user_id:
-          type: string
-          example: user-123
         latitude:
           type: number
           format: double
@@ -1281,7 +1381,6 @@ components:
       type: object
       required:
         - message
-        - user_id
       properties:
         message:
           type: string
@@ -1289,9 +1388,6 @@ components:
         conversation_id:
           type: string
           example: conv-uuid-123
-        user_id:
-          type: string
-          example: user-uuid-456
         context:
           type: object
           additionalProperties: true
@@ -1482,3 +1578,107 @@ components:
         details:
           type: string
           example: The specified action does not exist or has been deleted
+
+    GoogleAuthResponse:
+      type: object
+      properties:
+        authorization_url:
+          type: string
+          example: https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=...&redirect_uri=...&scope=...&state=...
+
+    GoogleSyncRequest:
+      type: object
+      required:
+        - direction
+      properties:
+        direction:
+          type: string
+          enum: [from_google, to_google, bidirectional]
+          example: bidirectional
+        calendar_id:
+          type: string
+          example: primary
+        sync_token:
+          type: string
+          example: token123
+        access_token:
+          type: string
+          example: ya29.a0ARrda...
+        refresh_token:
+          type: string
+          example: 1//04i...
+        expires_in:
+          type: integer
+          example: 3600
+        scope:
+          type: string
+          example: https://www.googleapis.com/auth/calendar
+
+    GoogleWatchRequest:
+      type: object
+      properties:
+        # No extra fields needed, user_id is from token
+        {}
+
+    GoogleWatchResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          example: watch-id-101112
+        resource_id:
+          type: string
+          example: resource-id-789
+        topic_id:
+          type: string
+          example: topic-id-456
+        expiration:
+          type: string
+          format: date-time
+          example: 2024-01-15T11:00:00Z
+        params:
+          type: object
+          additionalProperties: true
+        user_id:
+          type: string
+          example: user-123
+        type:
+          type: string
+          example: calendar
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ImportResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Import completed successfully
+        user_id:
+          type: string
+          example: user-123
+        events_imported:
+          type: integer
+          example: 10
+        tasks_imported:
+          type: integer
+          example: 5
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              file:
+                type: string
+                example: event.ics
+              error:
+                type: string
+                example: Invalid date format
+              line:
+                type: integer
+                example: 42
+

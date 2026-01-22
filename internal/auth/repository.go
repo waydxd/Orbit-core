@@ -2,12 +2,13 @@ package auth
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/waydxd/Orbit-core/internal/shared/database"
+	"github.com/waydxd/Orbit-core/internal/shared/database/db"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 )
 
@@ -25,30 +26,32 @@ type Repository interface {
 
 // SQLRepository implements Repository interface using PostgreSQL
 type SQLRepository struct {
-	db *database.DB
+	queries *db.Queries
+	pool    *database.DB
 }
 
 // NewSQLRepository creates a new SQL repository
-func NewSQLRepository(db *database.DB) Repository {
-	return &SQLRepository{db: db}
+func NewSQLRepository(pool *database.DB) Repository {
+	return &SQLRepository{
+		queries: db.New(pool.Pool),
+		pool:    pool,
+	}
 }
 
 // CreateUser inserts a new user into the database
 func (r *SQLRepository) CreateUser(ctx context.Context, user *models.User) error {
-	query := `
-		INSERT INTO users (id, email, password_hash, first_name, last_name, email_verified, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`
-	_, err := r.db.ExecContext(ctx, query,
-		user.ID,
-		user.Email,
-		user.PasswordHash,
-		user.FirstName,
-		user.LastName,
-		user.EmailVerified,
-		user.CreatedAt,
-		user.UpdatedAt,
-	)
+	params := db.CreateUserParams{
+		ID:            database.StringToUUID(user.ID),
+		Email:         user.Email,
+		PasswordHash:  user.PasswordHash,
+		FirstName:     database.StringToText(user.FirstName),
+		LastName:      database.StringToText(user.LastName),
+		EmailVerified: user.EmailVerified,
+		CreatedAt:     database.TimeToTimestamptz(user.CreatedAt),
+		UpdatedAt:     database.TimeToTimestamptz(user.UpdatedAt),
+	}
+
+	err := r.queries.CreateUser(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
@@ -57,72 +60,61 @@ func (r *SQLRepository) CreateUser(ctx context.Context, user *models.User) error
 
 // GetUserByEmail retrieves a user by email
 func (r *SQLRepository) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
-	query := `
-		SELECT id, email, password_hash, first_name, last_name, email_verified, created_at, updated_at
-		FROM users WHERE email = $1
-	`
-	user := &models.User{}
-	err := r.db.QueryRowContext(ctx, query, email).Scan(
-		&user.ID,
-		&user.Email,
-		&user.PasswordHash,
-		&user.FirstName,
-		&user.LastName,
-		&user.EmailVerified,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
+	row, err := r.queries.GetUserByEmail(ctx, email)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("user not found")
 		}
 		return nil, fmt.Errorf("failed to get user by email: %w", err)
 	}
-	return user, nil
+
+	return &models.User{
+		ID:            database.UUIDToString(row.ID),
+		Email:         row.Email,
+		PasswordHash:  row.PasswordHash,
+		FirstName:     database.TextToString(row.FirstName),
+		LastName:      database.TextToString(row.LastName),
+		EmailVerified: row.EmailVerified,
+		CreatedAt:     database.TimestamptzToTime(row.CreatedAt),
+		UpdatedAt:     database.TimestamptzToTime(row.UpdatedAt),
+	}, nil
 }
 
 // GetUserByID retrieves a user by ID
 func (r *SQLRepository) GetUserByID(ctx context.Context, id string) (*models.User, error) {
-	query := `
-		SELECT id, email, password_hash, first_name, last_name, email_verified, created_at, updated_at
-		FROM users WHERE id = $1
-	`
-	user := &models.User{}
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&user.ID,
-		&user.Email,
-		&user.PasswordHash,
-		&user.FirstName,
-		&user.LastName,
-		&user.EmailVerified,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
+	row, err := r.queries.GetUserByID(ctx, database.StringToUUID(id))
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("user not found")
 		}
 		return nil, fmt.Errorf("failed to get user by id: %w", err)
 	}
-	return user, nil
+
+	return &models.User{
+		ID:            database.UUIDToString(row.ID),
+		Email:         row.Email,
+		PasswordHash:  row.PasswordHash,
+		FirstName:     database.TextToString(row.FirstName),
+		LastName:      database.TextToString(row.LastName),
+		EmailVerified: row.EmailVerified,
+		CreatedAt:     database.TimestamptzToTime(row.CreatedAt),
+		UpdatedAt:     database.TimestamptzToTime(row.UpdatedAt),
+	}, nil
 }
 
 // UpdateUser updates an existing user
 func (r *SQLRepository) UpdateUser(ctx context.Context, user *models.User) error {
-	query := `
-		UPDATE users
-		SET email = $1, password_hash = $2, first_name = $3, last_name = $4, email_verified = $5, updated_at = $6
-		WHERE id = $7
-	`
-	_, err := r.db.ExecContext(ctx, query,
-		user.Email,
-		user.PasswordHash,
-		user.FirstName,
-		user.LastName,
-		user.EmailVerified,
-		time.Now(),
-		user.ID,
-	)
+	params := db.UpdateUserParams{
+		Email:         user.Email,
+		PasswordHash:  user.PasswordHash,
+		FirstName:     database.StringToText(user.FirstName),
+		LastName:      database.StringToText(user.LastName),
+		EmailVerified: user.EmailVerified,
+		UpdatedAt:     database.TimeToTimestamptz(time.Now()),
+		ID:            database.StringToUUID(user.ID),
+	}
+
+	err := r.queries.UpdateUser(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
@@ -131,8 +123,7 @@ func (r *SQLRepository) UpdateUser(ctx context.Context, user *models.User) error
 
 // DeleteUser deletes a user
 func (r *SQLRepository) DeleteUser(ctx context.Context, id string) error {
-	query := "DELETE FROM users WHERE id = $1"
-	_, err := r.db.ExecContext(ctx, query, id)
+	err := r.queries.DeleteUser(ctx, database.StringToUUID(id))
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
@@ -141,46 +132,41 @@ func (r *SQLRepository) DeleteUser(ctx context.Context, id string) error {
 
 // SaveSession saves a session to the database
 func (r *SQLRepository) SaveSession(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (string, error) {
-	query := `
-		INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
-		VALUES (gen_random_uuid(), $1, $2, $3, CURRENT_TIMESTAMP)
-		RETURNING id
-	`
-	var sessionID string
-	err := r.db.QueryRowContext(ctx, query, userID, tokenHash, expiresAt).Scan(&sessionID)
+	params := db.CreateSessionParams{
+		UserID:    database.StringToUUID(userID),
+		TokenHash: tokenHash,
+		ExpiresAt: database.TimeToTimestamptz(expiresAt),
+	}
+
+	id, err := r.queries.CreateSession(ctx, params)
 	if err != nil {
 		return "", fmt.Errorf("failed to save session: %w", err)
 	}
-	return sessionID, nil
+	return database.UUIDToString(id), nil
 }
 
 // GetSessionByToken retrieves a session by token hash
 func (r *SQLRepository) GetSessionByToken(ctx context.Context, tokenHash string) (*models.Session, error) {
-	query := `
-		SELECT id, user_id, token_hash, expires_at, created_at
-		FROM sessions WHERE token_hash = $1 AND expires_at > CURRENT_TIMESTAMP
-	`
-	session := &models.Session{}
-	err := r.db.QueryRowContext(ctx, query, tokenHash).Scan(
-		&session.ID,
-		&session.UserID,
-		&session.TokenHash,
-		&session.ExpiresAt,
-		&session.CreatedAt,
-	)
+	row, err := r.queries.GetSessionByToken(ctx, tokenHash)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("session not found or expired")
 		}
 		return nil, fmt.Errorf("failed to get session: %w", err)
 	}
-	return session, nil
+
+	return &models.Session{
+		ID:        database.UUIDToString(row.ID),
+		UserID:    database.UUIDToString(row.UserID),
+		TokenHash: row.TokenHash,
+		ExpiresAt: database.TimestamptzToTime(row.ExpiresAt),
+		CreatedAt: database.TimestamptzToTime(row.CreatedAt),
+	}, nil
 }
 
 // DeleteSession deletes a session
 func (r *SQLRepository) DeleteSession(ctx context.Context, sessionID string) error {
-	query := "DELETE FROM sessions WHERE id = $1"
-	_, err := r.db.ExecContext(ctx, query, sessionID)
+	err := r.queries.DeleteSession(ctx, database.StringToUUID(sessionID))
 	if err != nil {
 		return fmt.Errorf("failed to delete session: %w", err)
 	}

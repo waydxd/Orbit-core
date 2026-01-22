@@ -43,10 +43,8 @@ func main() {
 		os.Exit(1)
 	}
 	defer func(db *database.DB) {
-		err := db.Close()
-		if err != nil {
-			log.Error("Failed to close PostgreSQL connection", "error", err)
-		}
+		db.Close()
+		log.Info("Closed PostgreSQL connection")
 	}(db)
 
 	defer database.DisconnectMongoDB()
@@ -74,6 +72,9 @@ func main() {
 	calendarService := calendar.NewService(cfg, log, eventRepo, taskRepo)
 	locationService := location.NewService(cfg, log, locationRepo)
 	integrationService := integration.NewService(cfg, log)
+
+	// Set calendar service for integration import/export functionality
+	integrationService.SetCalendarService(calendarService)
 
 	// Initialize gRPC client for Orbi agent
 	grpcClient, err := grpc.NewCalendarGRPCClient(cfg, log)

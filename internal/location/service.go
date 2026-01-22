@@ -12,6 +12,7 @@ import (
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/logger"
+	"github.com/waydxd/Orbit-core/pkg/middleware"
 )
 
 // Service represents the Location Service
@@ -42,7 +43,6 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 
 // LocationRequest represents a location tracking request
 type LocationRequest struct {
-	UserID    string  `json:"user_id"`
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
 	Address   string  `json:"address,omitempty"`
@@ -51,6 +51,13 @@ type LocationRequest struct {
 // trackLocation handles location tracking
 func (s *Service) trackLocation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
 
 	var req LocationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -65,7 +72,7 @@ func (s *Service) trackLocation(w http.ResponseWriter, r *http.Request) {
 
 	location := &models.Location{
 		ID:        uuid.New().String(),
-		UserID:    req.UserID,
+		UserID:    userID,
 		Latitude:  req.Latitude,
 		Longitude: req.Longitude,
 		Address:   req.Address,
@@ -87,7 +94,7 @@ func (s *Service) trackLocation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.logger.Info("Location tracked",
-		"user_id", req.UserID,
+		"user_id", userID,
 		"lat", req.Latitude,
 		"lng", req.Longitude,
 	)
@@ -103,14 +110,10 @@ func (s *Service) trackLocation(w http.ResponseWriter, r *http.Request) {
 func (s *Service) getLocationHistory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := r.URL.Query().Get("user_id")
+	userID := middleware.GetUserIDFromContext(r.Context())
 	if userID == "" {
-		s.logger.Error("missing user_id in getLocationHistory")
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
-			s.logger.Error("failed to write getLocationHistory error response", "error", err)
-			return
-		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 		return
 	}
 
@@ -150,14 +153,10 @@ func (s *Service) getLocationHistory(w http.ResponseWriter, r *http.Request) {
 func (s *Service) getCurrentLocation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	userID := r.URL.Query().Get("user_id")
+	userID := middleware.GetUserIDFromContext(r.Context())
 	if userID == "" {
-		s.logger.Error("missing user_id in getCurrentLocation")
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
-			s.logger.Error("failed to write getCurrentLocation error response", "error", err)
-			return
-		}
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 		return
 	}
 
