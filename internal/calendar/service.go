@@ -74,22 +74,45 @@ func (s *Service) listEvents(w http.ResponseWriter, r *http.Request) {
 	startTimeStr := r.URL.Query().Get("start_time")
 	endTimeStr := r.URL.Query().Get("end_time")
 
-	startTime := time.Now()
-	endTime := time.Now().AddDate(0, 0, 30)
-
-	if startTimeStr != "" {
-		if t, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
-			startTime = t
+	// If neither start nor end are provided, return all events for the user
+	var startTime time.Time
+	var endTime time.Time
+	if startTimeStr == "" && endTimeStr == "" {
+		startTime = time.Time{}                // zero => include past
+		endTime = time.Now().AddDate(10, 0, 0) // far future to include all
+	} else {
+		// Parse provided parameters; fall back to sensible defaults when missing
+		if startTimeStr != "" {
+			if t, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
+				startTime = t
+			} else {
+				// invalid format -> bad request
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid start_time format"})
+				return
+			}
+		} else {
+			startTime = time.Time{}
 		}
-	}
-	if endTimeStr != "" {
-		if t, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
-			endTime = t
+
+		if endTimeStr != "" {
+			if t, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
+				endTime = t
+			} else {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid end_time format"})
+				return
+			}
+		} else {
+			endTime = time.Now().AddDate(10, 0, 0)
 		}
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+
+	// Log query parameters for debugging
+	s.logger.Info("Listing events", "user_id", userID, "start_time", startTime, "end_time", endTime)
 
 	events, err := s.eventRepo.ListEvents(ctx, userID, startTime, endTime)
 	if err != nil {

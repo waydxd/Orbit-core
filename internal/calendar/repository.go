@@ -163,6 +163,11 @@ func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, star
 		}
 	}
 
+	// Ensure we return empty slice instead of nil so JSON encodes to [] instead of null
+	if events == nil {
+		events = make([]*models.Event, 0)
+	}
+
 	return events, nil
 }
 
@@ -273,6 +278,10 @@ func (r *SQLTaskRepository) ListTasks(ctx context.Context, userID string, comple
 			CreatedAt:   database.TimestamptzToTime(row.CreatedAt),
 			UpdatedAt:   database.TimestamptzToTime(row.UpdatedAt),
 		})
+	}
+
+	if tasks == nil {
+		tasks = make([]*models.Task, 0)
 	}
 
 	return tasks, nil

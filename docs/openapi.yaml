@@ -271,6 +271,23 @@ paths:
         - Calendar
       security:
         - BearerAuth: []
+      parameters:
+        - name: start_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Start of time window (RFC3339). If omitted, events from the past are included by default.
+          example: 2024-01-01T00:00:00Z
+        - name: end_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: End of time window (RFC3339). If omitted, a far-future end time is used to include all upcoming events.
+          example: 2024-12-31T23:59:59Z
       responses:
         '200':
           description: List of events
