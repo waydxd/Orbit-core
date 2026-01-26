@@ -112,8 +112,8 @@ func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, star
 
 	if userID == "" {
 		params := db.ListEventsByTimeParams{
-			StartTime: sTime,
-			EndTime:   eTime,
+			WindowStart: sTime,
+			WindowEnd:   eTime,
 		}
 		rows, err := r.queries.ListEventsByTime(ctx, params)
 		if err != nil {
@@ -137,9 +137,9 @@ func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, star
 		}
 	} else {
 		params := db.ListEventsByUserAndTimeParams{
-			UserID:    database.StringToUUID(userID),
-			StartTime: sTime,
-			EndTime:   eTime,
+			UserID:      database.StringToUUID(userID),
+			WindowStart: sTime,
+			WindowEnd:   eTime,
 		}
 		rows, err := r.queries.ListEventsByUserAndTime(ctx, params)
 		if err != nil {
