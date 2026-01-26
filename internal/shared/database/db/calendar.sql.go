@@ -162,15 +162,20 @@ func (q *Queries) GetTaskByID(ctx context.Context, id pgtype.UUID) (Task, error)
 }
 
 const listEventsByTime = `-- name: ListEventsByTime :many
-SELECT id, user_id, title, description, start_time, end_time, location, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
-FROM events
-WHERE start_time >= $1 AND end_time <= $2
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+FROM events e
+WHERE e.start_time <= $1 AND e.end_time >= $2
+UNION
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+FROM events e
+WHERE e.is_recurring = true
+  AND e.start_time <= $1
 ORDER BY start_time
 `
 
 type ListEventsByTimeParams struct {
-	StartTime pgtype.Timestamptz `json:"start_time"`
-	EndTime   pgtype.Timestamptz `json:"end_time"`
+	WindowEnd   pgtype.Timestamptz `json:"window_end"`
+	WindowStart pgtype.Timestamptz `json:"window_start"`
 }
 
 type ListEventsByTimeRow struct {
@@ -189,7 +194,7 @@ type ListEventsByTimeRow struct {
 }
 
 func (q *Queries) ListEventsByTime(ctx context.Context, arg ListEventsByTimeParams) ([]ListEventsByTimeRow, error) {
-	rows, err := q.db.Query(ctx, listEventsByTime, arg.StartTime, arg.EndTime)
+	rows, err := q.db.Query(ctx, listEventsByTime, arg.WindowEnd, arg.WindowStart)
 	if err != nil {
 		return nil, err
 	}
@@ -222,16 +227,23 @@ func (q *Queries) ListEventsByTime(ctx context.Context, arg ListEventsByTimePara
 }
 
 const listEventsByUserAndTime = `-- name: ListEventsByUserAndTime :many
-SELECT id, user_id, title, description, start_time, end_time, location, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
-FROM events
-WHERE user_id = $1 AND start_time >= $2 AND end_time <= $3
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+FROM events e
+WHERE e.user_id = $1
+  AND e.start_time <= $2 AND e.end_time >= $3
+UNION
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+FROM events e
+WHERE e.user_id = $1
+  AND e.is_recurring = true
+  AND e.start_time <= $2
 ORDER BY start_time
 `
 
 type ListEventsByUserAndTimeParams struct {
-	UserID    pgtype.UUID        `json:"user_id"`
-	StartTime pgtype.Timestamptz `json:"start_time"`
-	EndTime   pgtype.Timestamptz `json:"end_time"`
+	UserID      pgtype.UUID        `json:"user_id"`
+	WindowEnd   pgtype.Timestamptz `json:"window_end"`
+	WindowStart pgtype.Timestamptz `json:"window_start"`
 }
 
 type ListEventsByUserAndTimeRow struct {
@@ -250,7 +262,7 @@ type ListEventsByUserAndTimeRow struct {
 }
 
 func (q *Queries) ListEventsByUserAndTime(ctx context.Context, arg ListEventsByUserAndTimeParams) ([]ListEventsByUserAndTimeRow, error) {
-	rows, err := q.db.Query(ctx, listEventsByUserAndTime, arg.UserID, arg.StartTime, arg.EndTime)
+	rows, err := q.db.Query(ctx, listEventsByUserAndTime, arg.UserID, arg.WindowEnd, arg.WindowStart)
 	if err != nil {
 		return nil, err
 	}

@@ -74,38 +74,49 @@ func (s *Service) listEvents(w http.ResponseWriter, r *http.Request) {
 	startTimeStr := r.URL.Query().Get("start_time")
 	endTimeStr := r.URL.Query().Get("end_time")
 
-	// If neither start nor end are provided, return all events for the user
-	var startTime time.Time
-	var endTime time.Time
-	if startTimeStr == "" && endTimeStr == "" {
-		startTime = time.Time{}                // zero => include past
-		endTime = time.Now().AddDate(10, 0, 0) // far future to include all
-	} else {
-		// Parse provided parameters; fall back to sensible defaults when missing
-		if startTimeStr != "" {
-			if t, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
-				startTime = t
-			} else {
-				// invalid format -> bad request
-				w.WriteHeader(http.StatusBadRequest)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid start_time format"})
-				return
-			}
-		} else {
-			startTime = time.Time{}
-		}
+	var startTime, endTime time.Time
+	var err error
 
-		if endTimeStr != "" {
-			if t, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
-				endTime = t
-			} else {
-				w.WriteHeader(http.StatusBadRequest)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid end_time format"})
-				return
-			}
-		} else {
+	if startTimeStr != "" {
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid start_time format"})
+			return
+		}
+	}
+
+	if endTimeStr != "" {
+		endTime, err = time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid end_time format"})
+			return
+		}
+	}
+
+	// Default window: if BOTH are missing or empty, use 3-month window (previous, current, next month).
+	// If only one is provided, use sensible defaults (epoch or far future).
+	if startTime.IsZero() && endTime.IsZero() {
+		now := time.Now().UTC()
+		// Start of previous month. time.Date normalizes out-of-range months (e.g., month 0 -> Dec of previous year),
+		// so now.Month()-1 correctly handles the January -> previous December rollover.
+		startTime = time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, time.UTC)
+		// End of next month (last instant before the following month starts)
+		endTime = time.Date(now.Year(), now.Month()+2, 1, 0, 0, 0, -1, time.UTC)
+	} else {
+		if startTime.IsZero() {
+			startTime = time.Unix(0, 0)
+		}
+		if endTime.IsZero() {
 			endTime = time.Now().AddDate(10, 0, 0)
 		}
+	}
+
+	if endTime.Before(startTime) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "end_time must be after start_time"})
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
