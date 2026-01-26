@@ -162,10 +162,14 @@ func (q *Queries) GetTaskByID(ctx context.Context, id pgtype.UUID) (Task, error)
 }
 
 const listEventsByTime = `-- name: ListEventsByTime :many
-SELECT id, user_id, title, description, start_time, end_time, location, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
-FROM events
-WHERE (start_time <= $1 AND end_time >= $2)
-   OR is_recurring = true
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+FROM events e
+WHERE e.start_time <= $1 AND e.end_time >= $2
+UNION
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+FROM events e
+WHERE e.is_recurring = true
+  AND e.start_time <= $1
 ORDER BY start_time
 `
 
@@ -223,10 +227,16 @@ func (q *Queries) ListEventsByTime(ctx context.Context, arg ListEventsByTimePara
 }
 
 const listEventsByUserAndTime = `-- name: ListEventsByUserAndTime :many
-SELECT id, user_id, title, description, start_time, end_time, location, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
-FROM events
-WHERE user_id = $1 AND ((start_time <= $2 AND end_time >= $3)
-   OR is_recurring = true)
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+FROM events e
+WHERE e.user_id = $1
+  AND e.start_time <= $2 AND e.end_time >= $3
+UNION
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+FROM events e
+WHERE e.user_id = $1
+  AND e.is_recurring = true
+  AND e.start_time <= $2
 ORDER BY start_time
 `
 

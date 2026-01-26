@@ -7,18 +7,27 @@ SELECT id, user_id, title, description, start_time, end_time, location, is_recur
 FROM events WHERE id = $1;
 
 -- name: ListEventsByTime :many
-SELECT id, user_id, title, description, start_time, end_time, location, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
-FROM events
-WHERE user_id = $1
-  AND ((start_time <= sqlc.arg('window_end') AND end_time >= sqlc.arg('window_start'))
-       OR is_recurring = true)
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+FROM events e
+WHERE e.start_time <= sqlc.arg('window_end') AND e.end_time >= sqlc.arg('window_start')
+UNION
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+FROM events e
+WHERE e.is_recurring = true
+  AND e.start_time <= sqlc.arg('window_end')
 ORDER BY start_time;
 
 -- name: ListEventsByUserAndTime :many
-SELECT id, user_id, title, description, start_time, end_time, location, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
-FROM events
-WHERE user_id = $1 AND ((start_time <= sqlc.arg('window_end') AND end_time >= sqlc.arg('window_start'))
-   OR is_recurring = true)
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+FROM events e
+WHERE e.user_id = sqlc.arg('user_id')
+  AND e.start_time <= sqlc.arg('window_end') AND e.end_time >= sqlc.arg('window_start')
+UNION
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+FROM events e
+WHERE e.user_id = sqlc.arg('user_id')
+  AND e.is_recurring = true
+  AND e.start_time <= sqlc.arg('window_end')
 ORDER BY start_time;
 
 -- name: UpdateEvent :exec

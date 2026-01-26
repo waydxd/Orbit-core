@@ -102,9 +102,8 @@ func (s *Service) listEvents(w http.ResponseWriter, r *http.Request) {
 		// Start of previous month. time.Date normalizes out-of-range months (e.g., month 0 -> Dec of previous year),
 		// so now.Month()-1 correctly handles the January -> previous December rollover.
 		startTime = time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, time.UTC)
-		// End of next month (start of month after next minus 1 nanosecond). time.Date similarly normalizes
-		// months > 12 (e.g., month 13 -> Jan of next year), so now.Month()+2 correctly spans across year boundaries.
-		endTime = time.Date(now.Year(), now.Month()+2, 1, 0, 0, 0, 0, time.UTC).Add(-time.Nanosecond)
+		// End of next month (last instant before the following month starts)
+		endTime = time.Date(now.Year(), now.Month()+2, 1, 0, 0, 0, -1, time.UTC)
 	} else {
 		if startTime.IsZero() {
 			startTime = time.Unix(0, 0)
