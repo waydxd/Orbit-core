@@ -113,6 +113,12 @@ func (s *Service) listEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if endTime.Before(startTime) {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "end_time must be after start_time"})
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
