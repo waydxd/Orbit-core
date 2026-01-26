@@ -9,8 +9,9 @@ FROM events WHERE id = $1;
 -- name: ListEventsByTime :many
 SELECT id, user_id, title, description, start_time, end_time, location, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
 FROM events
-WHERE (start_time <= sqlc.arg('window_end') AND end_time >= sqlc.arg('window_start'))
-   OR is_recurring = true
+WHERE user_id = $1
+  AND ((start_time <= sqlc.arg('window_end') AND end_time >= sqlc.arg('window_start'))
+       OR is_recurring = true)
 ORDER BY start_time;
 
 -- name: ListEventsByUserAndTime :many
