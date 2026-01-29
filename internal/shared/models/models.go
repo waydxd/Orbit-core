@@ -19,15 +19,18 @@ type User struct {
 
 // Event represents a calendar event
 type Event struct {
-	ID          string    `json:"id" db:"id"`
-	UserID      string    `json:"user_id" db:"user_id"`
-	Title       string    `json:"title" db:"title"`
-	Description string    `json:"description" db:"description"`
-	StartTime   time.Time `json:"start_time" db:"start_time"`
-	EndTime     time.Time `json:"end_time" db:"end_time"`
-	Location    string    `json:"location" db:"location"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	ID                  string    `json:"id" db:"id"`
+	UserID              string    `json:"user_id" db:"user_id"`
+	Title               string    `json:"title" db:"title"`
+	Description         string    `json:"description" db:"description"`
+	StartTime           time.Time `json:"start_time" db:"start_time"`
+	EndTime             time.Time `json:"end_time" db:"end_time"`
+	Location            string    `json:"location" db:"location"`
+	IsRecurring         bool      `json:"is_recurring" db:"is_recurring"`
+	RecurrenceRule      string    `json:"recurrence_rule" db:"recurrence_rule"`
+	RecurrenceException string    `json:"recurrence_exception" db:"recurrence_exception"`
+	CreatedAt           time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // Task represents a task item

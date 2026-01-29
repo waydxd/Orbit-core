@@ -1,24 +1,15 @@
 services:
   postgres:
     image: postgres:18-alpine
+    # No DB credentials or mounted TLS certs — running with default postgres user and no SSL certs
     environment:
-      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
-      POSTGRES_USER_FILE: /run/secrets/db_user
-      POSTGRES_DB_FILE: /run/secrets/db_name
-    # Mount TLS certs (for testing, generate self-signed cert/key into ./secrets/postgres_server.crt and ./secrets/postgres_server.key)
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_DB: orbit
     volumes:
-      - ./secrets/postgres_server.crt:/var/lib/postgresql/server.crt:ro
-      - ./secrets/postgres_server.key:/var/lib/postgresql/server.key:ro
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/migrations
-    # Start Postgres with SSL enabled and point to the mounted cert/key
-    command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/var/lib/postgresql/server.crt", "-c", "ssl_key_file=/var/lib/postgresql/server.key"]
-    secrets:
-      - db_user
-      - db_password
-      - db_name
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $(cat /run/secrets/db_user)"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -29,11 +20,9 @@ services:
     volumes:
       - redis_data:/data
       - ./config/redis.conf:/usr/local/etc/redis/redis.conf
-    secrets:
-      - redis_password
-    command: /bin/sh -c "redis-server /usr/local/etc/redis/redis.conf --requirepass \"$(cat /run/secrets/redis_password)\""
+    command: /bin/sh -c "redis-server /usr/local/etc/redis/redis.conf"
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$(cat /run/secrets/redis_password)\" ping"]
+      test: ["CMD-SHELL", "redis-cli ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,12 +30,6 @@ services:
   mongo:
     image: mongo:latest
     # Removed port mapping - mongo should only be accessible within Docker network
-    environment:
-      MONGO_INITDB_ROOT_USERNAME_FILE: /run/secrets/mongo_user
-      MONGO_INITDB_ROOT_PASSWORD_FILE: /run/secrets/mongo_password
-    secrets:
-      - mongo_user
-      - mongo_password
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -67,8 +50,7 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://hkust.azure-api.net/}
       REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
-    secrets:
-      - openai_api_key
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
       - redis
     healthcheck:
@@ -78,46 +60,48 @@ services:
       retries: 5
       start_period: 10s
 
+  atlas:
+    image: arigaio/atlas:latest
+    volumes:
+      - ./migrations:/migrations
+    command: migrate apply --url "postgres://postgres@postgres:5432/orbit?sslmode=disable" --dir "file:///migrations"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   orbit-core:
     build:
       context: .
       dockerfile: Dockerfile
-      # Removed public port mappings - access via nginx reverse proxy
+    ports:
+      - "8080:8080"
     expose:
-      - "8080"
       - "50052"
     env_file: .env
-    secrets:
-      - jwt_secret
-      - resend_api_key
-      - db_user
-      - db_password
-      - db_name
-      - mongo_user
-      - mongo_password
-      - redis_password
     environment:
       SERVER_PORT: ${SERVER_PORT:-8080}
       SERVER_HOST: ${SERVER_HOST:-0.0.0.0}
       DB_HOST: ${DB_HOST:-postgres}
       DB_PORT: ${DB_PORT:-5432}
-      # DB_USER/DB_PASSWORD/DB_NAME are provided via Docker secrets in prod.
+      DB_NAME: ${DB_NAME:-}
+      # DB_USER/DB_PASSWORD were previously provided via Docker secrets in prod; now omitted for local/dev
       DB_SSLMODE: ${DB_SSLMODE:-disable}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
-      # REDIS_PASSWORD is a secret; provided via Docker secrets in prod if required.
       REDIS_DB: ${REDIS_DB:-0}
-      # JWT_SECRET and other API keys are provided via Docker secrets in prod.
-      JWT_EXPIRATION_HOURS: ${JWT_EXPIRATION_HOURS:-24}
+      JWT_SECRET: ${JWT_SECRET:-}
       MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017}
+      # MONGO_INITDB_ROOT_USERNAME/PASSWORD intentionally removed to run Mongo without auth
       ORBI_HOST: ${ORBI_HOST:-orbit-orbi}
       ORBI_PORT: ${ORBI_PORT:-50042}
       GRPC_SERVER_PORT: ${GRPC_SERVER_PORT:-50052}
-      # RESEND_API_KEY is a secret; provided via Docker secrets in prod.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       PASSWORD_RESET_EXPIRY_MINUTES: ${PASSWORD_RESET_EXPIRY_MINUTES:-30}
       EMAIL_VERIFICATION_EXPIRY_HOURS: ${EMAIL_VERIFICATION_EXPIRY_HOURS:-24}
       EMAIL_FROM: ${EMAIL_FROM:-"Orbit <onboarding@orbitly.qzz.io>"}
+    volumes:
+      - ./migrations:/root/migrations
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,112 +111,11 @@ services:
         condition: service_healthy
       orbit-orbi:
         condition: service_healthy
-    deploy:
-      replicas: 2
-      restart_policy:
-        condition: on-failure
+      atlas:
+        condition: service_completed_successfully
 
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
-    depends_on:
-      - orbit-core
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-  migrate:
-    image: migrate/migrate
-    volumes:
-      - ./migrations:/migrations
-    secrets:
-      - db_user
-      - db_password
-      - db_name
-    entrypoint: ["/bin/sh", "-c"]
-    command: >
-      user=$$(cat /run/secrets/db_user 2>/dev/null || echo postgres); \
-      pass=$$(cat /run/secrets/db_password 2>/dev/null || echo postgres); \
-      db=$$(cat /run/secrets/db_name 2>/dev/null || echo orbit); \
-      until pg_isready -U "$$user" -h postgres >/dev/null 2>&1; do echo "Waiting for Postgres to be ready..."; sleep 1; done; \
-        migrate -path=/migrations/ -database="postgres://$$user:$$pass@postgres:5432/$$db?sslmode=require" up
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: "no"
-
-  # Development Vault server (optional, used to centrally store secrets)
-  # vault:
-  #   image: hashicorp/vault:1.14.2
-  #   container_name: orbit-vault
-  #   ports:
-  #     - "8200:8200"
-  #   environment:
-  #     # Development mode -- DO NOT USE IN PRODUCTION
-  #     VAULT_DEV_ROOT_TOKEN_ID: devtoken
-  #     VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
-  #   command: server -dev -dev-root-token-id=${VAULT_DEV_ROOT_TOKEN_ID:-devtoken} -dev-listen-address=${VAULT_DEV_LISTEN_ADDRESS:-0.0.0.0:8200}
-  #   volumes:
-  #     - vault_data:/vault/file
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "vault status | grep -q 'Sealed' -e 'false' || exit 1"]
-  #     interval: 5s
-  #     timeout: 5s
-  #     retries: 5
-
-  # One-shot init job to bootstrap secrets from ./secrets into Vault (mounts local secrets folder)
-  # vault-init:
-  #   image: hashicorp/vault:1.14.2
-  #   depends_on:
-  #     - vault
-  #   entrypoint: ["/bin/sh", "-lc"]
-  #   command: |
-  #     set -euo pipefail; \
-  #     # Wait for Vault to be ready
-  #     until vault status >/dev/null 2>&1; do echo "Waiting for Vault..."; sleep 1; done; \
-  #     vault login ${VAULT_DEV_ROOT_TOKEN_ID:-devtoken}; \
-  #     vault kv put secret/orbit \
-  #       DB_USER="$(cat /secrets/db_user.txt 2>/dev/null || echo ${DB_USER:-postgres})" \
-  #       DB_PASSWORD="$(cat /secrets/db_password.txt 2>/dev/null || echo ${DB_PASSWORD:-postgres})" \
-  #       DB_NAME="$(cat /secrets/db_name.txt 2>/dev/null || echo ${DB_NAME:-orbit})" \
-  #       JWT_SECRET="$(cat /secrets/jwt_secret.txt 2>/dev/null || echo ${JWT_SECRET:-change-this-in-production})" \
-  #       OPENAI_API_KEY="$(cat /secrets/openai_api_key.txt 2>/dev/null || echo ${OPENAI_API_KEY:-})" \
-  #       RESEND_API_KEY="$(cat /secrets/resend_api_key.txt 2>/dev/null || echo ${RESEND_API_KEY:-})"; \
-  #     echo "Vault bootstrap complete."
-  #   volumes:
-  #     - ./secrets:/secrets:ro
-  #   environment:
-  #     VAULT_ADDR: http://vault:8200
 
 volumes:
   postgres_data:
   redis_data:
   mongo_data:
-
-secrets:
-  db_user:
-    file: ./secrets/db_user.txt
-  db_password:
-    file: ./secrets/db_password.txt
-  db_name:
-    file: ./secrets/db_name.txt
-  jwt_secret:
-    file: ./secrets/jwt_secret.txt
-  openai_api_key:
-    file: ./secrets/openai_api_key.txt
-  resend_api_key:
-    file: ./secrets/resend_api_key.txt
-  mongo_user:
-    file: ./secrets/mongo_user.txt
-  mongo_password:
-    file: ./secrets/mongo_password.txt
-  redis_password:
-    file: ./secrets/redis_password.txt
-

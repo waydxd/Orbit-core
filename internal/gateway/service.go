@@ -13,11 +13,12 @@ import (
 
 // Service represents the Gateway Service
 type Service struct {
-	config      *config.Config
-	logger      *logger.Logger
-	router      *mux.Router
-	rateLimiter *middleware.RateLimiter
-	services    ServiceConfig
+	config         *config.Config
+	logger         *logger.Logger
+	router         *mux.Router
+	rateLimiter    *middleware.RateLimiter
+	authMiddleware *middleware.AuthMiddleware
+	services       ServiceConfig
 }
 
 // ServiceConfig holds references to other services
@@ -28,7 +29,6 @@ type ServiceConfig struct {
 	IntegrationService IntegrationServiceInterface
 	AgentService       AgentServiceInterface
 	ChatService        ChatServiceInterface
-	HabitService       HabitServiceInterface
 }
 
 // AuthServiceInterface defines methods for auth service
@@ -65,11 +65,6 @@ type ChatServiceInterface interface {
 	RegisterRoutes(router *mux.Router)
 }
 
-// HabitServiceInterface defines methods for habit tracking service
-type HabitServiceInterface interface {
-	RegisterRoutes(router *mux.Router)
-}
-
 // NewService creates a new Gateway Service
 func NewService(cfg *config.Config, log *logger.Logger, svcConfig ServiceConfig) *Service {
 	router := mux.NewRouter()
@@ -83,12 +78,16 @@ func NewService(cfg *config.Config, log *logger.Logger, svcConfig ServiceConfig)
 		1*time.Minute, // per minute
 	)
 
+	// Initialize auth middleware
+	authMiddleware := middleware.NewAuthMiddleware(cfg.Auth.JWTSecret)
+
 	s := &Service{
-		config:      cfg,
-		logger:      log,
-		router:      router,
-		rateLimiter: rateLimiter,
-		services:    svcConfig,
+		config:         cfg,
+		logger:         log,
+		router:         router,
+		rateLimiter:    rateLimiter,
+		authMiddleware: authMiddleware,
+		services:       svcConfig,
 	}
 
 	s.setupRoutes()
@@ -107,16 +106,19 @@ func (s *Service) setupRoutes() {
 	// Apply rate limiting middleware
 	apiRouter.Use(s.rateLimiter.Middleware)
 
-	// Register service routes
+	// Public routes (Auth)
 	s.services.AuthService.RegisterRoutes(apiRouter)
-	s.services.CalendarService.RegisterRoutes(apiRouter)
-	s.services.LocationService.RegisterRoutes(apiRouter)
-	s.services.IntegrationService.RegisterRoutes(apiRouter)
-	s.services.AgentService.RegisterRoutes(apiRouter)
-	s.services.ChatService.RegisterRoutes(apiRouter)
-	if s.services.HabitService != nil {
-		s.services.HabitService.RegisterRoutes(apiRouter)
-	}
+
+	// Protected routes
+	protectedRouter := apiRouter.PathPrefix("").Subrouter()
+	protectedRouter.Use(s.authMiddleware.Middleware)
+
+	// Register service routes on protected router
+	s.services.CalendarService.RegisterRoutes(protectedRouter)
+	s.services.LocationService.RegisterRoutes(protectedRouter)
+	s.services.IntegrationService.RegisterRoutes(protectedRouter)
+	s.services.AgentService.RegisterRoutes(protectedRouter)
+	s.services.ChatService.RegisterRoutes(protectedRouter)
 }
 
 // Router returns the configured router

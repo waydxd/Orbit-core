@@ -2,11 +2,13 @@ package calendar
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/waydxd/Orbit-core/internal/shared/database"
+	"github.com/waydxd/Orbit-core/internal/shared/database/db"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 )
 
@@ -30,43 +32,49 @@ type TaskRepository interface {
 
 // SQLEventRepository implements EventRepository using PostgreSQL
 type SQLEventRepository struct {
-	db *database.DB
+	queries *db.Queries
+	pool    *database.DB
 }
 
 // SQLTaskRepository implements TaskRepository using PostgreSQL
 type SQLTaskRepository struct {
-	db *database.DB
+	queries *db.Queries
+	pool    *database.DB
 }
 
 // NewSQLEventRepository creates a new SQL event repository
-func NewSQLEventRepository(db *database.DB) EventRepository {
-	return &SQLEventRepository{db: db}
+func NewSQLEventRepository(pool *database.DB) EventRepository {
+	return &SQLEventRepository{
+		queries: db.New(pool.Pool),
+		pool:    pool,
+	}
 }
 
 // NewSQLTaskRepository creates a new SQL task repository
-func NewSQLTaskRepository(db *database.DB) TaskRepository {
-	return &SQLTaskRepository{db: db}
+func NewSQLTaskRepository(pool *database.DB) TaskRepository {
+	return &SQLTaskRepository{
+		queries: db.New(pool.Pool),
+		pool:    pool,
+	}
 }
 
 // ===== Event Repository Implementation =====
 
 // CreateEvent inserts a new event into the database
 func (r *SQLEventRepository) CreateEvent(ctx context.Context, event *models.Event) error {
-	query := `
-		INSERT INTO events (id, user_id, title, description, start_time, end_time, location, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`
-	_, err := r.db.ExecContext(ctx, query,
-		event.ID,
-		event.UserID,
-		event.Title,
-		event.Description,
-		event.StartTime,
-		event.EndTime,
-		event.Location,
-		event.CreatedAt,
-		event.UpdatedAt,
-	)
+	params := db.CreateEventParams{
+		ID:          database.StringToUUID(event.ID),
+		UserID:      database.StringToUUID(event.UserID),
+		Title:       event.Title,
+		Description: database.StringToText(event.Description),
+		StartTime:   database.TimeToTimestamptz(event.StartTime),
+		EndTime:     database.TimeToTimestamptz(event.EndTime),
+		Location:    database.StringToText(event.Location),
+		CreatedAt:   database.TimeToTimestamptz(event.CreatedAt),
+		UpdatedAt:   database.TimeToTimestamptz(event.UpdatedAt),
+	}
+
+	err := r.queries.CreateEvent(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to create event: %w", err)
 	}
@@ -75,86 +83,89 @@ func (r *SQLEventRepository) CreateEvent(ctx context.Context, event *models.Even
 
 // GetEventByID retrieves an event by ID
 func (r *SQLEventRepository) GetEventByID(ctx context.Context, id string) (*models.Event, error) {
-	query := `
-		SELECT id, user_id, title, description, start_time, end_time, location, created_at, updated_at
-		FROM events WHERE id = $1
-	`
-	event := &models.Event{}
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&event.ID,
-		&event.UserID,
-		&event.Title,
-		&event.Description,
-		&event.StartTime,
-		&event.EndTime,
-		&event.Location,
-		&event.CreatedAt,
-		&event.UpdatedAt,
-	)
+	row, err := r.queries.GetEventByID(ctx, database.StringToUUID(id))
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("event not found")
 		}
 		return nil, fmt.Errorf("failed to get event: %w", err)
 	}
-	return event, nil
+
+	return &models.Event{
+		ID:          database.UUIDToString(row.ID),
+		UserID:      database.UUIDToString(row.UserID),
+		Title:       row.Title,
+		Description: database.TextToString(row.Description),
+		StartTime:   database.TimestamptzToTime(row.StartTime),
+		EndTime:     database.TimestamptzToTime(row.EndTime),
+		Location:    database.TextToString(row.Location),
+		CreatedAt:   database.TimestamptzToTime(row.CreatedAt),
+		UpdatedAt:   database.TimestamptzToTime(row.UpdatedAt),
+	}, nil
 }
 
 // ListEvents retrieves events for a user within a time range
 func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, startTime, endTime time.Time) ([]*models.Event, error) {
-	var rows *sql.Rows
-	var err error
+	var events []*models.Event
+	sTime := database.TimeToTimestamptz(startTime)
+	eTime := database.TimeToTimestamptz(endTime)
 
 	if userID == "" {
-		query := `
-			SELECT id, user_id, title, description, start_time, end_time, location, created_at, updated_at
-			FROM events
-			WHERE start_time >= $1 AND end_time <= $2
-			ORDER BY start_time
-		`
-		rows, err = r.db.QueryContext(ctx, query, startTime, endTime)
+		params := db.ListEventsByTimeParams{
+			WindowStart: sTime,
+			WindowEnd:   eTime,
+		}
+		rows, err := r.queries.ListEventsByTime(ctx, params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list events: %w", err)
+		}
+		for _, row := range rows {
+			events = append(events, &models.Event{
+				ID:                  database.UUIDToString(row.ID),
+				UserID:              database.UUIDToString(row.UserID),
+				Title:               row.Title,
+				Description:         database.TextToString(row.Description),
+				StartTime:           database.TimestamptzToTime(row.StartTime),
+				EndTime:             database.TimestamptzToTime(row.EndTime),
+				Location:            database.TextToString(row.Location),
+				IsRecurring:         row.IsRecurring.Bool,
+				RecurrenceRule:      database.TextToString(row.RecurrenceRule),
+				RecurrenceException: database.TextToString(row.RecurrenceException),
+				CreatedAt:           database.TimestamptzToTime(row.CreatedAt),
+				UpdatedAt:           database.TimestamptzToTime(row.UpdatedAt),
+			})
+		}
 	} else {
-		query := `
-			SELECT id, user_id, title, description, start_time, end_time, location, created_at, updated_at
-			FROM events
-			WHERE user_id = $1 AND start_time >= $2 AND end_time <= $3
-			ORDER BY start_time
-		`
-		rows, err = r.db.QueryContext(ctx, query, userID, startTime, endTime)
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to list events: %w", err)
-	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			fmt.Printf("failed to close rows: %v\n", err)
+		params := db.ListEventsByUserAndTimeParams{
+			UserID:      database.StringToUUID(userID),
+			WindowStart: sTime,
+			WindowEnd:   eTime,
 		}
-	}(rows)
-
-	var events []*models.Event
-	for rows.Next() {
-		event := &models.Event{}
-		err := rows.Scan(
-			&event.ID,
-			&event.UserID,
-			&event.Title,
-			&event.Description,
-			&event.StartTime,
-			&event.EndTime,
-			&event.Location,
-			&event.CreatedAt,
-			&event.UpdatedAt,
-		)
+		rows, err := r.queries.ListEventsByUserAndTime(ctx, params)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan event: %w", err)
+			return nil, fmt.Errorf("failed to list events: %w", err)
 		}
-		events = append(events, event)
+		for _, row := range rows {
+			events = append(events, &models.Event{
+				ID:                  database.UUIDToString(row.ID),
+				UserID:              database.UUIDToString(row.UserID),
+				Title:               row.Title,
+				Description:         database.TextToString(row.Description),
+				StartTime:           database.TimestamptzToTime(row.StartTime),
+				EndTime:             database.TimestamptzToTime(row.EndTime),
+				Location:            database.TextToString(row.Location),
+				IsRecurring:         row.IsRecurring.Bool,
+				RecurrenceRule:      database.TextToString(row.RecurrenceRule),
+				RecurrenceException: database.TextToString(row.RecurrenceException),
+				CreatedAt:           database.TimestamptzToTime(row.CreatedAt),
+				UpdatedAt:           database.TimestamptzToTime(row.UpdatedAt),
+			})
+		}
 	}
 
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating events: %w", err)
+	// Ensure we return empty slice instead of nil so JSON encodes to [] instead of null
+	if events == nil {
+		events = make([]*models.Event, 0)
 	}
 
 	return events, nil
@@ -162,20 +173,20 @@ func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, star
 
 // UpdateEvent updates an existing event
 func (r *SQLEventRepository) UpdateEvent(ctx context.Context, event *models.Event) error {
-	query := `
-		UPDATE events
-		SET title = $1, description = $2, start_time = $3, end_time = $4, location = $5, updated_at = $6
-		WHERE id = $7
-	`
-	_, err := r.db.ExecContext(ctx, query,
-		event.Title,
-		event.Description,
-		event.StartTime,
-		event.EndTime,
-		event.Location,
-		time.Now(),
-		event.ID,
-	)
+	params := db.UpdateEventParams{
+		Title:               event.Title,
+		Description:         database.StringToText(event.Description),
+		StartTime:           database.TimeToTimestamptz(event.StartTime),
+		EndTime:             database.TimeToTimestamptz(event.EndTime),
+		Location:            database.StringToText(event.Location),
+		IsRecurring:         pgtype.Bool{Bool: event.IsRecurring, Valid: true},
+		RecurrenceRule:      database.StringToText(event.RecurrenceRule),
+		RecurrenceException: database.StringToText(event.RecurrenceException),
+		UpdatedAt:           database.TimeToTimestamptz(time.Now()),
+		ID:                  database.StringToUUID(event.ID),
+	}
+
+	err := r.queries.UpdateEvent(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to update event: %w", err)
 	}
@@ -184,8 +195,7 @@ func (r *SQLEventRepository) UpdateEvent(ctx context.Context, event *models.Even
 
 // DeleteEvent deletes an event
 func (r *SQLEventRepository) DeleteEvent(ctx context.Context, id string) error {
-	query := "DELETE FROM events WHERE id = $1"
-	_, err := r.db.ExecContext(ctx, query, id)
+	err := r.queries.DeleteEvent(ctx, database.StringToUUID(id))
 	if err != nil {
 		return fmt.Errorf("failed to delete event: %w", err)
 	}
@@ -196,21 +206,19 @@ func (r *SQLEventRepository) DeleteEvent(ctx context.Context, id string) error {
 
 // CreateTask inserts a new task into the database
 func (r *SQLTaskRepository) CreateTask(ctx context.Context, task *models.Task) error {
-	query := `
-		INSERT INTO tasks (id, user_id, title, description, due_date, completed, priority, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`
-	_, err := r.db.ExecContext(ctx, query,
-		task.ID,
-		task.UserID,
-		task.Title,
-		task.Description,
-		task.DueDate,
-		task.Completed,
-		task.Priority,
-		task.CreatedAt,
-		task.UpdatedAt,
-	)
+	params := db.CreateTaskParams{
+		ID:          database.StringToUUID(task.ID),
+		UserID:      database.StringToUUID(task.UserID),
+		Title:       task.Title,
+		Description: database.StringToText(task.Description),
+		DueDate:     database.TimeToTimestamptz(task.DueDate),
+		Completed:   pgtype.Bool{Bool: task.Completed, Valid: true},
+		Priority:    pgtype.Text{String: task.Priority, Valid: task.Priority != ""},
+		CreatedAt:   database.TimeToTimestamptz(task.CreatedAt),
+		UpdatedAt:   database.TimeToTimestamptz(task.UpdatedAt),
+	}
+
+	err := r.queries.CreateTask(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to create task: %w", err)
 	}
@@ -219,80 +227,61 @@ func (r *SQLTaskRepository) CreateTask(ctx context.Context, task *models.Task) e
 
 // GetTaskByID retrieves a task by ID
 func (r *SQLTaskRepository) GetTaskByID(ctx context.Context, id string) (*models.Task, error) {
-	query := `
-		SELECT id, user_id, title, description, due_date, completed, priority, created_at, updated_at
-		FROM tasks WHERE id = $1
-	`
-	task := &models.Task{}
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&task.ID,
-		&task.UserID,
-		&task.Title,
-		&task.Description,
-		&task.DueDate,
-		&task.Completed,
-		&task.Priority,
-		&task.CreatedAt,
-		&task.UpdatedAt,
-	)
+	row, err := r.queries.GetTaskByID(ctx, database.StringToUUID(id))
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("task not found")
 		}
 		return nil, fmt.Errorf("failed to get task: %w", err)
 	}
-	return task, nil
+
+	return &models.Task{
+		ID:          database.UUIDToString(row.ID),
+		UserID:      database.UUIDToString(row.UserID),
+		Title:       row.Title,
+		Description: database.TextToString(row.Description),
+		DueDate:     database.TimestamptzToTime(row.DueDate),
+		Completed:   row.Completed.Bool,
+		Priority:    database.TextToString(row.Priority),
+		CreatedAt:   database.TimestamptzToTime(row.CreatedAt),
+		UpdatedAt:   database.TimestamptzToTime(row.UpdatedAt),
+	}, nil
 }
 
 // ListTasks retrieves tasks for a user
 func (r *SQLTaskRepository) ListTasks(ctx context.Context, userID string, completed *bool) ([]*models.Task, error) {
-	query := `
-		SELECT id, user_id, title, description, due_date, completed, priority, created_at, updated_at
-		FROM tasks
-		WHERE user_id = $1
-	`
-	args := []interface{}{userID}
-
-	if completed != nil {
-		query += " AND completed = $2"
-		args = append(args, *completed)
+	params := db.ListTasksParams{
+		UserID: database.StringToUUID(userID),
 	}
 
-	query += " ORDER BY due_date ASC"
+	if completed != nil {
+		params.Completed = pgtype.Bool{Bool: *completed, Valid: true}
+	} else {
+		params.Completed = pgtype.Bool{Valid: false}
+	}
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := r.queries.ListTasks(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tasks: %w", err)
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			fmt.Printf("failed to close rows: %v\n", err)
-		}
-	}(rows)
 
 	var tasks []*models.Task
-	for rows.Next() {
-		task := &models.Task{}
-		err := rows.Scan(
-			&task.ID,
-			&task.UserID,
-			&task.Title,
-			&task.Description,
-			&task.DueDate,
-			&task.Completed,
-			&task.Priority,
-			&task.CreatedAt,
-			&task.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan task: %w", err)
-		}
-		tasks = append(tasks, task)
+	for _, row := range rows {
+		tasks = append(tasks, &models.Task{
+			ID:          database.UUIDToString(row.ID),
+			UserID:      database.UUIDToString(row.UserID),
+			Title:       row.Title,
+			Description: database.TextToString(row.Description),
+			DueDate:     database.TimestamptzToTime(row.DueDate),
+			Completed:   row.Completed.Bool,
+			Priority:    database.TextToString(row.Priority),
+			CreatedAt:   database.TimestamptzToTime(row.CreatedAt),
+			UpdatedAt:   database.TimestamptzToTime(row.UpdatedAt),
+		})
 	}
 
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating tasks: %w", err)
+	if tasks == nil {
+		tasks = make([]*models.Task, 0)
 	}
 
 	return tasks, nil
@@ -300,20 +289,17 @@ func (r *SQLTaskRepository) ListTasks(ctx context.Context, userID string, comple
 
 // UpdateTask updates an existing task
 func (r *SQLTaskRepository) UpdateTask(ctx context.Context, task *models.Task) error {
-	query := `
-		UPDATE tasks
-		SET title = $1, description = $2, due_date = $3, completed = $4, priority = $5, updated_at = $6
-		WHERE id = $7
-	`
-	_, err := r.db.ExecContext(ctx, query,
-		task.Title,
-		task.Description,
-		task.DueDate,
-		task.Completed,
-		task.Priority,
-		time.Now(),
-		task.ID,
-	)
+	params := db.UpdateTaskParams{
+		Title:       task.Title,
+		Description: database.StringToText(task.Description),
+		DueDate:     database.TimeToTimestamptz(task.DueDate),
+		Completed:   pgtype.Bool{Bool: task.Completed, Valid: true},
+		Priority:    pgtype.Text{String: task.Priority, Valid: task.Priority != ""},
+		UpdatedAt:   database.TimeToTimestamptz(time.Now()),
+		ID:          database.StringToUUID(task.ID),
+	}
+
+	err := r.queries.UpdateTask(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to update task: %w", err)
 	}
@@ -322,8 +308,7 @@ func (r *SQLTaskRepository) UpdateTask(ctx context.Context, task *models.Task) e
 
 // DeleteTask deletes a task
 func (r *SQLTaskRepository) DeleteTask(ctx context.Context, id string) error {
-	query := "DELETE FROM tasks WHERE id = $1"
-	_, err := r.db.ExecContext(ctx, query, id)
+	err := r.queries.DeleteTask(ctx, database.StringToUUID(id))
 	if err != nil {
 		return fmt.Errorf("failed to delete task: %w", err)
 	}
