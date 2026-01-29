@@ -88,3 +88,21 @@ func IntToInt32(num int) int32 {
 
 	return int32(num)
 }
+
+// TimeToDate converts time.Time to pgtype.Date
+func TimeToDate(t time.Time) pgtype.Date {
+	if t.IsZero() {
+		return pgtype.Date{Valid: false}
+	}
+	var date pgtype.Date
+	_ = date.Scan(t)
+	return date
+}
+
+// DateToTime converts pgtype.Date to time.Time
+func DateToTime(d pgtype.Date) time.Time {
+	if !d.Valid {
+		return time.Time{}
+	}
+	return d.Time
+}

@@ -17,6 +17,7 @@ type Repository interface {
 	CreateUser(ctx context.Context, user *models.User) error
 	GetUserByEmail(ctx context.Context, email string) (*models.User, error)
 	GetUserByID(ctx context.Context, id string) (*models.User, error)
+	GetUserByUsername(ctx context.Context, username string) (*models.User, error)
 	UpdateUser(ctx context.Context, user *models.User) error
 	DeleteUser(ctx context.Context, id string) error
 	SaveSession(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (string, error)
@@ -41,14 +42,20 @@ func NewSQLRepository(pool *database.DB) Repository {
 // CreateUser inserts a new user into the database
 func (r *SQLRepository) CreateUser(ctx context.Context, user *models.User) error {
 	params := db.CreateUserParams{
-		ID:            database.StringToUUID(user.ID),
-		Email:         user.Email,
-		PasswordHash:  user.PasswordHash,
-		FirstName:     database.StringToText(user.FirstName),
-		LastName:      database.StringToText(user.LastName),
-		EmailVerified: user.EmailVerified,
-		CreatedAt:     database.TimeToTimestamptz(user.CreatedAt),
-		UpdatedAt:     database.TimeToTimestamptz(user.UpdatedAt),
+		ID:             database.StringToUUID(user.ID),
+		Email:          user.Email,
+		PasswordHash:   user.PasswordHash,
+		FirstName:      database.StringToText(user.FirstName),
+		LastName:       database.StringToText(user.LastName),
+		EmailVerified:  user.EmailVerified,
+		Username:       database.StringToText(user.Username),
+		ProfilePicture: database.StringToText(user.ProfilePicture),
+		Region:         database.StringToText(user.Region),
+		Timezone:       database.StringToText(user.Timezone),
+		Gender:         database.StringToText(user.Gender),
+		BirthDate:      database.TimeToDate(user.BirthDate),
+		CreatedAt:      database.TimeToTimestamptz(user.CreatedAt),
+		UpdatedAt:      database.TimeToTimestamptz(user.UpdatedAt),
 	}
 
 	err := r.queries.CreateUser(ctx, params)
@@ -69,14 +76,20 @@ func (r *SQLRepository) GetUserByEmail(ctx context.Context, email string) (*mode
 	}
 
 	return &models.User{
-		ID:            database.UUIDToString(row.ID),
-		Email:         row.Email,
-		PasswordHash:  row.PasswordHash,
-		FirstName:     database.TextToString(row.FirstName),
-		LastName:      database.TextToString(row.LastName),
-		EmailVerified: row.EmailVerified,
-		CreatedAt:     database.TimestamptzToTime(row.CreatedAt),
-		UpdatedAt:     database.TimestamptzToTime(row.UpdatedAt),
+		ID:             database.UUIDToString(row.ID),
+		Email:          row.Email,
+		PasswordHash:   row.PasswordHash,
+		FirstName:      database.TextToString(row.FirstName),
+		LastName:       database.TextToString(row.LastName),
+		EmailVerified:  row.EmailVerified,
+		Username:       database.TextToString(row.Username),
+		ProfilePicture: database.TextToString(row.ProfilePicture),
+		Region:         database.TextToString(row.Region),
+		Timezone:       database.TextToString(row.Timezone),
+		Gender:         database.TextToString(row.Gender),
+		BirthDate:      database.DateToTime(row.BirthDate),
+		CreatedAt:      database.TimestamptzToTime(row.CreatedAt),
+		UpdatedAt:      database.TimestamptzToTime(row.UpdatedAt),
 	}, nil
 }
 
@@ -91,27 +104,67 @@ func (r *SQLRepository) GetUserByID(ctx context.Context, id string) (*models.Use
 	}
 
 	return &models.User{
-		ID:            database.UUIDToString(row.ID),
-		Email:         row.Email,
-		PasswordHash:  row.PasswordHash,
-		FirstName:     database.TextToString(row.FirstName),
-		LastName:      database.TextToString(row.LastName),
-		EmailVerified: row.EmailVerified,
-		CreatedAt:     database.TimestamptzToTime(row.CreatedAt),
-		UpdatedAt:     database.TimestamptzToTime(row.UpdatedAt),
+		ID:             database.UUIDToString(row.ID),
+		Email:          row.Email,
+		PasswordHash:   row.PasswordHash,
+		FirstName:      database.TextToString(row.FirstName),
+		LastName:       database.TextToString(row.LastName),
+		EmailVerified:  row.EmailVerified,
+		Username:       database.TextToString(row.Username),
+		ProfilePicture: database.TextToString(row.ProfilePicture),
+		Region:         database.TextToString(row.Region),
+		Timezone:       database.TextToString(row.Timezone),
+		Gender:         database.TextToString(row.Gender),
+		BirthDate:      database.DateToTime(row.BirthDate),
+		CreatedAt:      database.TimestamptzToTime(row.CreatedAt),
+		UpdatedAt:      database.TimestamptzToTime(row.UpdatedAt),
+	}, nil
+}
+
+// GetUserByUsername retrieves a user by username
+func (r *SQLRepository) GetUserByUsername(ctx context.Context, username string) (*models.User, error) {
+	row, err := r.queries.GetUserByUsername(ctx, database.StringToText(username))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("user not found")
+		}
+		return nil, fmt.Errorf("failed to get user by username: %w", err)
+	}
+
+	return &models.User{
+		ID:             database.UUIDToString(row.ID),
+		Email:          row.Email,
+		PasswordHash:   row.PasswordHash,
+		FirstName:      database.TextToString(row.FirstName),
+		LastName:       database.TextToString(row.LastName),
+		EmailVerified:  row.EmailVerified,
+		Username:       database.TextToString(row.Username),
+		ProfilePicture: database.TextToString(row.ProfilePicture),
+		Region:         database.TextToString(row.Region),
+		Timezone:       database.TextToString(row.Timezone),
+		Gender:         database.TextToString(row.Gender),
+		BirthDate:      database.DateToTime(row.BirthDate),
+		CreatedAt:      database.TimestamptzToTime(row.CreatedAt),
+		UpdatedAt:      database.TimestamptzToTime(row.UpdatedAt),
 	}, nil
 }
 
 // UpdateUser updates an existing user
 func (r *SQLRepository) UpdateUser(ctx context.Context, user *models.User) error {
 	params := db.UpdateUserParams{
-		Email:         user.Email,
-		PasswordHash:  user.PasswordHash,
-		FirstName:     database.StringToText(user.FirstName),
-		LastName:      database.StringToText(user.LastName),
-		EmailVerified: user.EmailVerified,
-		UpdatedAt:     database.TimeToTimestamptz(time.Now()),
-		ID:            database.StringToUUID(user.ID),
+		Email:          user.Email,
+		PasswordHash:   user.PasswordHash,
+		FirstName:      database.StringToText(user.FirstName),
+		LastName:       database.StringToText(user.LastName),
+		EmailVerified:  user.EmailVerified,
+		Username:       database.StringToText(user.Username),
+		ProfilePicture: database.StringToText(user.ProfilePicture),
+		Region:         database.StringToText(user.Region),
+		Timezone:       database.StringToText(user.Timezone),
+		Gender:         database.StringToText(user.Gender),
+		BirthDate:      database.TimeToDate(user.BirthDate),
+		UpdatedAt:      database.TimeToTimestamptz(time.Now()),
+		ID:             database.StringToUUID(user.ID),
 	}
 
 	err := r.queries.UpdateUser(ctx, params)

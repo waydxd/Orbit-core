@@ -34,6 +34,7 @@ type ServiceConfig struct {
 // AuthServiceInterface defines methods for auth service
 type AuthServiceInterface interface {
 	RegisterRoutes(router *mux.Router)
+	RegisterProtectedRoutes(router *mux.Router)
 }
 
 // CalendarServiceInterface defines methods for calendar service
@@ -114,6 +115,7 @@ func (s *Service) setupRoutes() {
 	protectedRouter.Use(s.authMiddleware.Middleware)
 
 	// Register service routes on protected router
+	s.services.AuthService.RegisterProtectedRoutes(protectedRouter)
 	s.services.CalendarService.RegisterRoutes(protectedRouter)
 	s.services.LocationService.RegisterRoutes(protectedRouter)
 	s.services.IntegrationService.RegisterRoutes(protectedRouter)

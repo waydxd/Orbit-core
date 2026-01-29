@@ -65,12 +65,18 @@ type Task struct {
 }
 
 type User struct {
-	ID            pgtype.UUID        `json:"id"`
-	Email         string             `json:"email"`
-	PasswordHash  string             `json:"password_hash"`
-	FirstName     pgtype.Text        `json:"first_name"`
-	LastName      pgtype.Text        `json:"last_name"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	EmailVerified bool               `json:"email_verified"`
+	ID             pgtype.UUID        `json:"id"`
+	Email          string             `json:"email"`
+	PasswordHash   string             `json:"password_hash"`
+	FirstName      pgtype.Text        `json:"first_name"`
+	LastName       pgtype.Text        `json:"last_name"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	EmailVerified  bool               `json:"email_verified"`
+	Username       pgtype.Text        `json:"username"`
+	ProfilePicture pgtype.Text        `json:"profile_picture"`
+	Region         pgtype.Text        `json:"region"`
+	Timezone       pgtype.Text        `json:"timezone"`
+	Gender         pgtype.Text        `json:"gender"`
+	BirthDate      pgtype.Date        `json:"birth_date"`
 }

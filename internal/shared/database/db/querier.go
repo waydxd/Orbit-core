@@ -33,6 +33,7 @@ type Querier interface {
 	GetTaskByID(ctx context.Context, id pgtype.UUID) (Task, error)
 	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
+	GetUserByUsername(ctx context.Context, username pgtype.Text) (GetUserByUsernameRow, error)
 	ListEventsByTime(ctx context.Context, arg ListEventsByTimeParams) ([]ListEventsByTimeRow, error)
 	ListEventsByUserAndTime(ctx context.Context, arg ListEventsByUserAndTimeParams) ([]ListEventsByUserAndTimeRow, error)
 	ListIntegrations(ctx context.Context, userID pgtype.UUID) ([]Integration, error)
