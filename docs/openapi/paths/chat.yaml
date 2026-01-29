@@ -1,0 +1,233 @@
+paths:
+                    type: number
+                  actions_per_minute:
+                    type: number
+                  messages_per_minute:
+                    type: integer
+                  conflict_errors:
+                    type: integer
+                  policy_violations:
+                    type: integer
+                  validation_errors:
+                    type: integer
+                  total_errors:
+                    type: number
+                  success_rate_pct:
+                    type: number
+                  confirmation_rate_pct:
+                    type: integer
+                  avg_action_latency_ms:
+                    type: integer
+                  avg_message_latency_ms:
+                    type: integer
+                  total_failed_actions:
+                    type: integer
+                  total_expired_actions:
+                    type: integer
+                  total_cancelled_actions:
+                    type: integer
+                  total_confirmed_actions:
+                    type: integer
+                  total_pending_actions:
+                    type: integer
+                  total_conversations:
+                    type: integer
+                  total_messages:
+                properties:
+                type: object
+              schema:
+            application/json:
+          content:
+          description: Metrics retrieved successfully
+        '200':
+      responses:
+        - BearerAuth: []
+      security:
+        - Chat
+      tags:
+      summary: Get chat service metrics
+    get:
+  /api/v1/chat/metrics:
+
+                $ref: '#/components/schemas/ChatError'
+              schema:
+            application/json:
+          content:
+          description: Action cannot be cancelled
+        '409':
+                $ref: '#/components/schemas/ChatError'
+              schema:
+            application/json:
+          content:
+          description: Action not found
+        '404':
+                    example: Action cancelled successfully
+                    type: string
+                  message:
+                    example: true
+                    type: boolean
+                  success:
+                properties:
+                type: object
+              schema:
+            application/json:
+          content:
+          description: Action cancelled successfully
+        '200':
+      responses:
+          description: Action ID
+            type: string
+          schema:
+          required: true
+          in: path
+        - name: action_id
+      parameters:
+        - BearerAuth: []
+      security:
+        - Chat
+      tags:
+      summary: Cancel a pending action
+    post:
+  /api/v1/chat/actions/{action_id}/cancel:
+
+                $ref: '#/components/schemas/ChatError'
+              schema:
+            application/json:
+          content:
+          description: Action expired
+        '410':
+                $ref: '#/components/schemas/ChatError'
+              schema:
+            application/json:
+          content:
+          description: Action already processed or not pending
+        '409':
+                $ref: '#/components/schemas/ChatError'
+              schema:
+            application/json:
+          content:
+          description: Action not found
+        '404':
+                $ref: '#/components/schemas/ChatError'
+              schema:
+            application/json:
+          content:
+          description: Invalid request
+        '400':
+                $ref: '#/components/schemas/ConfirmActionResponse'
+              schema:
+            application/json:
+          content:
+          description: Action executed successfully
+        '200':
+      responses:
+              $ref: '#/components/schemas/ConfirmActionRequest'
+            schema:
+          application/json:
+        content:
+        required: true
+      requestBody:
+          description: Action ID
+            type: string
+          schema:
+          required: true
+          in: path
+        - name: action_id
+      parameters:
+        - BearerAuth: []
+      security:
+        - Chat
+      tags:
+      summary: Confirm and execute a pending action
+    post:
+  /api/v1/chat/actions/{action_id}/confirm:
+
+                $ref: '#/components/schemas/ChatError'
+              schema:
+            application/json:
+          content:
+          description: Action not found
+        '404':
+                $ref: '#/components/schemas/ActionResponse'
+              schema:
+            application/json:
+          content:
+          description: Action details retrieved successfully
+        '200':
+      responses:
+          description: Action ID
+            type: string
+          schema:
+          required: true
+          in: path
+        - name: action_id
+      parameters:
+        - BearerAuth: []
+      security:
+        - Chat
+      tags:
+      summary: Get pending action details
+    get:
+  /api/v1/chat/actions/{action_id}:
+
+                $ref: '#/components/schemas/ChatError'
+              schema:
+            application/json:
+          content:
+          description: Conversation not found
+        '404':
+                $ref: '#/components/schemas/ConversationResponse'
+              schema:
+            application/json:
+          content:
+          description: Conversation retrieved successfully
+        '200':
+      responses:
+          description: Conversation ID
+            type: string
+          schema:
+          required: true
+          in: path
+        - name: conversation_id
+      parameters:
+        - BearerAuth: []
+      security:
+        - Chat
+      tags:
+      summary: Get conversation history and pending actions
+    get:
+  /api/v1/chat/conversations/{conversation_id}:
+
+                $ref: '#/components/schemas/ChatError'
+              schema:
+            application/json:
+          content:
+          description: Internal server error
+        '500':
+                $ref: '#/components/schemas/ChatError'
+              schema:
+            application/json:
+          content:
+          description: Invalid input
+        '400':
+                $ref: '#/components/schemas/PostMessageResponse'
+              schema:
+            application/json:
+          content:
+          description: Message processed successfully
+        '200':
+      responses:
+              $ref: '#/components/schemas/PostMessageRequest'
+            schema:
+          application/json:
+        content:
+        required: true
+      requestBody:
+        - BearerAuth: []
+      security:
+        - Chat
+      tags:
+      summary: Send a chat message to the AI assistant
+    post:
+  /api/v1/chat/messages:
+

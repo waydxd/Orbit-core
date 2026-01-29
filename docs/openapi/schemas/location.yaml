@@ -1,0 +1,51 @@
+components:
+          example: user-123
+          type: string
+        user_id:
+          example: Hong Kong University of Science and Technology
+          type: string
+        address:
+          example: 114.1694
+          format: double
+          type: number
+        longitude:
+          example: 22.3193
+          format: double
+          type: number
+        latitude:
+      properties:
+        - user_id
+        - longitude
+        - latitude
+      required:
+      type: object
+    LocationRequest:
+
+          format: date-time
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        timestamp:
+          example: Hong Kong University of Science and Technology
+          type: string
+        address:
+          example: 114.1694
+          format: double
+          type: number
+        longitude:
+          example: 22.3193
+          format: double
+          type: number
+        latitude:
+          example: user-123
+          type: string
+        user_id:
+          example: loc-1
+          type: string
+        id:
+      properties:
+      type: object
+    Location:
+  schemas:
+
