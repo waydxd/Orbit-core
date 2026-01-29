@@ -75,7 +75,6 @@ func (s *Service) RegisterProtectedRoutes(router *mux.Router) {
 	router.HandleFunc("/profile", s.updateProfile).Methods("PUT")
 }
 
-
 // LoginRequest represents login/register request payload
 type LoginRequest struct {
 	Email    string `json:"email"`

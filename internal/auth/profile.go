@@ -262,7 +262,7 @@ func (s *Service) validateDataURLImage(dataURL string) error {
 	// Check image format from MIME type
 	mimeType := strings.TrimPrefix(parts[0], "data:")
 	mimeType = strings.TrimSuffix(mimeType, ";base64")
-	
+
 	allowedFormats := []string{"image/jpeg", "image/png", "image/gif"}
 	valid := false
 	for _, format := range allowedFormats {
@@ -326,41 +326,41 @@ func (s *Service) validateGender(gender string) error {
 		"prefer_not_to_say",
 		"other",
 	}
-	
+
 	genderLower := strings.ToLower(gender)
 	for _, valid := range validGenders {
 		if genderLower == valid {
 			return nil
 		}
 	}
-	
+
 	return fmt.Errorf("invalid gender value, allowed values: male, female, non-binary, prefer_not_to_say, other")
 }
 
 // validateBirthDate validates the birth date
 func (s *Service) validateBirthDate(birthDate time.Time) error {
 	now := time.Now()
-	
+
 	// Check if birth date is in the future
 	if birthDate.After(now) {
 		return fmt.Errorf("birth date cannot be in the future")
 	}
-	
+
 	// Check if age is reasonable (e.g., not more than 150 years old)
 	age := now.Year() - birthDate.Year()
 	if birthDate.After(now.AddDate(-age, 0, 0)) {
 		age--
 	}
-	
+
 	if age > 150 {
 		return fmt.Errorf("invalid birth date")
 	}
-	
+
 	// Check if user is at least 13 years old (common age restriction)
 	if age < 13 {
 		return fmt.Errorf("you must be at least 13 years old to use this service")
 	}
-	
+
 	return nil
 }
 
@@ -369,4 +369,3 @@ func aspectRatioWithinTolerance(width, height int, targetRatio float64, toleranc
 	actualRatio := float64(width) / float64(height)
 	return math.Abs(actualRatio-targetRatio) <= tolerance
 }
-
