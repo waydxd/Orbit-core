@@ -4,11 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
-	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -17,7 +12,8 @@ import (
 	"github.com/waydxd/Orbit-core/pkg/middleware"
 )
 
-// UpdateProfileRequest represents profile update request payload
+// UpdateProfileRequest represents profile update request payload.
+// All fields are optional - only provided fields will be updated.
 type UpdateProfileRequest struct {
 	FirstName      *string `json:"first_name,omitempty"`
 	LastName       *string `json:"last_name,omitempty"`
@@ -158,7 +154,8 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		user.Gender = *req.Gender
+		// Normalize gender to lowercase for consistent storage
+		user.Gender = strings.ToLower(*req.Gender)
 	}
 
 	if req.BirthDate != nil {
@@ -178,6 +175,12 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) {
 
 	// Update user in database
 	if err := s.repo.UpdateUser(ctx, user); err != nil {
+		// Check if it's a unique constraint violation for username
+		if strings.Contains(err.Error(), "unique_username") || strings.Contains(err.Error(), "duplicate key") {
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "username already taken"})
+			return
+		}
 		s.logger.Error("failed to update user profile", "err", err, "user_id", userID)
 		w.WriteHeader(http.StatusInternalServerError)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to update profile"})
@@ -251,7 +254,9 @@ func (s *Service) validateProfilePicture(url string) error {
 
 // validateDataURLImage validates a data URL image
 func (s *Service) validateDataURLImage(dataURL string) error {
-	const maxSize = 5 * 1024 * 1024 // 5MB
+	const maxBinarySize = 5 * 1024 * 1024 // 5MB for the actual image
+	// Base64 encoding increases size by ~33%, so limit is ~6.67MB for encoded data
+	const maxEncodedSize = maxBinarySize * 4 / 3
 
 	// Extract the image data
 	parts := strings.SplitN(dataURL, ",", 2)
@@ -275,26 +280,9 @@ func (s *Service) validateDataURLImage(dataURL string) error {
 		return fmt.Errorf("invalid image format, allowed formats: JPEG, PNG, GIF")
 	}
 
-	// Check size
-	if len(dataURL) > maxSize {
+	// Check size - comparing against encoded size including base64 overhead
+	if len(dataURL) > maxEncodedSize {
 		return fmt.Errorf("profile picture size exceeds 5MB limit")
-	}
-
-	// For a more thorough validation, we could decode the base64 and check image dimensions
-	// But for now, basic validation is sufficient
-	return nil
-}
-
-// validateImageDimensions validates image aspect ratio (unused for now, kept for future use)
-func (s *Service) validateImageDimensions(img image.Image) error {
-	bounds := img.Bounds()
-	width := bounds.Dx()
-	height := bounds.Dy()
-
-	// Check aspect ratio (should be roughly square, allow 0.8 to 1.2 ratio)
-	aspectRatio := float64(width) / float64(height)
-	if aspectRatio < 0.8 || aspectRatio > 1.2 {
-		return fmt.Errorf("profile picture must have a square aspect ratio (0.8-1.2)")
 	}
 
 	return nil
@@ -353,7 +341,7 @@ func (s *Service) validateBirthDate(birthDate time.Time) error {
 	}
 
 	if age > 150 {
-		return fmt.Errorf("invalid birth date")
+		return fmt.Errorf("birth date must be within the last 150 years")
 	}
 
 	// Check if user is at least 13 years old (common age restriction)
@@ -362,10 +350,4 @@ func (s *Service) validateBirthDate(birthDate time.Time) error {
 	}
 
 	return nil
-}
-
-// Helper function to check aspect ratio tolerance
-func aspectRatioWithinTolerance(width, height int, targetRatio float64, tolerance float64) bool {
-	actualRatio := float64(width) / float64(height)
-	return math.Abs(actualRatio-targetRatio) <= tolerance
 }
