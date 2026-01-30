@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/middleware"
@@ -101,89 +102,15 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate and update fields
-	if req.FirstName != nil {
-		user.FirstName = *req.FirstName
-	}
-
-	if req.LastName != nil {
-		user.LastName = *req.LastName
-	}
-
-	if req.Username != nil {
-		if err := s.validateUsername(*req.Username); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		// Check if username is already taken by another user
-		existingUser, _ := s.repo.GetUserByUsername(ctx, *req.Username)
-		if existingUser != nil && existingUser.ID != userID {
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "username already taken"})
-			return
-		}
-		user.Username = *req.Username
-	}
-
-	if req.ProfilePicture != nil {
-		if err := s.validateProfilePicture(*req.ProfilePicture); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		user.ProfilePicture = *req.ProfilePicture
-	}
-
-	if req.Region != nil {
-		user.Region = *req.Region
-	}
-
-	if req.Timezone != nil {
-		if err := s.validateTimezone(*req.Timezone); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		user.Timezone = *req.Timezone
-	}
-
-	if req.Gender != nil {
-		if err := s.validateGender(*req.Gender); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		// Normalize gender to lowercase for consistent storage
-		user.Gender = strings.ToLower(*req.Gender)
-	}
-
-	if req.BirthDate != nil {
-		birthDate, err := time.Parse("2006-01-02", *req.BirthDate)
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid birth_date format, use YYYY-MM-DD"})
-			return
-		}
-		if err := s.validateBirthDate(birthDate); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-			return
-		}
-		user.BirthDate = birthDate
+	// Apply updates to user
+	if err := s.applyProfileUpdates(ctx, user, &req); err != nil {
+		s.encodeProfileError(w, err)
+		return
 	}
 
 	// Update user in database
 	if err := s.repo.UpdateUser(ctx, user); err != nil {
-		// Check if it's a unique constraint violation for username
-		if strings.Contains(err.Error(), "unique_username") || strings.Contains(err.Error(), "duplicate key") {
-			w.WriteHeader(http.StatusConflict)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "username already taken"})
-			return
-		}
-		s.logger.Error("failed to update user profile", "err", err, "user_id", userID)
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to update profile"})
+		s.handleProfileUpdateError(w, err)
 		return
 	}
 
@@ -218,6 +145,133 @@ func (s *Service) userToProfileResponse(user *models.User) ProfileResponse {
 	return response
 }
 
+// applyProfileUpdates applies the profile update request fields to the user model
+func (s *Service) applyProfileUpdates(ctx context.Context, user *models.User, req *UpdateProfileRequest) error {
+	if req.FirstName != nil {
+		user.FirstName = *req.FirstName
+	}
+
+	if req.LastName != nil {
+		user.LastName = *req.LastName
+	}
+
+	if req.Username != nil {
+		if err := s.applyUsernameUpdate(ctx, user, *req.Username); err != nil {
+			return err
+		}
+	}
+
+	if req.ProfilePicture != nil {
+		if err := s.applyProfilePictureUpdate(user, *req.ProfilePicture); err != nil {
+			return err
+		}
+	}
+
+	if req.Region != nil {
+		user.Region = *req.Region
+	}
+
+	if req.Timezone != nil {
+		if err := s.applyTimezoneUpdate(user, *req.Timezone); err != nil {
+			return err
+		}
+	}
+
+	if req.Gender != nil {
+		if err := s.applyGenderUpdate(user, *req.Gender); err != nil {
+			return err
+		}
+	}
+
+	if req.BirthDate != nil {
+		if err := s.applyBirthDateUpdate(user, *req.BirthDate); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// applyUsernameUpdate validates and applies username changes
+func (s *Service) applyUsernameUpdate(ctx context.Context, user *models.User, username string) error {
+	if err := s.validateUsername(username); err != nil {
+		return err
+	}
+	// Check if username is already taken by another user
+	existingUser, _ := s.repo.GetUserByUsername(ctx, username)
+	if existingUser != nil && existingUser.ID != user.ID {
+		return fmt.Errorf("username already taken")
+	}
+	user.Username = username
+	return nil
+}
+
+// applyProfilePictureUpdate validates and applies profile picture changes
+func (s *Service) applyProfilePictureUpdate(user *models.User, url string) error {
+	if err := s.validateProfilePicture(url); err != nil {
+		return err
+	}
+	user.ProfilePicture = url
+	return nil
+}
+
+// applyTimezoneUpdate validates and applies timezone changes
+func (s *Service) applyTimezoneUpdate(user *models.User, tz string) error {
+	if err := s.validateTimezone(tz); err != nil {
+		return err
+	}
+	user.Timezone = tz
+	return nil
+}
+
+// applyGenderUpdate validates and applies gender changes
+func (s *Service) applyGenderUpdate(user *models.User, gender string) error {
+	if err := s.validateGender(gender); err != nil {
+		return err
+	}
+	user.Gender = strings.ToLower(gender)
+	return nil
+}
+
+// applyBirthDateUpdate validates and applies birth date changes
+func (s *Service) applyBirthDateUpdate(user *models.User, birthDateStr string) error {
+	birthDate, err := time.Parse("2006-01-02", birthDateStr)
+	if err != nil {
+		return fmt.Errorf("invalid birth_date format, use YYYY-MM-DD")
+	}
+	if err := s.validateBirthDate(birthDate); err != nil {
+		return err
+	}
+	user.BirthDate = birthDate
+	return nil
+}
+
+// encodeProfileError encodes a profile error response
+func (s *Service) encodeProfileError(w http.ResponseWriter, err error) {
+	errMsg := err.Error()
+
+	if strings.Contains(errMsg, "already taken") {
+		w.WriteHeader(http.StatusConflict)
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
+}
+
+// handleProfileUpdateError handles database update errors
+func (s *Service) handleProfileUpdateError(w http.ResponseWriter, err error) {
+	errStr := err.Error()
+	if strings.Contains(errStr, "unique_username") || strings.Contains(errStr, "duplicate key") {
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "username already taken"})
+		return
+	}
+	s.logger.Error("failed to update user profile", "err", err)
+	w.WriteHeader(http.StatusInternalServerError)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to update profile"})
+}
+
 // validateUsername validates the username format and length
 func (s *Service) validateUsername(username string) error {
 	if len(username) < 3 || len(username) > 50 {
@@ -225,9 +279,10 @@ func (s *Service) validateUsername(username string) error {
 	}
 	// Username can contain letters, numbers, underscores, and hyphens
 	for _, c := range username {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
-			return fmt.Errorf("username can only contain letters, numbers, underscores, and hyphens")
+		if unicode.IsLetter(c) || unicode.IsDigit(c) || c == '_' || c == '-' {
+			continue
 		}
+		return fmt.Errorf("username can only contain letters, numbers, underscores, and hyphens")
 	}
 	return nil
 }
