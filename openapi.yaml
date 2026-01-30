@@ -1,0 +1,71 @@
+openapi: 3.0.3
+info:
+  title: Orbit Core API
+  description: A comprehensive personal productivity API with calendar, tasks, location tracking, and integration capabilities
+  version: 1.0.0
+  contact:
+    name: Orbit Core Team
+servers:
+  - url: http://localhost:8080
+    description: Development server
+
+# Import all path definitions from modular files
+paths:
+  # Health endpoint
+  # $ref: './openapi/paths/health.yaml#/paths'
+
+  # Authentication endpoints
+  # $ref: './openapi/paths/authentication.yaml#/paths'
+
+  # Profile endpoints
+  # $ref: './openapi/paths/profile.yaml#/paths'
+
+  # Calendar endpoints
+  # $ref: './openapi/paths/calendar.yaml#/paths'
+
+  # Location endpoints
+  # $ref: './openapi/paths/location.yaml#/paths'
+
+  # Integration endpoints
+  # $ref: './openapi/paths/integration.yaml#/paths'
+
+  # Chat endpoints
+  # $ref: './openapi/paths/chat.yaml#/paths'
+
+# Import all schema definitions from modular files
+components:
+  # Security schemes
+  # $ref: './openapi/components/security.yaml#/components/securitySchemes'
+
+  schemas:
+    # Shared Error schema
+    # $ref: './openapi/schemas/error.yaml#/components/schemas'
+
+    # Authentication schemas
+    # $ref: './openapi/schemas/authentication.yaml#/components/schemas'
+
+    # Profile schemas
+    # $ref: './openapi/schemas/profile.yaml#/components/schemas'
+
+    # Calendar schemas
+    # $ref: './openapi/schemas/calendar.yaml#/components/schemas'
+
+    # Location schemas
+    # $ref: './openapi/schemas/location.yaml#/components/schemas'
+
+    # Integration schemas
+    # $ref: './openapi/schemas/integration.yaml#/components/schemas'
+
+    # Chat schemas
+    # $ref: './openapi/schemas/chat.yaml#/components/schemas'
+
+# Note: OpenAPI 3.0.3 has limited support for merging multiple files with $ref
+# For full composition support, consider using:
+# 1. OpenAPI 3.1.0 (better $ref support)
+# 2. A build tool like redoc-cli, swagger-cli, or a custom merger script
+# 3. SwaggerHub or other commercial tools with better composition support
+
+# This file serves as a reference structure. To use modular OpenAPI specs effectively,
+# you may need to merge these files into a single openapi.yaml using a pre-processing
+# tool before serving to Swagger UI or other documentation tools.
+
