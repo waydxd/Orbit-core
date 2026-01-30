@@ -1,51 +1,54 @@
 components:
-          example: user-123
-          type: string
-        user_id:
-          example: Hong Kong University of Science and Technology
-          type: string
-        address:
-          example: 114.1694
-          format: double
-          type: number
-        longitude:
-          example: 22.3193
-          format: double
-          type: number
-        latitude:
+  schemas:
+    LocationRequest:
+      type: object
       properties:
+        user_id:
+          type: string
+          example: user-123
+        longitude:
+          type: number
+          format: double
+          example: 114.1694
+        latitude:
+          type: number
+          format: double
+          example: 22.3193
+      required:
         - user_id
         - longitude
         - latitude
-      required:
-      type: object
-    LocationRequest:
 
-          format: date-time
-          type: string
-        created_at:
-          format: date-time
-          type: string
-        timestamp:
-          example: Hong Kong University of Science and Technology
-          type: string
-        address:
-          example: 114.1694
-          format: double
-          type: number
-        longitude:
-          example: 22.3193
-          format: double
-          type: number
-        latitude:
-          example: user-123
-          type: string
-        user_id:
-          example: loc-1
-          type: string
-        id:
-      properties:
-      type: object
     Location:
-  schemas:
-
+      type: object
+      properties:
+        id:
+          type: string
+          example: loc-1
+        user_id:
+          type: string
+          example: user-123
+        address:
+          type: string
+          example: Hong Kong University of Science and Technology
+        longitude:
+          type: number
+          format: double
+          example: 114.1694
+        latitude:
+          type: number
+          format: double
+          example: 22.3193
+        timestamp:
+          type: string
+          format: date-time
+          example: "2023-01-01T12:00:00Z"
+        created_at:
+          type: string
+          format: date-time
+          example: "2023-01-01T12:00:00Z"
+      required:
+        - id
+        - user_id
+        - longitude
+        - latitude
