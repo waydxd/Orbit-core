@@ -1,0 +1,142 @@
+components:
+  schemas:
+    SyncRequest:
+      type: object
+      required:
+        - source
+        - target
+      properties:
+        source:
+          type: string
+          example: google-calendar
+        target:
+          type: string
+          example: orbit-calendar
+        data:
+          type: object
+          additionalProperties: true
+
+    ExternalConnectRequest:
+      type: object
+      required:
+        - service
+        - api_key
+      properties:
+        service:
+          type: string
+          example: google-calendar
+        api_key:
+          type: string
+          example: your-api-key
+
+    ExternalDisconnectRequest:
+      type: object
+      required:
+        - service
+      properties:
+        service:
+          type: string
+          example: google-calendar
+
+    GoogleAuthResponse:
+      type: object
+      properties:
+        authorization_url:
+          type: string
+          example: https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=...&redirect_uri=...&scope=...&state=...
+
+    GoogleSyncRequest:
+      type: object
+      required:
+        - direction
+      properties:
+        direction:
+          type: string
+          enum: [from_google, to_google, bidirectional]
+          example: bidirectional
+        calendar_id:
+          type: string
+          example: primary
+        sync_token:
+          type: string
+          example: token123
+        access_token:
+          type: string
+          example: ya29.a0ARrda...
+        refresh_token:
+          type: string
+          example: 1//04i...
+        expires_in:
+          type: integer
+          example: 3600
+        scope:
+          type: string
+          example: https://www.googleapis.com/auth/calendar
+
+    GoogleWatchRequest:
+      type: object
+      properties:
+        {}
+
+    GoogleWatchResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          example: watch-id-101112
+        resource_id:
+          type: string
+          example: resource-id-789
+        topic_id:
+          type: string
+          example: topic-id-456
+        expiration:
+          type: string
+          format: date-time
+          example: 2024-01-15T11:00:00Z
+        params:
+          type: object
+          additionalProperties: true
+        user_id:
+          type: string
+          example: user-123
+        type:
+          type: string
+          example: calendar
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ImportResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Import completed successfully
+        user_id:
+          type: string
+          example: user-123
+        events_imported:
+          type: integer
+          example: 10
+        tasks_imported:
+          type: integer
+          example: 5
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              file:
+                type: string
+                example: event.ics
+              error:
+                type: string
+                example: Invalid date format
+              line:
+                type: integer
+                example: 42
+

@@ -1,0 +1,466 @@
+paths:
+  /api/v1/integration/sync:
+    post:
+      summary: Synchronize data between external APIs
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncRequest'
+      responses:
+        '200':
+          description: Sync completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: sync completed
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/webhooks:
+    post:
+      summary: Handle incoming webhooks from external services
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: webhook processed
+        '400':
+          description: Invalid webhook payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/external/connect:
+    post:
+      summary: Connect to an external API service
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExternalConnectRequest'
+      responses:
+        '200':
+          description: External service connected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: external service connected
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/external/disconnect:
+    post:
+      summary: Disconnect from an external API service
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExternalDisconnectRequest'
+      responses:
+        '200':
+          description: External service disconnected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: external service disconnected
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/external/status:
+    get:
+      summary: Get status of external integrations
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Integration status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  integrations:
+                    type: array
+                    items:
+                      type: object
+
+  /api/v1/integration/import:
+    post:
+      summary: Import events via ICS or CSV file
+      description: |
+        Accepts a multipart/form-data upload containing a single .ics or .csv file and imports events/tasks for the authenticated user.
+        The implementation uses the ICS and CSV parsers/generators located at `internal/integration/formats/ics.go` and `internal/integration/formats/csv.go`.
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: ICS (.ics) or CSV (.csv) file to import
+      responses:
+        '200':
+          description: Import completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResponse'
+        '400':
+          description: Invalid input or unsupported file format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/export:
+    get:
+      summary: Export a user's calendar data as ICS or CSV
+      description: "Export events/tasks for the authenticated user in the requested format. Supported formats: `ics`, `csv`."
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: format
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [ics, csv]
+          description: Desired export format
+      responses:
+        '200':
+          description: File download containing exported events
+          content:
+            text/calendar:
+              schema:
+                type: string
+                format: binary
+              example: |-
+                BEGIN:VCALENDAR
+                ...
+            text/csv:
+              schema:
+                type: string
+                format: binary
+              example: |-
+                Subject,Start Date,Start Time,End Date,End Time,Description
+        '400':
+          description: Missing parameters or unsupported format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/auth:
+    get:
+      summary: Start Google OAuth flow for a user
+      description: |
+        Initiates the OAuth authorization flow for Google Calendar on behalf of the authenticated user. A CSRF state will be generated and validated during the callback.
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Returns an authorization URL to redirect the user's browser to Google
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleAuthResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/callback:
+    get:
+      summary: OAuth callback endpoint for Google
+      description: |
+        Callback endpoint that Google will redirect to with `code` and `state` query parameters. The server must validate the CSRF `state` and exchange the `code` for access and refresh tokens.
+      tags:
+        - Integration
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Authorization code returned by Google
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: CSRF state to validate
+      responses:
+        '200':
+          description: OAuth exchange successful and integration established
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: google oauth successful
+                  user_id:
+                    type: string
+        '400':
+          description: Invalid request or failed token exchange
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/disconnect:
+    post:
+      summary: Disconnect Google Calendar for a user
+      description: |
+        Removes the Google Calendar integration for the authenticated user and deletes stored tokens.
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Google Calendar disconnected successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Google Calendar disconnected successfully
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/status:
+    get:
+      summary: Get Google Calendar connection status
+      description: |
+        Returns whether Google Calendar is configured and connected for the authenticated user.
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Connection status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+                  connected:
+                    type: boolean
+                  message:
+                    type: string
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/sync:
+    post:
+      summary: Trigger a Google Calendar synchronization for a user
+      description: |
+        Perform a one-off synchronization between Orbit and Google Calendar. The `direction` controls whether data is imported from Google, exported to Google, or bidirectionally synced.
+        The server will use stored OAuth tokens and perform token refresh if needed.
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleSyncRequest'
+      responses:
+        '200':
+          description: Sync completed or scheduled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: sync scheduled
+                  details:
+                    type: object
+                    additionalProperties: true
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized or missing Google credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/watch:
+    post:
+      summary: Create a Google Calendar watch channel for push notifications
+      description: |
+        Register a watch channel with Google Calendar's push API to receive event-driven notifications for a user's calendar. The server will store the channel metadata for future verification and processing.
+      tags:
+        - Integration
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GoogleWatchRequest'
+      responses:
+        '200':
+          description: Watch channel created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoogleWatchResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/integration/google/webhook:
+    post:
+      summary: Receive Google Calendar push notifications (webhook)
+      description: |
+        Endpoint for receiving push notifications from Google Calendar watch channels. Google will POST event notifications here. The server should verify the notification headers and channel information.
+      tags:
+        - Integration
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Notification received and processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: notification processed
+        '400':
+          description: Invalid notification
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
