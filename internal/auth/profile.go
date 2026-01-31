@@ -280,11 +280,12 @@ func (s *Service) applyBirthDateUpdate(user *models.User, birthDateStr string) e
 func (s *Service) encodeProfileError(w http.ResponseWriter, err error) {
 	errMsg := err.Error()
 
-	if strings.Contains(errMsg, "already taken") {
+	switch {
+	case strings.Contains(errMsg, "already taken"):
 		w.WriteHeader(http.StatusConflict)
-	} else if strings.Contains(errMsg, "failed to check username availability") {
+	case strings.Contains(errMsg, "failed to check username availability"):
 		w.WriteHeader(http.StatusInternalServerError)
-	} else {
+	default:
 		w.WriteHeader(http.StatusBadRequest)
 	}
 
