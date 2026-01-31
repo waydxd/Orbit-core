@@ -12,6 +12,9 @@ import (
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 )
 
+// ErrUserNotFound is returned when a user is not found
+var ErrUserNotFound = errors.New("user not found")
+
 // Repository defines database operations for auth
 type Repository interface {
 	CreateUser(ctx context.Context, user *models.User) error
@@ -70,7 +73,7 @@ func (r *SQLRepository) GetUserByEmail(ctx context.Context, email string) (*mode
 	row, err := r.queries.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("user not found")
+			return nil, ErrUserNotFound
 		}
 		return nil, fmt.Errorf("failed to get user by email: %w", err)
 	}
@@ -98,7 +101,7 @@ func (r *SQLRepository) GetUserByID(ctx context.Context, id string) (*models.Use
 	row, err := r.queries.GetUserByID(ctx, database.StringToUUID(id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("user not found")
+			return nil, ErrUserNotFound
 		}
 		return nil, fmt.Errorf("failed to get user by id: %w", err)
 	}
@@ -126,7 +129,7 @@ func (r *SQLRepository) GetUserByUsername(ctx context.Context, username string) 
 	row, err := r.queries.GetUserByUsername(ctx, database.StringToText(username))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("user not found")
+			return nil, ErrUserNotFound
 		}
 		return nil, fmt.Errorf("failed to get user by username: %w", err)
 	}

@@ -2,12 +2,15 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/middleware"
@@ -60,9 +63,14 @@ func (s *Service) getProfile(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "user not found"})
+			return
+		}
 		s.logger.Error("failed to get user profile", "err", err, "user_id", userID)
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user not found"})
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "internal server error"})
 		return
 	}
 
@@ -82,6 +90,9 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Limit request body size to prevent large allocations (e.g., from large data URLs)
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB limit
+
 	var req UpdateProfileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -96,9 +107,14 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) {
 	// Get existing user
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "user not found"})
+			return
+		}
 		s.logger.Error("failed to get user", "err", err, "user_id", userID)
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user not found"})
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "internal server error"})
 		return
 	}
 
@@ -112,6 +128,13 @@ func (s *Service) updateProfile(w http.ResponseWriter, r *http.Request) {
 	if err := s.repo.UpdateUser(ctx, user); err != nil {
 		s.handleProfileUpdateError(w, err)
 		return
+	}
+
+	// Re-fetch user to ensure we have the latest data (including updated_at)
+	if updatedUser, err := s.repo.GetUserByID(ctx, userID); err == nil {
+		user = updatedUser
+	} else {
+		s.logger.Error("failed to reload user after update", "err", err, "user_id", userID)
 	}
 
 	response := s.userToProfileResponse(user)
@@ -198,7 +221,10 @@ func (s *Service) applyUsernameUpdate(ctx context.Context, user *models.User, us
 		return err
 	}
 	// Check if username is already taken by another user
-	existingUser, _ := s.repo.GetUserByUsername(ctx, username)
+	existingUser, err := s.repo.GetUserByUsername(ctx, username)
+	if err != nil && !errors.Is(err, ErrUserNotFound) {
+		return fmt.Errorf("failed to check username availability: %w", err)
+	}
 	if existingUser != nil && existingUser.ID != user.ID {
 		return fmt.Errorf("username already taken")
 	}
@@ -235,6 +261,10 @@ func (s *Service) applyGenderUpdate(user *models.User, gender string) error {
 
 // applyBirthDateUpdate validates and applies birth date changes
 func (s *Service) applyBirthDateUpdate(user *models.User, birthDateStr string) error {
+	if birthDateStr == "" {
+		user.BirthDate = time.Time{}
+		return nil
+	}
 	birthDate, err := time.Parse("2006-01-02", birthDateStr)
 	if err != nil {
 		return fmt.Errorf("invalid birth_date format, use YYYY-MM-DD")
@@ -252,6 +282,8 @@ func (s *Service) encodeProfileError(w http.ResponseWriter, err error) {
 
 	if strings.Contains(errMsg, "already taken") {
 		w.WriteHeader(http.StatusConflict)
+	} else if strings.Contains(errMsg, "failed to check username availability") {
+		w.WriteHeader(http.StatusInternalServerError)
 	} else {
 		w.WriteHeader(http.StatusBadRequest)
 	}
@@ -274,23 +306,28 @@ func (s *Service) handleProfileUpdateError(w http.ResponseWriter, err error) {
 
 // validateUsername validates the username format and length
 func (s *Service) validateUsername(username string) error {
-	if len(username) < 3 || len(username) > 50 {
-		return fmt.Errorf("username must be between 3 and 50 characters")
+	matched, err := regexp.MatchString(`^[a-zA-Z0-9_-]{3,50}$`, username)
+	if err != nil {
+		return fmt.Errorf("invalid username")
 	}
-	// Username can contain letters, numbers, underscores, and hyphens
-	for _, c := range username {
-		if unicode.IsLetter(c) || unicode.IsDigit(c) || c == '_' || c == '-' {
-			continue
-		}
-		return fmt.Errorf("username can only contain letters, numbers, underscores, and hyphens")
+	if !matched {
+		return fmt.Errorf("username must be between 3 and 50 characters and contain only ASCII letters, numbers, underscores, and hyphens")
+	}
+	// Check for consecutive special characters
+	re := regexp.MustCompile(`[_-]{2,}`)
+	if re.MatchString(username) {
+		return fmt.Errorf("username cannot contain consecutive underscores or hyphens")
 	}
 	return nil
 }
 
 // validateProfilePicture validates the profile picture URL and image properties
 func (s *Service) validateProfilePicture(url string) error {
+	if url == "" {
+		return nil
+	}
 	// Basic URL validation
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "data:") {
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "data:image/") {
 		return fmt.Errorf("invalid profile picture URL")
 	}
 
@@ -337,6 +374,17 @@ func (s *Service) validateDataURLImage(dataURL string) error {
 
 	// Check size - comparing against encoded size including base64 overhead
 	if len(dataURL) > maxEncodedSize {
+		return fmt.Errorf("profile picture size exceeds 5MB limit")
+	}
+
+	// Decode base64 to check actual binary size
+	decoder := base64.NewDecoder(base64.StdEncoding, strings.NewReader(parts[1]))
+	actualSize, err := io.Copy(io.Discard, decoder)
+	if err != nil {
+		return fmt.Errorf("invalid base64 data")
+	}
+
+	if actualSize > maxBinarySize {
 		return fmt.Errorf("profile picture size exceeds 5MB limit")
 	}
 
