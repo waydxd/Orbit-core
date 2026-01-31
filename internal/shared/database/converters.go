@@ -32,7 +32,11 @@ func UUIDToString(uuid pgtype.UUID) string {
 }
 
 // StringToText converts string to pgtype.Text
+// Empty strings are converted to NULL (Valid: false)
 func StringToText(s string) pgtype.Text {
+	if s == "" {
+		return pgtype.Text{String: "", Valid: false}
+	}
 	return pgtype.Text{String: s, Valid: true}
 }
 
@@ -87,4 +91,25 @@ func IntToInt32(num int) int32 {
 	}
 
 	return int32(num)
+}
+
+// TimeToDate converts time.Time to pgtype.Date
+func TimeToDate(t time.Time) pgtype.Date {
+	if t.IsZero() {
+		return pgtype.Date{Valid: false}
+	}
+	var date pgtype.Date
+	if err := date.Scan(t); err != nil {
+		// Return invalid date on error
+		return pgtype.Date{Valid: false}
+	}
+	return date
+}
+
+// DateToTime converts pgtype.Date to time.Time
+func DateToTime(d pgtype.Date) time.Time {
+	if !d.Valid {
+		return time.Time{}
+	}
+	return d.Time
 }

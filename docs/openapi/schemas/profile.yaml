@@ -1,0 +1,97 @@
+components:
+  schemas:
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 550e8400-e29b-41d4-a716-446655440000
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        first_name:
+          type: string
+          example: John
+        last_name:
+          type: string
+          example: Doe
+        username:
+          type: string
+          example: user_abc123
+        profile_picture:
+          type: string
+          example: https://example.com/avatar.jpg
+        region:
+          type: string
+          example: North America
+        timezone:
+          type: string
+          example: America/New_York
+        gender:
+          type: string
+          enum:
+            - male
+            - female
+            - non-binary
+            - prefer_not_to_say
+            - other
+          example: prefer_not_to_say
+        birth_date:
+          type: string
+          format: date
+          example: 1990-01-15
+        email_verified:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          example: 2024-01-01T00:00:00Z
+        updated_at:
+          type: string
+          format: date-time
+          example: 2024-01-15T12:30:00Z
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        first_name:
+          type: string
+          example: John
+        last_name:
+          type: string
+          example: Doe
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: '^[a-zA-Z0-9_-]+$'
+          example: johndoe123
+          description: Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens
+        profile_picture:
+          type: string
+          example: https://example.com/avatar.jpg
+          description: URL to profile picture (HTTP/HTTPS URL or data URL). Max size 5MB. Allowed formats - JPEG, PNG, GIF
+        region:
+          type: string
+          example: North America
+        timezone:
+          type: string
+          example: America/New_York
+          description: IANA timezone identifier
+        gender:
+          type: string
+          enum:
+            - male
+            - female
+            - non-binary
+            - prefer_not_to_say
+            - other
+          example: prefer_not_to_say
+        birth_date:
+          type: string
+          format: date
+          example: 1990-01-15
+          description: Birth date in YYYY-MM-DD format. User must be at least 13 years old
+

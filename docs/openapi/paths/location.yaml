@@ -1,0 +1,123 @@
+paths:
+  /api/v1/location/track:
+    post:
+      summary: Track user location
+      tags:
+        - Location
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationRequest'
+      responses:
+        '201':
+          description: Location tracked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: location tracked successfully
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/location/history:
+    get:
+      summary: Get location history for a user
+      tags:
+        - Location
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Location history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Location'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/location/current:
+    get:
+      summary: Get current location for a user
+      tags:
+        - Location
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current location
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                  latitude:
+                    type: number
+                    format: double
+                  longitude:
+                    type: number
+                    format: double
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/location/nearby:
+    get:
+      summary: Find nearby locations/places
+      tags:
+        - Location
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+          description: Latitude
+        - name: lng
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+          description: Longitude
+      responses:
+        '200':
+          description: Nearby locations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '400':
+          description: Missing lat or lng parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
