@@ -56,7 +56,7 @@ func NewService(cfg *config.Config, log *logger.Logger, repo Repository) *Servic
 	}
 }
 
-// RegisterRoutes registers authentication routes
+// RegisterRoutes registers authentication routes (public routes)
 func (s *Service) RegisterRoutes(router *mux.Router) {
 	authRouter := router.PathPrefix("/auth").Subrouter()
 	authRouter.HandleFunc("/register", s.register).Methods("POST")
@@ -66,6 +66,13 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	authRouter.HandleFunc("/password-reset-request", s.passwordResetRequest).Methods("POST")
 	authRouter.HandleFunc("/password-reset-confirm", s.passwordResetConfirm).Methods("POST")
 	authRouter.HandleFunc("/verify-email", s.verifyEmail).Methods("GET")
+}
+
+// RegisterProtectedRoutes registers protected authentication routes (requires authentication)
+func (s *Service) RegisterProtectedRoutes(router *mux.Router) {
+	// Profile routes (protected)
+	router.HandleFunc("/profile", s.getProfile).Methods("GET")
+	router.HandleFunc("/profile", s.updateProfile).Methods("PUT")
 }
 
 // LoginRequest represents login/register request payload
@@ -122,6 +129,7 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 		ID:           uuid.New().String(),
 		Email:        req.Email,
 		PasswordHash: passwordHash,
+		Username:     GenerateRandomUsername(),
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}

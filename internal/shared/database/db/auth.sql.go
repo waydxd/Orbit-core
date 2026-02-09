@@ -31,19 +31,25 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (p
 }
 
 const createUser = `-- name: CreateUser :exec
-INSERT INTO users (id, email, password_hash, first_name, last_name, email_verified, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO users (id, email, password_hash, first_name, last_name, email_verified, username, profile_picture, region, timezone, gender, birth_date, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 `
 
 type CreateUserParams struct {
-	ID            pgtype.UUID        `json:"id"`
-	Email         string             `json:"email"`
-	PasswordHash  string             `json:"password_hash"`
-	FirstName     pgtype.Text        `json:"first_name"`
-	LastName      pgtype.Text        `json:"last_name"`
-	EmailVerified bool               `json:"email_verified"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID             pgtype.UUID        `json:"id"`
+	Email          string             `json:"email"`
+	PasswordHash   string             `json:"password_hash"`
+	FirstName      pgtype.Text        `json:"first_name"`
+	LastName       pgtype.Text        `json:"last_name"`
+	EmailVerified  bool               `json:"email_verified"`
+	Username       pgtype.Text        `json:"username"`
+	ProfilePicture pgtype.Text        `json:"profile_picture"`
+	Region         pgtype.Text        `json:"region"`
+	Timezone       pgtype.Text        `json:"timezone"`
+	Gender         pgtype.Text        `json:"gender"`
+	BirthDate      pgtype.Date        `json:"birth_date"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
@@ -54,6 +60,12 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
 		arg.FirstName,
 		arg.LastName,
 		arg.EmailVerified,
+		arg.Username,
+		arg.ProfilePicture,
+		arg.Region,
+		arg.Timezone,
+		arg.Gender,
+		arg.BirthDate,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -97,19 +109,25 @@ func (q *Queries) GetSessionByToken(ctx context.Context, tokenHash string) (Sess
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, password_hash, first_name, last_name, email_verified, created_at, updated_at
+SELECT id, email, password_hash, first_name, last_name, email_verified, username, profile_picture, region, timezone, gender, birth_date, created_at, updated_at
 FROM users WHERE email = $1
 `
 
 type GetUserByEmailRow struct {
-	ID            pgtype.UUID        `json:"id"`
-	Email         string             `json:"email"`
-	PasswordHash  string             `json:"password_hash"`
-	FirstName     pgtype.Text        `json:"first_name"`
-	LastName      pgtype.Text        `json:"last_name"`
-	EmailVerified bool               `json:"email_verified"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID             pgtype.UUID        `json:"id"`
+	Email          string             `json:"email"`
+	PasswordHash   string             `json:"password_hash"`
+	FirstName      pgtype.Text        `json:"first_name"`
+	LastName       pgtype.Text        `json:"last_name"`
+	EmailVerified  bool               `json:"email_verified"`
+	Username       pgtype.Text        `json:"username"`
+	ProfilePicture pgtype.Text        `json:"profile_picture"`
+	Region         pgtype.Text        `json:"region"`
+	Timezone       pgtype.Text        `json:"timezone"`
+	Gender         pgtype.Text        `json:"gender"`
+	BirthDate      pgtype.Date        `json:"birth_date"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error) {
@@ -122,6 +140,12 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 		&i.FirstName,
 		&i.LastName,
 		&i.EmailVerified,
+		&i.Username,
+		&i.ProfilePicture,
+		&i.Region,
+		&i.Timezone,
+		&i.Gender,
+		&i.BirthDate,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -129,19 +153,25 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (GetUserByEm
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, password_hash, first_name, last_name, email_verified, created_at, updated_at
+SELECT id, email, password_hash, first_name, last_name, email_verified, username, profile_picture, region, timezone, gender, birth_date, created_at, updated_at
 FROM users WHERE id = $1
 `
 
 type GetUserByIDRow struct {
-	ID            pgtype.UUID        `json:"id"`
-	Email         string             `json:"email"`
-	PasswordHash  string             `json:"password_hash"`
-	FirstName     pgtype.Text        `json:"first_name"`
-	LastName      pgtype.Text        `json:"last_name"`
-	EmailVerified bool               `json:"email_verified"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	ID             pgtype.UUID        `json:"id"`
+	Email          string             `json:"email"`
+	PasswordHash   string             `json:"password_hash"`
+	FirstName      pgtype.Text        `json:"first_name"`
+	LastName       pgtype.Text        `json:"last_name"`
+	EmailVerified  bool               `json:"email_verified"`
+	Username       pgtype.Text        `json:"username"`
+	ProfilePicture pgtype.Text        `json:"profile_picture"`
+	Region         pgtype.Text        `json:"region"`
+	Timezone       pgtype.Text        `json:"timezone"`
+	Gender         pgtype.Text        `json:"gender"`
+	BirthDate      pgtype.Date        `json:"birth_date"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error) {
@@ -154,6 +184,56 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDR
 		&i.FirstName,
 		&i.LastName,
 		&i.EmailVerified,
+		&i.Username,
+		&i.ProfilePicture,
+		&i.Region,
+		&i.Timezone,
+		&i.Gender,
+		&i.BirthDate,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getUserByUsername = `-- name: GetUserByUsername :one
+SELECT id, email, password_hash, first_name, last_name, email_verified, username, profile_picture, region, timezone, gender, birth_date, created_at, updated_at
+FROM users WHERE username = $1
+`
+
+type GetUserByUsernameRow struct {
+	ID             pgtype.UUID        `json:"id"`
+	Email          string             `json:"email"`
+	PasswordHash   string             `json:"password_hash"`
+	FirstName      pgtype.Text        `json:"first_name"`
+	LastName       pgtype.Text        `json:"last_name"`
+	EmailVerified  bool               `json:"email_verified"`
+	Username       pgtype.Text        `json:"username"`
+	ProfilePicture pgtype.Text        `json:"profile_picture"`
+	Region         pgtype.Text        `json:"region"`
+	Timezone       pgtype.Text        `json:"timezone"`
+	Gender         pgtype.Text        `json:"gender"`
+	BirthDate      pgtype.Date        `json:"birth_date"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetUserByUsername(ctx context.Context, username pgtype.Text) (GetUserByUsernameRow, error) {
+	row := q.db.QueryRow(ctx, getUserByUsername, username)
+	var i GetUserByUsernameRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.PasswordHash,
+		&i.FirstName,
+		&i.LastName,
+		&i.EmailVerified,
+		&i.Username,
+		&i.ProfilePicture,
+		&i.Region,
+		&i.Timezone,
+		&i.Gender,
+		&i.BirthDate,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -162,18 +242,24 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDR
 
 const updateUser = `-- name: UpdateUser :exec
 UPDATE users
-SET email = $1, password_hash = $2, first_name = $3, last_name = $4, email_verified = $5, updated_at = $6
-WHERE id = $7
+SET email = $1, password_hash = $2, first_name = $3, last_name = $4, email_verified = $5, username = $6, profile_picture = $7, region = $8, timezone = $9, gender = $10, birth_date = $11, updated_at = $12
+WHERE id = $13
 `
 
 type UpdateUserParams struct {
-	Email         string             `json:"email"`
-	PasswordHash  string             `json:"password_hash"`
-	FirstName     pgtype.Text        `json:"first_name"`
-	LastName      pgtype.Text        `json:"last_name"`
-	EmailVerified bool               `json:"email_verified"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	ID            pgtype.UUID        `json:"id"`
+	Email          string             `json:"email"`
+	PasswordHash   string             `json:"password_hash"`
+	FirstName      pgtype.Text        `json:"first_name"`
+	LastName       pgtype.Text        `json:"last_name"`
+	EmailVerified  bool               `json:"email_verified"`
+	Username       pgtype.Text        `json:"username"`
+	ProfilePicture pgtype.Text        `json:"profile_picture"`
+	Region         pgtype.Text        `json:"region"`
+	Timezone       pgtype.Text        `json:"timezone"`
+	Gender         pgtype.Text        `json:"gender"`
+	BirthDate      pgtype.Date        `json:"birth_date"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	ID             pgtype.UUID        `json:"id"`
 }
 
 func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) error {
@@ -183,6 +269,12 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) error {
 		arg.FirstName,
 		arg.LastName,
 		arg.EmailVerified,
+		arg.Username,
+		arg.ProfilePicture,
+		arg.Region,
+		arg.Timezone,
+		arg.Gender,
+		arg.BirthDate,
 		arg.UpdatedAt,
 		arg.ID,
 	)

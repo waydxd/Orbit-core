@@ -7,14 +7,20 @@ import (
 
 // User represents a user in the system
 type User struct {
-	ID            string    `json:"id" db:"id"`
-	Email         string    `json:"email" db:"email"`
-	PasswordHash  string    `json:"-" db:"password_hash"`
-	FirstName     string    `json:"first_name" db:"first_name"`
-	LastName      string    `json:"last_name" db:"last_name"`
-	EmailVerified bool      `json:"email_verified" db:"email_verified"`
-	CreatedAt     time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
+	ID             string    `json:"id" db:"id"`
+	Email          string    `json:"email" db:"email"`
+	PasswordHash   string    `json:"-" db:"password_hash"`
+	FirstName      string    `json:"first_name" db:"first_name"`
+	LastName       string    `json:"last_name" db:"last_name"`
+	EmailVerified  bool      `json:"email_verified" db:"email_verified"`
+	Username       string    `json:"username" db:"username"`
+	ProfilePicture string    `json:"profile_picture,omitempty" db:"profile_picture"`
+	Region         string    `json:"region,omitempty" db:"region"`
+	Timezone       string    `json:"timezone,omitempty" db:"timezone"`
+	Gender         string    `json:"gender,omitempty" db:"gender"`
+	BirthDate      time.Time `json:"birth_date,omitempty" db:"birth_date"`
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // Event represents a calendar event

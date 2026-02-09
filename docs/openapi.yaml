@@ -264,6 +264,79 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/v1/profile:
+    get:
+      summary: Get user profile
+      tags:
+        - Profile
+      security:
+        - BearerAuth: []
+      description: Retrieve the authenticated user's profile information
+      responses:
+        '200':
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Unauthorized - invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      summary: Update user profile
+      tags:
+        - Profile
+      security:
+        - BearerAuth: []
+      description: Update the authenticated user's profile information
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - invalid or missing token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict - username already taken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/v1/calendar/events:
     get:
       summary: List all events
@@ -1083,9 +1156,9 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              additionalProperties: true
+              schema:
+                type: object
+                additionalProperties: true
       responses:
         '200':
           description: Notification received and processed
@@ -1103,6 +1176,238 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
+  /api/v1/chat/messages:
+    post:
+      summary: Send a chat message to the AI assistant
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostMessageRequest'
+      responses:
+        '200':
+          description: Message processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostMessageResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+
+  /api/v1/chat/conversations/{conversation_id}:
+    get:
+      summary: Get conversation history and pending actions
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Conversation ID
+      responses:
+        '200':
+          description: Conversation retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationResponse'
+        '404':
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+
+  /api/v1/chat/actions/{action_id}:
+    get:
+      summary: Get pending action details
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Action ID
+      responses:
+        '200':
+          description: Action details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+        '404':
+          description: Action not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+
+  /api/v1/chat/actions/{action_id}/confirm:
+    post:
+      summary: Confirm and execute a pending action
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Action ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmActionRequest'
+      responses:
+        '200':
+          description: Action executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfirmActionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '404':
+          description: Action not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '409':
+          description: Action already processed or not pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '410':
+          description: Action expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+
+  /api/v1/chat/actions/{action_id}/cancel:
+    post:
+      summary: Cancel a pending action
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Action ID
+      responses:
+        '200':
+          description: Action cancelled successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Action cancelled successfully
+        '404':
+          description: Action not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '409':
+          description: Action cannot be cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+
+  /api/v1/chat/metrics:
+    get:
+      summary: Get chat service metrics
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_messages:
+                    type: integer
+                  total_conversations:
+                    type: integer
+                  total_pending_actions:
+                    type: integer
+                  total_confirmed_actions:
+                    type: integer
+                  total_cancelled_actions:
+                    type: integer
+                  total_expired_actions:
+                    type: integer
+                  total_failed_actions:
+                    type: integer
+                  avg_message_latency_ms:
+                    type: integer
+                  avg_action_latency_ms:
+                    type: integer
+                  confirmation_rate_pct:
+                    type: number
+                  success_rate_pct:
+                    type: number
+                  total_errors:
+                    type: integer
+                  validation_errors:
+                    type: integer
+                  policy_violations:
+                    type: integer
+                  conflict_errors:
+                    type: integer
+                  messages_per_minute:
+                    type: number
+                  actions_per_minute:
+                    type: number
 
 components:
   securitySchemes:
@@ -1159,6 +1464,101 @@ components:
               type: string
               example: user@example.com
 
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          example: 550e8400-e29b-41d4-a716-446655440000
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        first_name:
+          type: string
+          example: John
+        last_name:
+          type: string
+          example: Doe
+        username:
+          type: string
+          example: user_abc123
+        profile_picture:
+          type: string
+          example: https://example.com/avatar.jpg
+        region:
+          type: string
+          example: North America
+        timezone:
+          type: string
+          example: America/New_York
+        gender:
+          type: string
+          enum:
+            - male
+            - female
+            - non-binary
+            - prefer_not_to_say
+            - other
+          example: prefer_not_to_say
+        birth_date:
+          type: string
+          format: date
+          example: 1990-01-15
+        email_verified:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          example: 2024-01-01T00:00:00Z
+        updated_at:
+          type: string
+          format: date-time
+          example: 2024-01-15T12:30:00Z
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        first_name:
+          type: string
+          example: John
+        last_name:
+          type: string
+          example: Doe
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: '^[a-zA-Z0-9_-]+$'
+          example: johndoe123
+          description: Username must be 3-50 characters and contain only letters, numbers, underscores, and hyphens
+        profile_picture:
+          type: string
+          example: https://example.com/avatar.jpg
+          description: URL to profile picture (HTTP/HTTPS URL or data URL). Max size 5MB. Allowed formats - JPEG, PNG, GIF
+        region:
+          type: string
+          example: North America
+        timezone:
+          type: string
+          example: America/New_York
+          description: IANA timezone identifier
+        gender:
+          type: string
+          enum:
+            - male
+            - female
+            - non-binary
+            - prefer_not_to_say
+            - other
+          example: prefer_not_to_say
+        birth_date:
+          type: string
+          format: date
+          example: 1990-01-15
+          description: Birth date in YYYY-MM-DD format. User must be at least 13 years old
+
     Event:
       type: object
       properties:
@@ -1207,6 +1607,7 @@ components:
         - title
         - start_time
         - end_time
+        - user_id
       properties:
         title:
           type: string
@@ -1234,6 +1635,9 @@ components:
         recurrence_exception:
           type: string
           example: "20240120T100000Z"
+        user_id:
+          type: string
+          example: user-123
 
     Task:
       type: object
@@ -1273,6 +1677,7 @@ components:
       required:
         - title
         - due_date
+        - user_id
       properties:
         title:
           type: string
@@ -1288,6 +1693,9 @@ components:
           type: string
           enum: [low, medium, high]
           example: high
+        user_id:
+          type: string
+          example: user-123
 
     Location:
       type: object
@@ -1321,6 +1729,7 @@ components:
       required:
         - latitude
         - longitude
+        - user_id
       properties:
         latitude:
           type: number
@@ -1333,6 +1742,9 @@ components:
         address:
           type: string
           example: Hong Kong University of Science and Technology
+        user_id:
+          type: string
+          example: user-123
 
     SyncRequest:
       type: object
@@ -1384,6 +1796,7 @@ components:
       type: object
       required:
         - message
+        - user_id
       properties:
         message:
           type: string
@@ -1394,6 +1807,9 @@ components:
         context:
           type: object
           additionalProperties: true
+        user_id:
+          type: string
+          example: user-uuid-456
 
     PostMessageResponse:
       type: object
