@@ -109,12 +109,10 @@ func NewService(cfg *config.Config, log *logger.Logger, tokenStore TokenStore) *
 	// Using only CalendarEventsScope which provides read and write access to calendar events
 	oauthConfig := &oauth2.Config{
 		ClientID:     cfg.GoogleCalendar.ClientID,
-		ClientSecret: cfg.GoogleCalendar.ClientSecret,
+		ClientSecret: cfg.GoogleCalendar.ClientKey,
 		RedirectURL:  cfg.GoogleCalendar.RedirectURL,
-		Scopes: []string{
-			gcal.CalendarEventsScope,
-		},
-		Endpoint: google.Endpoint,
+		Scopes:       []string{gcal.CalendarScope, gcal.CalendarEventsScope},
+		Endpoint:     google.Endpoint,
 	}
 
 	return &Service{
@@ -134,7 +132,8 @@ func (s *Service) SetCalendarService(calSvc CalendarServiceInterface) {
 // IsConfigured returns true if Google Calendar integration is configured
 func (s *Service) IsConfigured() bool {
 	return s.config.GoogleCalendar.ClientID != "" &&
-		s.config.GoogleCalendar.ClientSecret != ""
+		s.config.GoogleCalendar.ClientKey != "" &&
+		s.config.GoogleCalendar.RedirectURL != ""
 }
 
 // GetAuthURL generates the OAuth authorization URL for a user

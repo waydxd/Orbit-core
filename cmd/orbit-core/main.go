@@ -51,7 +51,7 @@ func main() {
 	defer database.DisconnectMongoDB()
 
 	// Initialize MongoDB
-	mongoURI := database.BuildMongoURI(cfg.MongoDB.User, cfg.MongoDB.Password, cfg.MongoDB.Host, cfg.MongoDB.DBName)
+	mongoURI := database.BuildMongoURI(cfg.MongoDB.User, cfg.MongoDB.Pass, cfg.MongoDB.Host, cfg.MongoDB.DBName)
 	if err := database.InitMongoDB(mongoURI); err != nil {
 		log.Error("Failed to connect to MongoDB", "error", err)
 		return

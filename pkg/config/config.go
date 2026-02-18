@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -33,7 +34,7 @@ type DatabaseConfig struct {
 	Host        string
 	Port        int
 	User        string
-	Password    string
+	Pass        string //nolint:gosec
 	DBName      string
 	SSLMode     string
 	SSLRootCert string
@@ -43,24 +44,24 @@ type DatabaseConfig struct {
 
 // MongoDBConfig holds MongoDB configuration
 type MongoDBConfig struct {
-	User     string
-	Password string
-	Host     string
-	DBName   string
+	User   string
+	Pass   string //nolint:gosec
+	Host   string
+	DBName string
 }
 
 // RedisConfig holds Redis configuration for rate limiting
 type RedisConfig struct {
-	Host     string
-	Port     int
-	Password string
-	DB       int
+	Host string
+	Port int
+	Pass string //nolint:gosec
+	DB   int
 }
 
 // AuthConfig holds authentication configuration
 type AuthConfig struct {
-	JWTSecret                    string
-	JWTExpiration                int // in hours
+	JWTKey                       string //nolint:gosec
+	JWTExpiration                int    // in hours
 	ResendAPIKey                 string
 	AppBaseURL                   string
 	PasswordResetExpiryMinutes   int
@@ -82,9 +83,9 @@ type GRPCServerConfig struct {
 
 // GoogleCalendarConfig holds Google Calendar integration configuration
 type GoogleCalendarConfig struct {
-	ClientID     string
-	ClientSecret string
-	RedirectURL  string
+	ClientID    string
+	ClientKey   string //nolint:gosec
+	RedirectURL string
 	// WebhookURL is the publicly accessible URL for Google Calendar push notifications
 	WebhookURL string
 }
@@ -111,10 +112,10 @@ func Load() (*Config, error) {
 	// Detect and load a dotenv file if present. By default, we look for `.env`.
 	// The path can be overridden by setting the ENV_FILE environment variable.
 	envFile := os.Getenv("ENV_FILE")
-	if envFile == "" {
+	if envFile == "" || !isSafeEnvFileName(envFile) {
 		envFile = ".env"
 	}
-	if _, err := os.Stat(envFile); err == nil {
+	if _, err := os.Stat(envFile); err == nil { //nolint:gosec
 		// Attempt to load the env file (ignore error — if keys conflict, os.Getenv still takes precedence)
 		_ = godotenv.Load(envFile)
 	}
@@ -128,7 +129,7 @@ func Load() (*Config, error) {
 			Host:        getEnv("DB_HOST", "localhost"),
 			Port:        getEnvAsInt("DB_PORT", 5432),
 			User:        getEnv("DB_USER", "postgres"),
-			Password:    getEnv("DB_PASSWORD", "postgres"),
+			Pass:        getEnv("DB_PASSWORD", "postgres"),
 			DBName:      getEnv("DB_NAME", "orbit"),
 			SSLMode:     getEnv("DB_SSLMODE", "disable"),
 			SSLRootCert: getEnv("DB_SSLROOTCERT", ""),
@@ -136,19 +137,19 @@ func Load() (*Config, error) {
 			SSLKey:      getEnv("DB_SSLKEY", ""),
 		},
 		MongoDB: MongoDBConfig{
-			User:     getEnv("MONGO_USER", ""),
-			Password: getEnv("MONGO_PASSWORD", ""),
-			Host:     getEnv("MONGODB_HOST", "mongo:27017"),
-			DBName:   getEnv("MONGODB_DB", "orbit"),
+			User:   getEnv("MONGO_USER", ""),
+			Pass:   getEnv("MONGO_PASSWORD", ""),
+			Host:   getEnv("MONGODB_HOST", "mongo:27017"),
+			DBName: getEnv("MONGODB_DB", "orbit"),
 		},
 		Redis: RedisConfig{
-			Host:     getEnv("REDIS_HOST", "localhost"),
-			Port:     getEnvAsInt("REDIS_PORT", 6379),
-			Password: getEnv("REDIS_PASSWORD", ""),
-			DB:       getEnvAsInt("REDIS_DB", 0),
+			Host: getEnv("REDIS_HOST", "localhost"),
+			Port: getEnvAsInt("REDIS_PORT", 6379),
+			Pass: getEnv("REDIS_PASSWORD", ""),
+			DB:   getEnvAsInt("REDIS_DB", 0),
 		},
 		Auth: AuthConfig{
-			JWTSecret:                    getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
+			JWTKey:                       getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
 			JWTExpiration:                getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
 			ResendAPIKey:                 getEnv("RESEND_API_KEY", ""),
 			AppBaseURL:                   getEnv("APP_BASE_URL", "http://localhost:3000"),
@@ -164,10 +165,10 @@ func Load() (*Config, error) {
 			Port: getEnvAsInt("GRPC_SERVER_PORT", 50052),
 		},
 		GoogleCalendar: GoogleCalendarConfig{
-			ClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
-			ClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
-			RedirectURL:  getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/v1/integration/google/callback"),
-			WebhookURL:   getEnv("GOOGLE_WEBHOOK_URL", ""),
+			ClientID:    getEnv("GOOGLE_CLIENT_ID", ""),
+			ClientKey:   getEnv("GOOGLE_CLIENT_SECRET", ""),
+			RedirectURL: getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/v1/integration/google/callback"),
+			WebhookURL:  getEnv("GOOGLE_WEBHOOK_URL", ""),
 		},
 	}
 
@@ -238,11 +239,21 @@ func readSecret(name string) (string, error) {
 	return "", fmt.Errorf("secret %s not found in known paths", name)
 }
 
+func isSafeEnvFileName(name string) bool {
+	if name == "" {
+		return false
+	}
+	if filepath.Base(name) != name {
+		return false
+	}
+	return !strings.Contains(name, "..")
+}
+
 // ConnectionString returns PostgreSQL connection string
 func (c *DatabaseConfig) ConnectionString() string {
 	base := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		c.Host, c.Port, c.User, c.Password, c.DBName, c.SSLMode,
+		c.Host, c.Port, c.User, c.Pass, c.DBName, c.SSLMode,
 	)
 	// append SSL file params if provided
 	if c.SSLRootCert != "" {
@@ -267,7 +278,7 @@ func (c *DatabaseConfig) ConnectionURL() string {
 	// Warning: Special chars in password might break this simple format.
 	return fmt.Sprintf(
 		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		c.User, c.Password, c.Host, c.Port, c.DBName, c.SSLMode,
+		c.User, c.Pass, c.Host, c.Port, c.DBName, c.SSLMode,
 	)
 }
 

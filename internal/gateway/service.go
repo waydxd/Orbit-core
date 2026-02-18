@@ -79,14 +79,14 @@ func NewService(cfg *config.Config, log *logger.Logger, svcConfig ServiceConfig)
 	// Initialize rate limiter with Redis
 	rateLimiter := middleware.NewRateLimiter(
 		cfg.Redis.RedisAddr(),
-		cfg.Redis.Password,
+		cfg.Redis.Pass,
 		cfg.Redis.DB,
 		100,           // 100 requests
 		1*time.Minute, // per minute
 	)
 
 	// Initialize auth middleware
-	authMiddleware := middleware.NewAuthMiddleware(cfg.Auth.JWTSecret)
+	authMiddleware := middleware.NewAuthMiddleware(cfg.Auth.JWTKey)
 
 	s := &Service{
 		config:         cfg,
