@@ -31,6 +31,9 @@ type Service struct {
 type HabitTracker interface {
 	TrackEventCreation(ctx context.Context, event *models.Event) error
 	GetRecurringEventsForTimeRange(ctx context.Context, userID string, startTime, endTime time.Time) ([]*models.Event, error)
+	GetActiveRecurringEvents(ctx context.Context, userID string) ([]*models.Event, error)
+	DeactivateRecurringEvent(ctx context.Context, eventID string) error
+	GetEventFrequencies(ctx context.Context, userID string, threshold int) ([]*models.EventFrequency, error)
 }
 
 // NewService creates a new Calendar Service
@@ -54,6 +57,10 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	calendarRouter.HandleFunc("/events/{id}", s.getEvent).Methods("GET")
 	calendarRouter.HandleFunc("/events/{id}", s.updateEvent).Methods("PUT")
 	calendarRouter.HandleFunc("/events/{id}", s.deleteEvent).Methods("DELETE")
+
+	// Recurring event routes
+	calendarRouter.HandleFunc("/recurring", s.listRecurringEvents).Methods("GET")
+	calendarRouter.HandleFunc("/recurring/{id}/deactivate", s.deactivateRecurringEvent).Methods("POST")
 
 	// Task routes
 	calendarRouter.HandleFunc("/tasks", s.listTasks).Methods("GET")
@@ -364,6 +371,82 @@ func (s *Service) deleteEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ===== Recurring Event HTTP Handlers =====
+
+// listRecurringEvents returns active recurring events for a user
+func (s *Service) listRecurringEvents(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	recurring, err := s.habitTracker.GetActiveRecurringEvents(ctx, userID)
+	if err != nil {
+		s.logger.Error("Failed to get recurring events", "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to get recurring events"})
+		return
+	}
+
+	// Convert to response format
+	response := make([]map[string]interface{}, len(recurring))
+	for i, evt := range recurring {
+		durationMinutes := int(evt.EndTime.Sub(evt.StartTime).Minutes())
+		response[i] = map[string]interface{}{
+			"id":               evt.ID,
+			"user_id":          evt.UserID,
+			"title":            evt.Title,
+			"description":      evt.Description,
+			"location":         evt.Location,
+			"start_time":       evt.StartTime,
+			"end_time":         evt.EndTime,
+			"duration_minutes": durationMinutes,
+			"is_recurring":     evt.IsRecurring,
+			"recurrence_rule":  evt.RecurrenceRule,
+			"created_at":       evt.CreatedAt,
+		}
+	}
+
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+// deactivateRecurringEvent deactivates a recurring event
+func (s *Service) deactivateRecurringEvent(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	recurringID := mux.Vars(r)["id"]
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	if err := s.habitTracker.DeactivateRecurringEvent(ctx, recurringID); err != nil {
+		s.logger.Error("Failed to deactivate recurring event", "error", err)
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Recurring event deactivated",
+	})
 }
 
 // ===== Task HTTP Handlers =====

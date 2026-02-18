@@ -50,10 +50,8 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	habitRouter.HandleFunc("/suggestions/{id}/accept", s.handleAcceptSuggestion).Methods("POST")
 	// Reject a habit suggestion
 	habitRouter.HandleFunc("/suggestions/{id}/reject", s.handleRejectSuggestion).Methods("POST")
-	// Get active recurring events
+	// Get active recurring events (kept for backward compatibility, redirects to calendar)
 	habitRouter.HandleFunc("/recurring", s.handleGetRecurringEvents).Methods("GET")
-	// Deactivate a recurring event
-	habitRouter.HandleFunc("/recurring/{id}/deactivate", s.handleDeactivateRecurringEvent).Methods("POST")
 	// Get event frequencies (for debugging/admin)
 	habitRouter.HandleFunc("/frequencies", s.handleGetFrequencies).Methods("GET")
 }
@@ -276,6 +274,24 @@ func (s *Service) RejectSuggestion(ctx context.Context, suggestionID string) err
 
 	s.logger.Info("Rejected habit suggestion", "suggestion_id", suggestionID)
 	return nil
+}
+
+// GetActiveRecurringEvents returns all active recurring events for a user
+// This is exposed to the calendar service via the HabitTracker interface
+func (s *Service) GetActiveRecurringEvents(ctx context.Context, userID string) ([]*models.Event, error) {
+	return s.repo.GetActiveRecurringEvents(ctx, userID)
+}
+
+// DeactivateRecurringEvent deactivates a recurring event
+// This is exposed to the calendar service via the HabitTracker interface
+func (s *Service) DeactivateRecurringEvent(ctx context.Context, eventID string) error {
+	return s.repo.DeactivateRecurringEvent(ctx, eventID)
+}
+
+// GetEventFrequencies returns event frequencies above a threshold for a user
+// This is exposed to the calendar service via the HabitTracker interface
+func (s *Service) GetEventFrequencies(ctx context.Context, userID string, threshold int) ([]*models.EventFrequency, error) {
+	return s.repo.GetEventFrequenciesAboveThreshold(ctx, userID, threshold)
 }
 
 // GetRecurringEventsForTimeRange returns recurring events that should occur in a given time range
@@ -550,33 +566,6 @@ func (s *Service) handleGetRecurringEvents(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("Failed to encode JSON response", "error", err)
-	}
-}
-
-// handleDeactivateRecurringEvent deactivates a recurring event
-func (s *Service) handleDeactivateRecurringEvent(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	recurringID := mux.Vars(r)["id"]
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	if err := s.repo.DeactivateRecurringEvent(ctx, recurringID); err != nil {
-		s.logger.Error("Failed to deactivate recurring event", "error", err)
-		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}); err != nil {
-			s.logger.Error("Failed to encode JSON response", "error", err)
-		}
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Recurring event deactivated",
-	}); err != nil {
 		s.logger.Error("Failed to encode JSON response", "error", err)
 	}
 }
