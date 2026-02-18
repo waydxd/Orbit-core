@@ -29,6 +29,7 @@ type ServiceConfig struct {
 	IntegrationService IntegrationServiceInterface
 	AgentService       AgentServiceInterface
 	ChatService        ChatServiceInterface
+	HabitService       HabitServiceInterface
 }
 
 // AuthServiceInterface defines methods for auth service
@@ -63,6 +64,11 @@ type AgentServiceInterface interface {
 
 // ChatServiceInterface defines methods for chat service
 type ChatServiceInterface interface {
+	RegisterRoutes(router *mux.Router)
+}
+
+// HabitServiceInterface defines methods for habit service
+type HabitServiceInterface interface {
 	RegisterRoutes(router *mux.Router)
 }
 
@@ -121,6 +127,7 @@ func (s *Service) setupRoutes() {
 	s.services.IntegrationService.RegisterRoutes(protectedRouter)
 	s.services.AgentService.RegisterRoutes(protectedRouter)
 	s.services.ChatService.RegisterRoutes(protectedRouter)
+	s.services.HabitService.RegisterRoutes(protectedRouter)
 }
 
 // Router returns the configured router

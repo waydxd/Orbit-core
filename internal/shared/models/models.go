@@ -175,22 +175,3 @@ type HabitSuggestion struct {
 	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
 	ExpiresAt         time.Time  `json:"expires_at" db:"expires_at"`
 }
-
-// RecurringEvent represents an accepted habit that generates recurring calendar events
-type RecurringEvent struct {
-	ID                string    `json:"id" db:"id"`
-	UserID            string    `json:"user_id" db:"user_id"`
-	HabitSuggestionID *string   `json:"habit_suggestion_id,omitempty" db:"habit_suggestion_id"`
-	Title             string    `json:"title" db:"title"`
-	Description       string    `json:"description" db:"description"`
-	Location          string    `json:"location" db:"location"`
-	DurationMinutes   int       `json:"duration_minutes" db:"duration_minutes"`
-	TimeOfDay         int       `json:"time_of_day" db:"time_of_day"`
-	DayOfWeek         int       `json:"day_of_week" db:"day_of_week"`
-	StartDate         time.Time `json:"start_date" db:"start_date"`
-	EndDate           time.Time `json:"end_date" db:"end_date"`
-	IsActive          bool      `json:"is_active" db:"is_active"`
-	CreatedAt         time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at" db:"updated_at"`
-}
-

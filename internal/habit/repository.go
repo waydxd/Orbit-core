@@ -2,44 +2,55 @@ package habit
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/waydxd/Orbit-core/internal/shared/database"
+	"github.com/waydxd/Orbit-core/internal/shared/database/db"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 )
 
 // Repository defines database operations for habit tracking
 type Repository interface {
+	// UpsertEventFrequency GetEventFrequencyByPattern
+	// GetEventFrequenciesAboveThreshold UpdateEventFrequency
 	// Event frequency operations
 	UpsertEventFrequency(ctx context.Context, freq *models.EventFrequency) error
 	GetEventFrequencyByPattern(ctx context.Context, userID, title string, durationMinutes, timeOfDay, dayOfWeek int) (*models.EventFrequency, error)
 	GetEventFrequenciesAboveThreshold(ctx context.Context, userID string, threshold int) ([]*models.EventFrequency, error)
 	UpdateEventFrequency(ctx context.Context, freq *models.EventFrequency) error
 
+	// CreateHabitSuggestion GetPendingHabitSuggestions
+	// GetHabitSuggestionByID UpdateHabitSuggestionStatus
 	// Habit suggestion operations
 	CreateHabitSuggestion(ctx context.Context, suggestion *models.HabitSuggestion) error
 	GetPendingHabitSuggestions(ctx context.Context, userID string) ([]*models.HabitSuggestion, error)
 	GetHabitSuggestionByID(ctx context.Context, id string) (*models.HabitSuggestion, error)
 	UpdateHabitSuggestionStatus(ctx context.Context, id, status string, recurrenceEndDate *time.Time) error
 
-	// Recurring event operations
-	CreateRecurringEvent(ctx context.Context, recurring *models.RecurringEvent) error
-	GetActiveRecurringEvents(ctx context.Context, userID string) ([]*models.RecurringEvent, error)
-	GetRecurringEventByID(ctx context.Context, id string) (*models.RecurringEvent, error)
-	DeactivateRecurringEvent(ctx context.Context, id string) error
+	// CreateRecurringEvent GetActiveRecurringEvents DeactivateRecurringEvent
+	// Recurring event operations (now using Event model with IsRecurring flag)
+	CreateRecurringEvent(ctx context.Context, event *models.Event) error
+	GetActiveRecurringEvents(ctx context.Context, userID string) ([]*models.Event, error)
+	DeactivateRecurringEvent(ctx context.Context, eventID string) error
 }
 
 // SQLRepository implements Repository using PostgreSQL
 type SQLRepository struct {
-	db *database.DB
+	queries *db.Queries
+	pool    *database.DB
 }
 
 // NewSQLRepository creates a new SQL habit repository
-func NewSQLRepository(db *database.DB) Repository {
-	return &SQLRepository{db: db}
+func NewSQLRepository(pool *database.DB) Repository {
+	return &SQLRepository{
+		queries: db.New(pool.Pool),
+		pool:    pool,
+	}
 }
 
 // ===== Event Frequency Repository Implementation =====
@@ -52,143 +63,124 @@ func (r *SQLRepository) UpsertEventFrequency(ctx context.Context, freq *models.E
 		return fmt.Errorf("failed to marshal occurrence timestamps: %w", err)
 	}
 
-	query := `
-		INSERT INTO event_frequency (
-			id, user_id, title, description, location, duration_minutes,
-			time_of_day, day_of_week, occurrence_count, suggestion_threshold,
-			suggestion_shown, habit_accepted, occurrence_timestamps, created_at, updated_at
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-		ON CONFLICT (user_id, title, duration_minutes, time_of_day, day_of_week)
-		DO UPDATE SET
-			occurrence_count = event_frequency.occurrence_count + 1,
-			occurrence_timestamps = $13,
-			updated_at = $15
-		RETURNING id, occurrence_count
-	`
+	params := db.UpsertEventFrequencyParams{
+		ID:                   database.StringToUUID(freq.ID),
+		UserID:               database.StringToUUID(freq.UserID),
+		Title:                freq.Title,
+		Description:          database.StringToText(freq.Description),
+		Location:             database.StringToText(freq.Location),
+		DurationMinutes:      database.IntToInt32(freq.DurationMinutes),
+		TimeOfDay:            database.IntToInt32(freq.TimeOfDay),
+		DayOfWeek:            pgtype.Int4{Int32: database.IntToInt32(freq.DayOfWeek), Valid: true},
+		OccurrenceCount:      database.IntToInt32(freq.OccurrenceCount),
+		SuggestionThreshold:  database.IntToInt32(freq.SuggestionThreshold),
+		SuggestionShown:      freq.SuggestionShown,
+		HabitAccepted:        freq.HabitAccepted,
+		OccurrenceTimestamps: timestampsJSON,
+		CreatedAt:            database.TimeToTimestamptz(freq.CreatedAt),
+		UpdatedAt:            database.TimeToTimestamptz(freq.UpdatedAt),
+	}
 
-	err = r.db.QueryRowContext(ctx, query,
-		freq.ID,
-		freq.UserID,
-		freq.Title,
-		freq.Description,
-		freq.Location,
-		freq.DurationMinutes,
-		freq.TimeOfDay,
-		freq.DayOfWeek,
-		freq.OccurrenceCount,
-		freq.SuggestionThreshold,
-		freq.SuggestionShown,
-		freq.HabitAccepted,
-		timestampsJSON,
-		freq.CreatedAt,
-		freq.UpdatedAt,
-	).Scan(&freq.ID, &freq.OccurrenceCount)
-
+	row, err := r.queries.UpsertEventFrequency(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to upsert event frequency: %w", err)
 	}
+
+	freq.ID = database.UUIDToString(row.ID)
+	freq.OccurrenceCount = int(row.OccurrenceCount)
 	return nil
 }
 
 // GetEventFrequencyByPattern retrieves an event frequency by its pattern
 func (r *SQLRepository) GetEventFrequencyByPattern(ctx context.Context, userID, title string, durationMinutes, timeOfDay, dayOfWeek int) (*models.EventFrequency, error) {
-	query := `
-		SELECT id, user_id, title, description, location, duration_minutes,
-			   time_of_day, day_of_week, occurrence_count, suggestion_threshold,
-			   suggestion_shown, habit_accepted, occurrence_timestamps, created_at, updated_at
-		FROM event_frequency
-		WHERE user_id = $1 AND title = $2 AND duration_minutes = $3
-		      AND time_of_day = $4 AND day_of_week = $5
-	`
+	params := db.GetEventFrequencyByPatternParams{
+		UserID:          database.StringToUUID(userID),
+		Title:           title,
+		DurationMinutes: database.IntToInt32(durationMinutes),
+		TimeOfDay:       database.IntToInt32(timeOfDay),
+		DayOfWeek:       pgtype.Int4{Int32: database.IntToInt32(dayOfWeek), Valid: true},
+	}
 
-	freq := &models.EventFrequency{}
-	var timestampsJSON []byte
-
-	err := r.db.QueryRowContext(ctx, query, userID, title, durationMinutes, timeOfDay, dayOfWeek).Scan(
-		&freq.ID,
-		&freq.UserID,
-		&freq.Title,
-		&freq.Description,
-		&freq.Location,
-		&freq.DurationMinutes,
-		&freq.TimeOfDay,
-		&freq.DayOfWeek,
-		&freq.OccurrenceCount,
-		&freq.SuggestionThreshold,
-		&freq.SuggestionShown,
-		&freq.HabitAccepted,
-		&timestampsJSON,
-		&freq.CreatedAt,
-		&freq.UpdatedAt,
-	)
-
+	row, err := r.queries.GetEventFrequencyByPattern(ctx, params)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get event frequency: %w", err)
 	}
 
-	if err := json.Unmarshal(timestampsJSON, &freq.OccurrenceTimestamps); err != nil {
+	freq := &models.EventFrequency{
+		ID:                  database.UUIDToString(row.ID),
+		UserID:              database.UUIDToString(row.UserID),
+		Title:               row.Title,
+		Description:         database.TextToString(row.Description),
+		Location:            database.TextToString(row.Location),
+		DurationMinutes:     int(row.DurationMinutes),
+		TimeOfDay:           int(row.TimeOfDay),
+		DayOfWeek:           0,
+		OccurrenceCount:     int(row.OccurrenceCount),
+		SuggestionThreshold: int(row.SuggestionThreshold),
+		SuggestionShown:     row.SuggestionShown,
+		HabitAccepted:       row.HabitAccepted,
+		CreatedAt:           database.TimestamptzToTime(row.CreatedAt),
+		UpdatedAt:           database.TimestamptzToTime(row.UpdatedAt),
+	}
+
+	if err := json.Unmarshal(row.OccurrenceTimestamps, &freq.OccurrenceTimestamps); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal occurrence timestamps: %w", err)
 	}
+
+	dayOfWeekValue := 0
+	if row.DayOfWeek.Valid {
+		dayOfWeekValue = int(row.DayOfWeek.Int32)
+	}
+	freq.DayOfWeek = dayOfWeekValue
 
 	return freq, nil
 }
 
 // GetEventFrequenciesAboveThreshold retrieves event frequencies that meet or exceed the suggestion threshold
 func (r *SQLRepository) GetEventFrequenciesAboveThreshold(ctx context.Context, userID string, threshold int) ([]*models.EventFrequency, error) {
-	query := `
-		SELECT id, user_id, title, description, location, duration_minutes,
-			   time_of_day, day_of_week, occurrence_count, suggestion_threshold,
-			   suggestion_shown, habit_accepted, occurrence_timestamps, created_at, updated_at
-		FROM event_frequency
-		WHERE user_id = $1 AND occurrence_count >= $2 AND suggestion_shown = FALSE AND habit_accepted = FALSE
-		ORDER BY occurrence_count DESC
-	`
+	params := db.GetEventFrequenciesAboveThresholdParams{
+		UserID:          database.StringToUUID(userID),
+		OccurrenceCount: database.IntToInt32(threshold),
+	}
 
-	rows, err := r.db.QueryContext(ctx, query, userID, threshold)
+	rows, err := r.queries.GetEventFrequenciesAboveThreshold(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get event frequencies: %w", err)
 	}
-	defer rows.Close()
 
-	var frequencies []*models.EventFrequency
-	for rows.Next() {
-		freq := &models.EventFrequency{}
-		var timestampsJSON []byte
-
-		err := rows.Scan(
-			&freq.ID,
-			&freq.UserID,
-			&freq.Title,
-			&freq.Description,
-			&freq.Location,
-			&freq.DurationMinutes,
-			&freq.TimeOfDay,
-			&freq.DayOfWeek,
-			&freq.OccurrenceCount,
-			&freq.SuggestionThreshold,
-			&freq.SuggestionShown,
-			&freq.HabitAccepted,
-			&timestampsJSON,
-			&freq.CreatedAt,
-			&freq.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan event frequency: %w", err)
+	frequencies := make([]*models.EventFrequency, 0, len(rows))
+	for _, row := range rows {
+		freq := &models.EventFrequency{
+			ID:                  database.UUIDToString(row.ID),
+			UserID:              database.UUIDToString(row.UserID),
+			Title:               row.Title,
+			Description:         database.TextToString(row.Description),
+			Location:            database.TextToString(row.Location),
+			DurationMinutes:     int(row.DurationMinutes),
+			TimeOfDay:           int(row.TimeOfDay),
+			DayOfWeek:           0,
+			OccurrenceCount:     int(row.OccurrenceCount),
+			SuggestionThreshold: int(row.SuggestionThreshold),
+			SuggestionShown:     row.SuggestionShown,
+			HabitAccepted:       row.HabitAccepted,
+			CreatedAt:           database.TimestamptzToTime(row.CreatedAt),
+			UpdatedAt:           database.TimestamptzToTime(row.UpdatedAt),
 		}
 
-		if err := json.Unmarshal(timestampsJSON, &freq.OccurrenceTimestamps); err != nil {
+		if err := json.Unmarshal(row.OccurrenceTimestamps, &freq.OccurrenceTimestamps); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal occurrence timestamps: %w", err)
 		}
 
-		frequencies = append(frequencies, freq)
-	}
+		dayOfWeekValue := 0
+		if row.DayOfWeek.Valid {
+			dayOfWeekValue = int(row.DayOfWeek.Int32)
+		}
+		freq.DayOfWeek = dayOfWeekValue
 
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating event frequencies: %w", err)
+		frequencies = append(frequencies, freq)
 	}
 
 	return frequencies, nil
@@ -201,21 +193,16 @@ func (r *SQLRepository) UpdateEventFrequency(ctx context.Context, freq *models.E
 		return fmt.Errorf("failed to marshal occurrence timestamps: %w", err)
 	}
 
-	query := `
-		UPDATE event_frequency
-		SET occurrence_count = $1, suggestion_shown = $2, habit_accepted = $3,
-			occurrence_timestamps = $4, updated_at = $5
-		WHERE id = $6
-	`
+	params := db.UpdateEventFrequencyParams{
+		OccurrenceCount:      database.IntToInt32(freq.OccurrenceCount),
+		SuggestionShown:      freq.SuggestionShown,
+		HabitAccepted:        freq.HabitAccepted,
+		OccurrenceTimestamps: timestampsJSON,
+		UpdatedAt:            database.TimeToTimestamptz(time.Now()),
+		ID:                   database.StringToUUID(freq.ID),
+	}
 
-	_, err = r.db.ExecContext(ctx, query,
-		freq.OccurrenceCount,
-		freq.SuggestionShown,
-		freq.HabitAccepted,
-		timestampsJSON,
-		time.Now(),
-		freq.ID,
-	)
+	err = r.queries.UpdateEventFrequency(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to update event frequency: %w", err)
 	}
@@ -226,29 +213,23 @@ func (r *SQLRepository) UpdateEventFrequency(ctx context.Context, freq *models.E
 
 // CreateHabitSuggestion inserts a new habit suggestion
 func (r *SQLRepository) CreateHabitSuggestion(ctx context.Context, suggestion *models.HabitSuggestion) error {
-	query := `
-		INSERT INTO habit_suggestions (
-			id, user_id, event_frequency_id, title, description, location,
-			duration_minutes, time_of_day, day_of_week, status, created_at, updated_at, expires_at
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-	`
+	params := db.CreateHabitSuggestionParams{
+		ID:               database.StringToUUID(suggestion.ID),
+		UserID:           database.StringToUUID(suggestion.UserID),
+		EventFrequencyID: database.StringToUUID(suggestion.EventFrequencyID),
+		Title:            suggestion.Title,
+		Description:      database.StringToText(suggestion.Description),
+		Location:         database.StringToText(suggestion.Location),
+		DurationMinutes:  database.IntToInt32(suggestion.DurationMinutes),
+		TimeOfDay:        database.IntToInt32(suggestion.TimeOfDay),
+		DayOfWeek:        database.IntToInt32(suggestion.DayOfWeek),
+		Status:           database.StringToText(suggestion.Status),
+		CreatedAt:        database.TimeToTimestamptz(suggestion.CreatedAt),
+		UpdatedAt:        database.TimeToTimestamptz(suggestion.UpdatedAt),
+		ExpiresAt:        database.TimeToTimestamptz(suggestion.ExpiresAt),
+	}
 
-	_, err := r.db.ExecContext(ctx, query,
-		suggestion.ID,
-		suggestion.UserID,
-		suggestion.EventFrequencyID,
-		suggestion.Title,
-		suggestion.Description,
-		suggestion.Location,
-		suggestion.DurationMinutes,
-		suggestion.TimeOfDay,
-		suggestion.DayOfWeek,
-		suggestion.Status,
-		suggestion.CreatedAt,
-		suggestion.UpdatedAt,
-		suggestion.ExpiresAt,
-	)
+	err := r.queries.CreateHabitSuggestion(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to create habit suggestion: %w", err)
 	}
@@ -257,55 +238,35 @@ func (r *SQLRepository) CreateHabitSuggestion(ctx context.Context, suggestion *m
 
 // GetPendingHabitSuggestions retrieves all pending habit suggestions for a user
 func (r *SQLRepository) GetPendingHabitSuggestions(ctx context.Context, userID string) ([]*models.HabitSuggestion, error) {
-	query := `
-		SELECT id, user_id, event_frequency_id, title, description, location,
-			   duration_minutes, time_of_day, day_of_week, status,
-			   recurrence_end_date, created_at, updated_at, expires_at
-		FROM habit_suggestions
-		WHERE user_id = $1 AND status = 'pending' AND expires_at > NOW()
-		ORDER BY created_at DESC
-	`
-
-	rows, err := r.db.QueryContext(ctx, query, userID)
+	rows, err := r.queries.GetPendingHabitSuggestions(ctx, database.StringToUUID(userID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pending habit suggestions: %w", err)
 	}
-	defer rows.Close()
 
-	var suggestions []*models.HabitSuggestion
-	for rows.Next() {
-		suggestion := &models.HabitSuggestion{}
-		var recurrenceEndDate sql.NullTime
-
-		err := rows.Scan(
-			&suggestion.ID,
-			&suggestion.UserID,
-			&suggestion.EventFrequencyID,
-			&suggestion.Title,
-			&suggestion.Description,
-			&suggestion.Location,
-			&suggestion.DurationMinutes,
-			&suggestion.TimeOfDay,
-			&suggestion.DayOfWeek,
-			&suggestion.Status,
-			&recurrenceEndDate,
-			&suggestion.CreatedAt,
-			&suggestion.UpdatedAt,
-			&suggestion.ExpiresAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan habit suggestion: %w", err)
+	suggestions := make([]*models.HabitSuggestion, 0, len(rows))
+	for _, row := range rows {
+		suggestion := &models.HabitSuggestion{
+			ID:               database.UUIDToString(row.ID),
+			UserID:           database.UUIDToString(row.UserID),
+			EventFrequencyID: database.UUIDToString(row.EventFrequencyID),
+			Title:            row.Title,
+			Description:      database.TextToString(row.Description),
+			Location:         database.TextToString(row.Location),
+			DurationMinutes:  int(row.DurationMinutes),
+			TimeOfDay:        int(row.TimeOfDay),
+			DayOfWeek:        int(row.DayOfWeek),
+			Status:           database.TextToString(row.Status),
+			CreatedAt:        database.TimestamptzToTime(row.CreatedAt),
+			UpdatedAt:        database.TimestamptzToTime(row.UpdatedAt),
+			ExpiresAt:        database.TimestamptzToTime(row.ExpiresAt),
 		}
 
-		if recurrenceEndDate.Valid {
-			suggestion.RecurrenceEndDate = &recurrenceEndDate.Time
+		if row.RecurrenceEndDate.Valid {
+			endTime := database.TimestamptzToTime(row.RecurrenceEndDate)
+			suggestion.RecurrenceEndDate = &endTime
 		}
 
 		suggestions = append(suggestions, suggestion)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating habit suggestions: %w", err)
 	}
 
 	return suggestions, nil
@@ -313,43 +274,33 @@ func (r *SQLRepository) GetPendingHabitSuggestions(ctx context.Context, userID s
 
 // GetHabitSuggestionByID retrieves a habit suggestion by ID
 func (r *SQLRepository) GetHabitSuggestionByID(ctx context.Context, id string) (*models.HabitSuggestion, error) {
-	query := `
-		SELECT id, user_id, event_frequency_id, title, description, location,
-			   duration_minutes, time_of_day, day_of_week, status,
-			   recurrence_end_date, created_at, updated_at, expires_at
-		FROM habit_suggestions
-		WHERE id = $1
-	`
-
-	suggestion := &models.HabitSuggestion{}
-	var recurrenceEndDate sql.NullTime
-
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&suggestion.ID,
-		&suggestion.UserID,
-		&suggestion.EventFrequencyID,
-		&suggestion.Title,
-		&suggestion.Description,
-		&suggestion.Location,
-		&suggestion.DurationMinutes,
-		&suggestion.TimeOfDay,
-		&suggestion.DayOfWeek,
-		&suggestion.Status,
-		&recurrenceEndDate,
-		&suggestion.CreatedAt,
-		&suggestion.UpdatedAt,
-		&suggestion.ExpiresAt,
-	)
-
+	row, err := r.queries.GetHabitSuggestionByID(ctx, database.StringToUUID(id))
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("habit suggestion not found")
 		}
 		return nil, fmt.Errorf("failed to get habit suggestion: %w", err)
 	}
 
-	if recurrenceEndDate.Valid {
-		suggestion.RecurrenceEndDate = &recurrenceEndDate.Time
+	suggestion := &models.HabitSuggestion{
+		ID:               database.UUIDToString(row.ID),
+		UserID:           database.UUIDToString(row.UserID),
+		EventFrequencyID: database.UUIDToString(row.EventFrequencyID),
+		Title:            row.Title,
+		Description:      database.TextToString(row.Description),
+		Location:         database.TextToString(row.Location),
+		DurationMinutes:  int(row.DurationMinutes),
+		TimeOfDay:        int(row.TimeOfDay),
+		DayOfWeek:        int(row.DayOfWeek),
+		Status:           database.TextToString(row.Status),
+		CreatedAt:        database.TimestamptzToTime(row.CreatedAt),
+		UpdatedAt:        database.TimestamptzToTime(row.UpdatedAt),
+		ExpiresAt:        database.TimestamptzToTime(row.ExpiresAt),
+	}
+
+	if row.RecurrenceEndDate.Valid {
+		endTime := database.TimestamptzToTime(row.RecurrenceEndDate)
+		suggestion.RecurrenceEndDate = &endTime
 	}
 
 	return suggestion, nil
@@ -357,13 +308,21 @@ func (r *SQLRepository) GetHabitSuggestionByID(ctx context.Context, id string) (
 
 // UpdateHabitSuggestionStatus updates the status of a habit suggestion
 func (r *SQLRepository) UpdateHabitSuggestionStatus(ctx context.Context, id, status string, recurrenceEndDate *time.Time) error {
-	query := `
-		UPDATE habit_suggestions
-		SET status = $1, recurrence_end_date = $2, updated_at = $3
-		WHERE id = $4
-	`
+	var recurrenceParam pgtype.Timestamptz
+	if recurrenceEndDate != nil {
+		recurrenceParam = database.TimeToTimestamptz(*recurrenceEndDate)
+	} else {
+		recurrenceParam = pgtype.Timestamptz{Valid: false}
+	}
 
-	_, err := r.db.ExecContext(ctx, query, status, recurrenceEndDate, time.Now(), id)
+	params := db.UpdateHabitSuggestionStatusParams{
+		Status:            database.StringToText(status),
+		RecurrenceEndDate: recurrenceParam,
+		UpdatedAt:         database.TimeToTimestamptz(time.Now()),
+		ID:                database.StringToUUID(id),
+	}
+
+	err := r.queries.UpdateHabitSuggestionStatus(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to update habit suggestion status: %w", err)
 	}
@@ -372,33 +331,27 @@ func (r *SQLRepository) UpdateHabitSuggestionStatus(ctx context.Context, id, sta
 
 // ===== Recurring Event Repository Implementation =====
 
-// CreateRecurringEvent inserts a new recurring event
-func (r *SQLRepository) CreateRecurringEvent(ctx context.Context, recurring *models.RecurringEvent) error {
-	query := `
-		INSERT INTO recurring_events (
-			id, user_id, habit_suggestion_id, title, description, location,
-			duration_minutes, time_of_day, day_of_week, start_date, end_date,
-			is_active, created_at, updated_at
-		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-	`
+// CreateRecurringEvent creates a recurring event (stored as an Event with IsRecurring flag)
+func (r *SQLRepository) CreateRecurringEvent(ctx context.Context, event *models.Event) error {
+	// Ensure IsRecurring is set
+	event.IsRecurring = true
 
-	_, err := r.db.ExecContext(ctx, query,
-		recurring.ID,
-		recurring.UserID,
-		recurring.HabitSuggestionID,
-		recurring.Title,
-		recurring.Description,
-		recurring.Location,
-		recurring.DurationMinutes,
-		recurring.TimeOfDay,
-		recurring.DayOfWeek,
-		recurring.StartDate,
-		recurring.EndDate,
-		recurring.IsActive,
-		recurring.CreatedAt,
-		recurring.UpdatedAt,
-	)
+	params := db.CreateRecurringEventParams{
+		ID:                  database.StringToUUID(event.ID),
+		UserID:              database.StringToUUID(event.UserID),
+		Title:               event.Title,
+		Description:         database.StringToText(event.Description),
+		Location:            database.StringToText(event.Location),
+		StartTime:           database.TimeToTimestamptz(event.StartTime),
+		EndTime:             database.TimeToTimestamptz(event.EndTime),
+		IsRecurring:         pgtype.Bool{Bool: event.IsRecurring, Valid: true},
+		RecurrenceRule:      database.StringToText(event.RecurrenceRule),
+		RecurrenceException: database.StringToText(event.RecurrenceException),
+		CreatedAt:           database.TimeToTimestamptz(event.CreatedAt),
+		UpdatedAt:           database.TimeToTimestamptz(event.UpdatedAt),
+	}
+
+	err := r.queries.CreateRecurringEvent(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to create recurring event: %w", err)
 	}
@@ -406,117 +359,45 @@ func (r *SQLRepository) CreateRecurringEvent(ctx context.Context, recurring *mod
 }
 
 // GetActiveRecurringEvents retrieves all active recurring events for a user
-func (r *SQLRepository) GetActiveRecurringEvents(ctx context.Context, userID string) ([]*models.RecurringEvent, error) {
-	query := `
-		SELECT id, user_id, habit_suggestion_id, title, description, location,
-			   duration_minutes, time_of_day, day_of_week, start_date, end_date,
-			   is_active, created_at, updated_at
-		FROM recurring_events
-		WHERE user_id = $1 AND is_active = TRUE AND end_date > NOW()
-		ORDER BY created_at DESC
-	`
-
-	rows, err := r.db.QueryContext(ctx, query, userID)
+func (r *SQLRepository) GetActiveRecurringEvents(ctx context.Context, userID string) ([]*models.Event, error) {
+	rows, err := r.queries.GetActiveRecurringEvents(ctx, database.StringToUUID(userID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active recurring events: %w", err)
 	}
-	defer rows.Close()
 
-	var events []*models.RecurringEvent
-	for rows.Next() {
-		event := &models.RecurringEvent{}
-		var habitSuggestionID sql.NullString
-
-		err := rows.Scan(
-			&event.ID,
-			&event.UserID,
-			&habitSuggestionID,
-			&event.Title,
-			&event.Description,
-			&event.Location,
-			&event.DurationMinutes,
-			&event.TimeOfDay,
-			&event.DayOfWeek,
-			&event.StartDate,
-			&event.EndDate,
-			&event.IsActive,
-			&event.CreatedAt,
-			&event.UpdatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan recurring event: %w", err)
-		}
-
-		if habitSuggestionID.Valid {
-			event.HabitSuggestionID = &habitSuggestionID.String
+	events := make([]*models.Event, 0, len(rows))
+	for _, row := range rows {
+		event := &models.Event{
+			ID:                  database.UUIDToString(row.ID),
+			UserID:              database.UUIDToString(row.UserID),
+			Title:               row.Title,
+			Description:         database.TextToString(row.Description),
+			Location:            database.TextToString(row.Location),
+			StartTime:           database.TimestamptzToTime(row.StartTime),
+			EndTime:             database.TimestamptzToTime(row.EndTime),
+			IsRecurring:         row.IsRecurring.Bool,
+			RecurrenceRule:      database.TextToString(row.RecurrenceRule),
+			RecurrenceException: database.TextToString(row.RecurrenceException),
+			CreatedAt:           database.TimestamptzToTime(row.CreatedAt),
+			UpdatedAt:           database.TimestamptzToTime(row.UpdatedAt),
 		}
 
 		events = append(events, event)
 	}
 
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating recurring events: %w", err)
-	}
-
 	return events, nil
 }
 
-// GetRecurringEventByID retrieves a recurring event by ID
-func (r *SQLRepository) GetRecurringEventByID(ctx context.Context, id string) (*models.RecurringEvent, error) {
-	query := `
-		SELECT id, user_id, habit_suggestion_id, title, description, location,
-			   duration_minutes, time_of_day, day_of_week, start_date, end_date,
-			   is_active, created_at, updated_at
-		FROM recurring_events
-		WHERE id = $1
-	`
-
-	event := &models.RecurringEvent{}
-	var habitSuggestionID sql.NullString
-
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&event.ID,
-		&event.UserID,
-		&habitSuggestionID,
-		&event.Title,
-		&event.Description,
-		&event.Location,
-		&event.DurationMinutes,
-		&event.TimeOfDay,
-		&event.DayOfWeek,
-		&event.StartDate,
-		&event.EndDate,
-		&event.IsActive,
-		&event.CreatedAt,
-		&event.UpdatedAt,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("recurring event not found")
-		}
-		return nil, fmt.Errorf("failed to get recurring event: %w", err)
+// DeactivateRecurringEvent deactivates a recurring event by setting is_recurring to FALSE
+func (r *SQLRepository) DeactivateRecurringEvent(ctx context.Context, eventID string) error {
+	params := db.DeactivateRecurringEventParams{
+		UpdatedAt: database.TimeToTimestamptz(time.Now()),
+		ID:        database.StringToUUID(eventID),
 	}
 
-	if habitSuggestionID.Valid {
-		event.HabitSuggestionID = &habitSuggestionID.String
-	}
-
-	return event, nil
-}
-
-// DeactivateRecurringEvent deactivates a recurring event
-func (r *SQLRepository) DeactivateRecurringEvent(ctx context.Context, id string) error {
-	query := `
-		UPDATE recurring_events
-		SET is_active = FALSE, updated_at = $1
-		WHERE id = $2
-	`
-
-	_, err := r.db.ExecContext(ctx, query, time.Now(), id)
+	err := r.queries.DeactivateRecurringEvent(ctx, params)
 	if err != nil {
 		return fmt.Errorf("failed to deactivate recurring event: %w", err)
 	}
 	return nil
 }
-

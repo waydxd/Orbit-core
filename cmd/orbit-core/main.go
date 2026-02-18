@@ -69,8 +69,6 @@ func main() {
 		return
 	}
 
-
-
 	// Initialize habit service for tracking recurring event patterns
 	habitService := habit.NewService(cfg, log, habitRepo)
 	log.Info("Habit tracking service initialized successfully")

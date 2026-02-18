@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,7 +21,7 @@ const (
 	// DefaultRecurrenceYears is the number of years to create recurring events for
 	DefaultRecurrenceYears = 5
 	// TimeToleranceMinutes is the tolerance for matching event times (within 30 minutes)
-	TimeToleranceMinutes = 30
+	// TimeToleranceMinutes = 30
 )
 
 // Service represents the Habit Tracking Service
@@ -180,8 +181,8 @@ func (s *Service) GetPendingSuggestions(ctx context.Context, userID string) ([]*
 	return s.repo.GetPendingHabitSuggestions(ctx, userID)
 }
 
-// AcceptSuggestion accepts a habit suggestion and creates recurring events for 5 years
-func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string) (*models.RecurringEvent, error) {
+// AcceptSuggestion accepts a habit suggestion and creates a recurring event
+func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string) (*models.Event, error) {
 	suggestion, err := s.repo.GetHabitSuggestionByID(ctx, suggestionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get suggestion: %w", err)
@@ -194,25 +195,42 @@ func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string) (*m
 	now := time.Now()
 	endDate := now.AddDate(DefaultRecurrenceYears, 0, 0) // 5 years from now
 
-	// Create recurring event
-	recurring := &models.RecurringEvent{
-		ID:                uuid.New().String(),
-		UserID:            suggestion.UserID,
-		HabitSuggestionID: &suggestion.ID,
-		Title:             suggestion.Title,
-		Description:       suggestion.Description,
-		Location:          suggestion.Location,
-		DurationMinutes:   suggestion.DurationMinutes,
-		TimeOfDay:         suggestion.TimeOfDay,
-		DayOfWeek:         suggestion.DayOfWeek,
-		StartDate:         now,
-		EndDate:           endDate,
-		IsActive:          true,
-		CreatedAt:         now,
-		UpdatedAt:         now,
+	// Build RRULE for weekly recurrence on the specified day of week
+	dayMap := []string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
+	byday := dayMap[suggestion.DayOfWeek]
+	rrule := fmt.Sprintf("FREQ=WEEKLY;BYDAY=%s;UNTIL=%s", byday, endDate.Format("20060102"))
+
+	// Calculate start and end times for the first occurrence
+	// Find the next occurrence of the target day of week
+	daysUntilTarget := (suggestion.DayOfWeek - int(now.Weekday()) + 7) % 7
+	if daysUntilTarget == 0 && now.Hour()*60+now.Minute() > suggestion.TimeOfDay {
+		daysUntilTarget = 7 // If today and time has passed, start next week
 	}
 
-	if err := s.repo.CreateRecurringEvent(ctx, recurring); err != nil {
+	firstOccurrence := now.AddDate(0, 0, daysUntilTarget)
+	eventStart := time.Date(
+		firstOccurrence.Year(), firstOccurrence.Month(), firstOccurrence.Day(),
+		suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0,
+		firstOccurrence.Location(),
+	)
+	eventEnd := eventStart.Add(time.Duration(suggestion.DurationMinutes) * time.Minute)
+
+	// Create recurring event as an Event record
+	event := &models.Event{
+		ID:             uuid.New().String(),
+		UserID:         suggestion.UserID,
+		Title:          suggestion.Title,
+		Description:    suggestion.Description,
+		Location:       suggestion.Location,
+		StartTime:      eventStart,
+		EndTime:        eventEnd,
+		IsRecurring:    true,
+		RecurrenceRule: rrule,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	if err := s.repo.CreateRecurringEvent(ctx, event); err != nil {
 		return nil, fmt.Errorf("failed to create recurring event: %w", err)
 	}
 
@@ -235,10 +253,10 @@ func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string) (*m
 
 	s.logger.Info("Accepted habit suggestion and created recurring event",
 		"suggestion_id", suggestionID,
-		"recurring_id", recurring.ID,
+		"event_id", event.ID,
 		"end_date", endDate)
 
-	return recurring, nil
+	return event, nil
 }
 
 // RejectSuggestion rejects a habit suggestion
@@ -279,41 +297,63 @@ func (s *Service) GetRecurringEventsForTimeRange(ctx context.Context, userID str
 	return events, nil
 }
 
-// generateEventsFromRecurring generates individual events from a recurring event template
-func (s *Service) generateEventsFromRecurring(recurring *models.RecurringEvent, startTime, endTime time.Time) []*models.Event {
+// generateEventsFromRecurring generates individual events from a recurring event using its RecurrenceRule
+func (s *Service) generateEventsFromRecurring(event *models.Event, startTime, endTime time.Time) []*models.Event {
 	var events []*models.Event
+
+	if !event.IsRecurring || event.RecurrenceRule == "" {
+		return events
+	}
+
+	// Parse RRULE to extract day of week and until date
+	// Expected format: FREQ=WEEKLY;BYDAY=MO;UNTIL=20290101
+	dayOfWeek, until, err := parseRRuleForWeekly(event.RecurrenceRule)
+	if err != nil {
+		s.logger.Warn("Failed to parse RRULE, skipping recurring event generation",
+			"event_id", event.ID, "rrule", event.RecurrenceRule, "error", err)
+		return events
+	}
+
+	// Calculate duration
+	durationMinutes := int(event.EndTime.Sub(event.StartTime).Minutes())
 
 	// Start from the beginning of the week containing startTime
 	current := startTime.Truncate(24 * time.Hour)
 
 	// Find the first day matching the day_of_week
-	for int(current.Weekday()) != recurring.DayOfWeek {
+	for int(current.Weekday()) != dayOfWeek {
 		current = current.Add(24 * time.Hour)
 	}
 
-	// Generate events weekly until endTime
-	for current.Before(endTime) && current.Before(recurring.EndDate) {
-		if current.After(recurring.StartDate) || current.Equal(recurring.StartDate) {
-			// Calculate event start time for this occurrence
+	// Generate events weekly until endTime or until date
+	for current.Before(endTime) && current.Before(until) {
+		if current.After(event.StartTime) || current.Equal(event.StartTime) {
+			// Calculate event start time for this occurrence using the time from original event
 			eventStart := time.Date(
 				current.Year(), current.Month(), current.Day(),
-				recurring.TimeOfDay/60, recurring.TimeOfDay%60, 0, 0,
+				event.StartTime.Hour(), event.StartTime.Minute(), 0, 0,
 				current.Location(),
 			)
-			eventEnd := eventStart.Add(time.Duration(recurring.DurationMinutes) * time.Minute)
+			eventEnd := eventStart.Add(time.Duration(durationMinutes) * time.Minute)
 
 			// Only include if within the requested range
-			if eventStart.After(startTime) || eventStart.Equal(startTime) {
-				event := &models.Event{
-					ID:          fmt.Sprintf("recurring-%s-%s", recurring.ID, eventStart.Format("2006-01-02")),
-					UserID:      recurring.UserID,
-					Title:       recurring.Title,
-					Description: recurring.Description,
-					StartTime:   eventStart,
-					EndTime:     eventEnd,
-					Location:    recurring.Location,
+			if eventStart.Before(endTime) && eventEnd.After(startTime) {
+				// Create a generated event instance
+				generatedEvent := &models.Event{
+					ID:                  fmt.Sprintf("recurring-%s-%s", event.ID, eventStart.Format("2006-01-02")),
+					UserID:              event.UserID,
+					Title:               event.Title,
+					Description:         event.Description,
+					StartTime:           eventStart,
+					EndTime:             eventEnd,
+					Location:            event.Location,
+					IsRecurring:         false, // Individual instances are not recurring
+					RecurrenceRule:      "",
+					RecurrenceException: "",
+					CreatedAt:           event.CreatedAt,
+					UpdatedAt:           event.UpdatedAt,
 				}
-				events = append(events, event)
+				events = append(events, generatedEvent)
 			}
 		}
 
@@ -324,16 +364,50 @@ func (s *Service) generateEventsFromRecurring(recurring *models.RecurringEvent, 
 	return events
 }
 
+// parseRRuleForWeekly extracts day of week and until date from a simple RRULE
+// Expected format: FREQ=WEEKLY;BYDAY=MO;UNTIL=20290101
+func parseRRuleForWeekly(rrule string) (int, time.Time, error) {
+	dayMap := map[string]int{"SU": 0, "MO": 1, "TU": 2, "WE": 3, "TH": 4, "FR": 5, "SA": 6}
+
+	// Extract BYDAY
+	var dayOfWeek int
+	var until time.Time
+	parts := strings.Split(rrule, ";")
+	for _, part := range parts {
+		if strings.HasPrefix(part, "BYDAY=") {
+			dayStr := strings.TrimPrefix(part, "BYDAY=")
+			if d, ok := dayMap[dayStr]; ok {
+				dayOfWeek = d
+			}
+		} else if strings.HasPrefix(part, "UNTIL=") {
+			untilStr := strings.TrimPrefix(part, "UNTIL=")
+			// Parse YYYYMMDD format
+			if t, err := time.Parse("20060102", untilStr); err == nil {
+				until = t.AddDate(0, 0, 1) // Add one day to make it inclusive
+			}
+		}
+	}
+
+	if until.IsZero() {
+		until = time.Now().AddDate(DefaultRecurrenceYears, 0, 0)
+	}
+
+	return dayOfWeek, until, nil
+}
+
 // ===== HTTP Handlers =====
 
 // handleGetSuggestions returns pending habit suggestions for a user
 func (s *Service) handleGetSuggestions(w http.ResponseWriter, r *http.Request) {
+
 	w.Header().Set("Content-Type", "application/json")
 
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
+			s.logger.Error("Failed to encode JSON response", "error", err)
+		}
 		return
 	}
 
@@ -344,7 +418,9 @@ func (s *Service) handleGetSuggestions(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("Failed to get habit suggestions", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get suggestions"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to get suggestions"}); err != nil {
+			s.logger.Error("Failed to encode JSON response", "error", err)
+		}
 		return
 	}
 
@@ -367,7 +443,9 @@ func (s *Service) handleGetSuggestions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode JSON response", "error", err)
+	}
 }
 
 // handleAcceptSuggestion accepts a habit suggestion
@@ -379,20 +457,24 @@ func (s *Service) handleAcceptSuggestion(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	recurring, err := s.AcceptSuggestion(ctx, suggestionID)
+	event, err := s.AcceptSuggestion(ctx, suggestionID)
 	if err != nil {
 		s.logger.Error("Failed to accept habit suggestion", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}); err != nil {
+			s.logger.Error("Failed to encode JSON response", "error", err)
+		}
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":          true,
-		"message":          fmt.Sprintf("Habit accepted! '%s' will be scheduled every %s at %s until %s", recurring.Title, formatDayOfWeek(recurring.DayOfWeek), formatTimeOfDay(recurring.TimeOfDay), recurring.EndDate.Format("January 2, 2006")),
-		"recurring_event":  recurring,
-	})
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":         true,
+		"message":         fmt.Sprintf("Habit accepted! '%s' will be scheduled weekly until %s", event.Title, event.EndTime.AddDate(5, 0, 0).Format("January 2, 2006")),
+		"recurring_event": event,
+	}); err != nil {
+		s.logger.Error("Failed to encode JSON response", "error", err)
+	}
 }
 
 // handleRejectSuggestion rejects a habit suggestion
@@ -407,15 +489,19 @@ func (s *Service) handleRejectSuggestion(w http.ResponseWriter, r *http.Request)
 	if err := s.RejectSuggestion(ctx, suggestionID); err != nil {
 		s.logger.Error("Failed to reject habit suggestion", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}); err != nil {
+			s.logger.Error("Failed to encode JSON response", "error", err)
+		}
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Habit suggestion rejected",
-	})
+	}); err != nil {
+		s.logger.Error("Failed to encode JSON response", "error", err)
+	}
 }
 
 // handleGetRecurringEvents returns active recurring events for a user
@@ -425,7 +511,9 @@ func (s *Service) handleGetRecurringEvents(w http.ResponseWriter, r *http.Reques
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
+			s.logger.Error("Failed to encode JSON response", "error", err)
+		}
 		return
 	}
 
@@ -436,30 +524,34 @@ func (s *Service) handleGetRecurringEvents(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		s.logger.Error("Failed to get recurring events", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get recurring events"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to get recurring events"}); err != nil {
+			s.logger.Error("Failed to encode JSON response", "error", err)
+		}
 		return
 	}
 
 	// Convert to response format
 	response := make([]map[string]interface{}, len(recurring))
-	for i, r := range recurring {
+	for i, evt := range recurring {
+		durationMinutes := int(evt.EndTime.Sub(evt.StartTime).Minutes())
 		response[i] = map[string]interface{}{
-			"id":               r.ID,
-			"user_id":          r.UserID,
-			"title":            r.Title,
-			"description":      r.Description,
-			"location":         r.Location,
-			"duration_minutes": r.DurationMinutes,
-			"time_of_day":      formatTimeOfDay(r.TimeOfDay),
-			"day_of_week":      formatDayOfWeek(r.DayOfWeek),
-			"start_date":       r.StartDate,
-			"end_date":         r.EndDate,
-			"is_active":        r.IsActive,
-			"created_at":       r.CreatedAt,
+			"id":               evt.ID,
+			"user_id":          evt.UserID,
+			"title":            evt.Title,
+			"description":      evt.Description,
+			"location":         evt.Location,
+			"start_time":       evt.StartTime,
+			"end_time":         evt.EndTime,
+			"duration_minutes": durationMinutes,
+			"is_recurring":     evt.IsRecurring,
+			"recurrence_rule":  evt.RecurrenceRule,
+			"created_at":       evt.CreatedAt,
 		}
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode JSON response", "error", err)
+	}
 }
 
 // handleDeactivateRecurringEvent deactivates a recurring event
@@ -474,15 +566,19 @@ func (s *Service) handleDeactivateRecurringEvent(w http.ResponseWriter, r *http.
 	if err := s.repo.DeactivateRecurringEvent(ctx, recurringID); err != nil {
 		s.logger.Error("Failed to deactivate recurring event", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": err.Error()}); err != nil {
+			s.logger.Error("Failed to encode JSON response", "error", err)
+		}
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Recurring event deactivated",
-	})
+	}); err != nil {
+		s.logger.Error("Failed to encode JSON response", "error", err)
+	}
 }
 
 // handleGetFrequencies returns event frequencies for debugging/admin
@@ -492,7 +588,9 @@ func (s *Service) handleGetFrequencies(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user_id")
 	if userID == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "user_id required"}); err != nil {
+			s.logger.Error("Failed to encode JSON response", "error", err)
+		}
 		return
 	}
 
@@ -504,7 +602,9 @@ func (s *Service) handleGetFrequencies(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("Failed to get event frequencies", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to get frequencies"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to get frequencies"}); err != nil {
+			s.logger.Error("Failed to encode JSON response", "error", err)
+		}
 		return
 	}
 
@@ -528,7 +628,9 @@ func (s *Service) handleGetFrequencies(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.logger.Error("Failed to encode JSON response", "error", err)
+	}
 }
 
 // Helper functions
@@ -558,4 +660,3 @@ func formatDayOfWeek(day int) string {
 	}
 	return "Unknown"
 }
-
