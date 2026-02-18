@@ -21,7 +21,7 @@ const (
 	// DefaultRecurrenceYears is the number of years to create recurring events for
 	DefaultRecurrenceYears = 5
 	// TimeToleranceMinutes is the tolerance for matching event times (within 30 minutes)
-	// TimeToleranceMinutes = 30
+	// TimeToleranceMinutes = 30 UNUSED
 )
 
 // Service represents the Habit Tracking Service
