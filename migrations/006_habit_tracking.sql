@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS event_frequency (
     -- Time of day when event typically occurs (stored as minutes from midnight)
     time_of_day INTEGER NOT NULL,
     -- Day of week (0-6, Sunday = 0) for weekly patterns
-    day_of_week INTEGER CHECK (day_of_week >= 0 AND day_of_week <= 6),
+    day_of_week INTEGER NOT NULL CHECK (day_of_week >= 0 AND day_of_week <= 6),
     -- Count of how many times this pattern has occurred
     occurrence_count INTEGER NOT NULL DEFAULT 1,
     -- Threshold to trigger suggestion (default 3)
