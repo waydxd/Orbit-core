@@ -30,10 +30,6 @@ type Service struct {
 // HabitTracker interface for tracking event patterns
 type HabitTracker interface {
 	TrackEventCreation(ctx context.Context, event *models.Event) error
-	GetRecurringEventsForTimeRange(ctx context.Context, userID string, startTime, endTime time.Time) ([]*models.Event, error)
-	GetActiveRecurringEvents(ctx context.Context, userID string) ([]*models.Event, error)
-	DeactivateRecurringEvent(ctx context.Context, eventID string) error
-	GetEventFrequencies(ctx context.Context, userID string, threshold int) ([]*models.EventFrequency, error)
 }
 
 // NewService creates a new Calendar Service
@@ -389,7 +385,7 @@ func (s *Service) listRecurringEvents(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	recurring, err := s.habitTracker.GetActiveRecurringEvents(ctx, userID)
+	recurring, err := s.eventRepo.GetActiveRecurringEvents(ctx, userID)
 	if err != nil {
 		s.logger.Error("Failed to get recurring events", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -435,7 +431,7 @@ func (s *Service) deactivateRecurringEvent(w http.ResponseWriter, r *http.Reques
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	if err := s.habitTracker.DeactivateRecurringEvent(ctx, recurringID); err != nil {
+	if err := s.eventRepo.DeactivateRecurringEvent(ctx, recurringID); err != nil {
 		s.logger.Error("Failed to deactivate recurring event", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})

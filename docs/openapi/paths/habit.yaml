@@ -1,0 +1,134 @@
+paths:
+  /api/v1/habit/suggestions:
+    get:
+      summary: List pending habit suggestions
+      tags:
+        - Habit
+      security:
+        - BearerAuth: []
+      description: Returns all pending habit suggestions for the authenticated user. UserID is deduced from the bearer token.
+      responses:
+        '200':
+          description: List of pending habit suggestions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HabitSuggestion'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/habit/suggestions/{id}/accept:
+    post:
+      summary: Accept a habit suggestion
+      tags:
+        - Habit
+      security:
+        - BearerAuth: []
+      description: Accepts a pending habit suggestion and creates a recurring event for the authenticated user. The suggestion must belong to the authenticated user.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Habit suggestion ID
+          example: suggestion-uuid-123
+      responses:
+        '200':
+          description: Habit suggestion accepted and recurring event created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptSuggestionResponse'
+        '400':
+          description: Bad request (e.g. suggestion is not pending)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden — suggestion belongs to another user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Suggestion not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/habit/suggestions/{id}/reject:
+    post:
+      summary: Reject a habit suggestion
+      tags:
+        - Habit
+      security:
+        - BearerAuth: []
+      description: Rejects a pending habit suggestion for the authenticated user. The suggestion must belong to the authenticated user.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Habit suggestion ID
+          example: suggestion-uuid-123
+      responses:
+        '200':
+          description: Habit suggestion rejected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Habit suggestion rejected
+        '400':
+          description: Bad request (e.g. suggestion is not pending)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden — suggestion belongs to another user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Suggestion not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
