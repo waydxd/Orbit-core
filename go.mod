@@ -11,7 +11,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/resend/resend-go/v3 v3.0.0
-	go.mongodb.org/mongo-driver v1.17.6
+	go.mongodb.org/mongo-driver v1.17.9
 	golang.org/x/crypto v0.46.0
 	golang.org/x/oauth2 v0.34.0
 	google.golang.org/api v0.259.0
