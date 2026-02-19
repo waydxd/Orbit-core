@@ -35,7 +35,7 @@ func TestLoad(t *testing.T) {
 	}
 
 	if cfg.Auth.JWTKey != "test-secret" {
-		t.Errorf("Expected JWT secret 'test-secret', got %s", cfg.Auth.JWTKey)
+		t.Errorf("Expected JWT key 'test-secret', got %s", cfg.Auth.JWTKey)
 	}
 
 	// Clean up
