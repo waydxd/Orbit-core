@@ -138,3 +138,42 @@ components:
           type: string
           example: user-123
 
+    RecurringEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          example: event-uuid-456
+        user_id:
+          type: string
+          example: user-uuid-789
+        title:
+          type: string
+          example: Morning Run
+        description:
+          type: string
+          example: Daily jog in the park
+        location:
+          type: string
+          example: Central Park
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        is_recurring:
+          type: boolean
+          example: true
+        recurrence_rule:
+          type: string
+          example: FREQ=WEEKLY;BYDAY=MO;UNTIL=20310102
+        recurrence_exception:
+          type: string
+          example: 20240120T100000Z
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

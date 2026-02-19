@@ -245,3 +245,24 @@ components:
           type: integer
         total_messages:
           type: integer
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Operation completed successfully
+
+    AcceptSuggestionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Habit accepted! 'Morning Run' will be scheduled weekly until January 2, 2031"
+        recurring_event:
+          $ref: '#/components/schemas/RecurringEvent'
