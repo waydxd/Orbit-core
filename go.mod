@@ -13,7 +13,7 @@ require (
 	github.com/resend/resend-go/v3 v3.0.0
 	go.mongodb.org/mongo-driver v1.17.6
 	golang.org/x/crypto v0.46.0
-	golang.org/x/oauth2 v0.34.0
+	golang.org/x/oauth2 v0.35.0
 	google.golang.org/api v0.259.0
 	google.golang.org/grpc v1.78.0
 	google.golang.org/protobuf v1.36.11
