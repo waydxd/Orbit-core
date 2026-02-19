@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS habit_suggestions (
     location VARCHAR(255),
     duration_minutes INTEGER NOT NULL,
     time_of_day INTEGER NOT NULL,
-    day_of_week INTEGER NOT NULL,
+    day_of_week INTEGER NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
     -- Status: pending, accepted, rejected, expired
     status VARCHAR(20) CHECK (status IN ('pending', 'accepted', 'rejected', 'expired')) DEFAULT 'pending',
     -- When accepted, store the end date for recurring events (5 years from acceptance)
