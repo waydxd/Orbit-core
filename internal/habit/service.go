@@ -190,8 +190,12 @@ func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string) (*m
 
 	// Build RRULE for weekly recurrence on the specified day of week
 	dayMap := []string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
+	endDateUTC := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 23, 59, 59, 0, time.UTC)
+
+	// Build RRULE for weekly recurrence on the specified day of week
+	dayMap := []string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
 	byday := dayMap[suggestion.DayOfWeek]
-	rrule := fmt.Sprintf("FREQ=WEEKLY;BYDAY=%s;UNTIL=%s", byday, endDate.Format("20060102"))
+	rrule := fmt.Sprintf("FREQ=WEEKLY;BYDAY=%s;UNTIL=%s", byday, endDateUTC.Format("20060102T150405Z"))
 
 	// Calculate start and end times for the first occurrence
 	daysUntilTarget := (suggestion.DayOfWeek - int(now.Weekday()) + 7) % 7
@@ -370,7 +374,7 @@ func (s *Service) handleAcceptSuggestion(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":         true,
-		"message":         fmt.Sprintf("Habit accepted! '%s' will be scheduled weekly until %s", event.Title, event.EndTime.AddDate(5, 0, 0).Format("January 2, 2006")),
+		"message":         fmt.Sprintf("Habit accepted! '%s' will be scheduled weekly until %s", event.Title, event.EndTime.Format("January 2, 2006")),
 		"recurring_event": event,
 	}); err != nil {
 		s.logger.Error("Failed to encode JSON response", "error", err)
