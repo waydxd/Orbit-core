@@ -33,7 +33,7 @@ type Service struct {
 func NewService(cfg *config.Config, log *logger.Logger, repo Repository) *Service {
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.RedisAddr(),
-		Password: cfg.Redis.Password,
+		Password: cfg.Redis.Pass,
 		DB:       cfg.Redis.DB,
 	})
 
@@ -77,8 +77,26 @@ func (s *Service) RegisterProtectedRoutes(router *mux.Router) {
 
 // LoginRequest represents login/register request payload
 type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	email    string
+	password string
+}
+
+func (r *LoginRequest) UnmarshalJSON(data []byte) error {
+	var aux map[string]string
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	r.email = aux["email"]
+	r.password = aux["password"]
+	return nil
+}
+
+func (r LoginRequest) Email() string {
+	return r.email
+}
+
+func (r LoginRequest) Password() string {
+	return r.password
 }
 
 // LoginResponse represents login response
@@ -102,12 +120,12 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Input validation
-	if req.Email == "" || !s.validateEmail(req.Email) {
+	if req.Email() == "" || !s.validateEmail(req.Email()) {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid email"})
 		return
 	}
-	if req.Password == "" || !s.validatePassword(req.Password) {
+	if req.Password() == "" || !s.validatePassword(req.Password()) {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password does not meet requirements (min 8 chars, must include letters, numbers, and special characters; no spaces)"})
 		return
@@ -117,17 +135,17 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// Check if user already exists
-	existingUser, _ := s.repo.GetUserByEmail(ctx, req.Email)
+	existingUser, _ := s.repo.GetUserByEmail(ctx, req.Email())
 	if existingUser != nil {
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "user already exists"})
 		return
 	}
 
-	passwordHash := s.hashPassword(req.Password)
+	passwordHash := s.hashPassword(req.Password())
 	user := &models.User{
 		ID:           uuid.New().String(),
-		Email:        req.Email,
+		Email:        req.Email(),
 		PasswordHash: passwordHash,
 		Username:     GenerateRandomUsername(),
 		CreatedAt:    time.Now(),
@@ -202,12 +220,12 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Input validation
-	if req.Email == "" || !s.validateEmail(req.Email) {
+	if req.Email() == "" || !s.validateEmail(req.Email()) {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid email"})
 		return
 	}
-	if req.Password == "" {
+	if req.Password() == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password required"})
 		return
@@ -216,16 +234,16 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	user, err := s.repo.GetUserByEmail(ctx, req.Email)
+	user, err := s.repo.GetUserByEmail(ctx, req.Email())
 	if err != nil {
-		s.logger.Error("user not found", "email", req.Email, "err", err)
+		s.logger.Error("user not found", "email", req.Email(), "err", err)
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid credentials"})
 		return
 	}
 
-	if !s.verifyPassword(req.Password, user.PasswordHash) {
-		s.logger.Error("invalid password", "email", req.Email)
+	if !s.verifyPassword(req.Password(), user.PasswordHash) {
+		s.logger.Error("invalid password", "email", req.Email())
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid credentials"})
 		return
@@ -302,7 +320,7 @@ func (s *Service) verify(w http.ResponseWriter, r *http.Request) {
 
 	// Parse and validate JWT
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return []byte(s.config.Auth.JWTSecret), nil
+		return []byte(s.config.Auth.JWTKey), nil
 	})
 
 	if err != nil || !token.Valid {
@@ -429,19 +447,19 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 func (s *Service) passwordResetConfirm(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	var req struct {
-		Token    string `json:"token"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var payload map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		s.logger.Error("invalid password reset confirmation", "err", err)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"})
 		return
 	}
 
+	token := payload["token"]
+	password := payload["password"]
+
 	// Validate password
-	if req.Password == "" || !s.validatePassword(req.Password) {
+	if password == "" || !s.validatePassword(password) {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "password does not meet requirements (min 8 chars, must include letters, numbers, and special characters; no spaces)"})
 		return
@@ -450,7 +468,7 @@ func (s *Service) passwordResetConfirm(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	tokenHash := s.hashToken(req.Token)
+	tokenHash := s.hashToken(token)
 	redisKey := fmt.Sprintf("auth:token:password_reset:%s", tokenHash)
 
 	userID, err := s.redisClient.Get(ctx, redisKey).Result()
@@ -478,15 +496,14 @@ func (s *Service) passwordResetConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Security: prevent reusing the same password
-	if s.verifyPassword(req.Password, user.PasswordHash) {
+	if s.verifyPassword(password, user.PasswordHash) {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "new password must be different from the old password"})
 		return
 	}
 
 	// Update password
-	passwordHash := s.hashPassword(req.Password)
-	user.PasswordHash = passwordHash
+	user.PasswordHash = s.hashPassword(password)
 	if err := s.repo.UpdateUser(ctx, user); err != nil {
 		s.logger.Error("failed to update user", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)

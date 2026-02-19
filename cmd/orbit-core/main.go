@@ -15,6 +15,7 @@ import (
 	"github.com/waydxd/Orbit-core/internal/calendar"
 	"github.com/waydxd/Orbit-core/internal/chat"
 	"github.com/waydxd/Orbit-core/internal/gateway"
+	"github.com/waydxd/Orbit-core/internal/habit"
 	"github.com/waydxd/Orbit-core/internal/integration"
 	"github.com/waydxd/Orbit-core/internal/location"
 	"github.com/waydxd/Orbit-core/internal/shared/database"
@@ -50,7 +51,7 @@ func main() {
 	defer database.DisconnectMongoDB()
 
 	// Initialize MongoDB
-	mongoURI := database.BuildMongoURI(cfg.MongoDB.User, cfg.MongoDB.Password, cfg.MongoDB.Host, cfg.MongoDB.DBName)
+	mongoURI := database.BuildMongoURI(cfg.MongoDB.User, cfg.MongoDB.Pass, cfg.MongoDB.Host, cfg.MongoDB.DBName)
 	if err := database.InitMongoDB(mongoURI); err != nil {
 		log.Error("Failed to connect to MongoDB", "error", err)
 		return
@@ -61,15 +62,20 @@ func main() {
 	eventRepo := calendar.NewSQLEventRepository(db)
 	taskRepo := calendar.NewSQLTaskRepository(db)
 	locationRepo := location.NewSQLRepository(db)
+	habitRepo := habit.NewSQLRepository(db)
 	chatRepo, err := chat.NewMongoRepository(context.Background(), database.MongoClient, cfg.Database.DBName)
 	if err != nil {
 		log.Error("Failed to initialize chat repository", "error", err)
 		return
 	}
 
+	// Initialize habit service for tracking recurring event patterns
+	habitService := habit.NewService(cfg, log, habitRepo)
+	log.Info("Habit tracking service initialized successfully")
+
 	// Initialize services with repositories
 	authService := auth.NewService(cfg, log, authRepo)
-	calendarService := calendar.NewService(cfg, log, eventRepo, taskRepo)
+	calendarService := calendar.NewService(cfg, log, eventRepo, taskRepo, habitService)
 	locationService := location.NewService(cfg, log, locationRepo)
 	integrationService := integration.NewService(cfg, log)
 
@@ -137,6 +143,7 @@ func main() {
 		IntegrationService: integrationService,
 		AgentService:       agentService,
 		ChatService:        chatService,
+		HabitService:       habitService,
 	})
 
 	// Start HTTP server

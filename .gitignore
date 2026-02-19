@@ -37,3 +37,6 @@ bin/
 .idea
 
 *.log
+
+# Binaries
+orbit-core

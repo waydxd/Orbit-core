@@ -34,8 +34,8 @@ func TestLoad(t *testing.T) {
 		t.Errorf("Expected DB host 'testdb', got %s", cfg.Database.Host)
 	}
 
-	if cfg.Auth.JWTSecret != "test-secret" {
-		t.Errorf("Expected JWT secret 'test-secret', got %s", cfg.Auth.JWTSecret)
+	if cfg.Auth.JWTKey != "test-secret" {
+		t.Errorf("Expected JWT key 'test-secret', got %s", cfg.Auth.JWTKey)
 	}
 
 	// Clean up
@@ -108,12 +108,12 @@ func TestGetEnvAsInt(t *testing.T) {
 
 func TestConnectionString(t *testing.T) {
 	cfg := DatabaseConfig{
-		Host:     "localhost",
-		Port:     5432,
-		User:     "testuser",
-		Password: "testpass",
-		DBName:   "testdb",
-		SSLMode:  "disable",
+		Host:    "localhost",
+		Port:    5432,
+		User:    "testuser",
+		Pass:    "testpass",
+		DBName:  "testdb",
+		SSLMode: "disable",
 	}
 
 	expected := "host=localhost port=5432 user=testuser password=testpass dbname=testdb sslmode=disable"

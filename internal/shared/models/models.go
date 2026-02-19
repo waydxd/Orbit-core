@@ -138,3 +138,40 @@ type AgentToolLog struct {
 	CorrelationID   string          `json:"correlation_id" db:"correlation_id" bson:"correlation_id"`
 	CreatedAt       time.Time       `json:"created_at" db:"created_at" bson:"created_at"`
 }
+
+// EventFrequency tracks the frequency of similar events for habit detection
+type EventFrequency struct {
+	ID                   string      `json:"id" db:"id"`
+	UserID               string      `json:"user_id" db:"user_id"`
+	Title                string      `json:"title" db:"title"`
+	Description          string      `json:"description" db:"description"`
+	Location             string      `json:"location" db:"location"`
+	DurationMinutes      int         `json:"duration_minutes" db:"duration_minutes"`
+	TimeOfDay            int         `json:"time_of_day" db:"time_of_day"` // Minutes from midnight
+	DayOfWeek            int         `json:"day_of_week" db:"day_of_week"` // 0-6, Sunday = 0
+	OccurrenceCount      int         `json:"occurrence_count" db:"occurrence_count"`
+	SuggestionThreshold  int         `json:"suggestion_threshold" db:"suggestion_threshold"`
+	SuggestionShown      bool        `json:"suggestion_shown" db:"suggestion_shown"`
+	HabitAccepted        bool        `json:"habit_accepted" db:"habit_accepted"`
+	OccurrenceTimestamps []time.Time `json:"occurrence_timestamps" db:"occurrence_timestamps"`
+	CreatedAt            time.Time   `json:"created_at" db:"created_at"`
+	UpdatedAt            time.Time   `json:"updated_at" db:"updated_at"`
+}
+
+// HabitSuggestion represents a pending suggestion to create a recurring event
+type HabitSuggestion struct {
+	ID                string     `json:"id" db:"id"`
+	UserID            string     `json:"user_id" db:"user_id"`
+	EventFrequencyID  string     `json:"event_frequency_id" db:"event_frequency_id"`
+	Title             string     `json:"title" db:"title"`
+	Description       string     `json:"description" db:"description"`
+	Location          string     `json:"location" db:"location"`
+	DurationMinutes   int        `json:"duration_minutes" db:"duration_minutes"`
+	TimeOfDay         int        `json:"time_of_day" db:"time_of_day"`
+	DayOfWeek         int        `json:"day_of_week" db:"day_of_week"`
+	Status            string     `json:"status" db:"status"` // pending, accepted, rejected, expired
+	RecurrenceEndDate *time.Time `json:"recurrence_end_date,omitempty" db:"recurrence_end_date"`
+	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
+	ExpiresAt         time.Time  `json:"expires_at" db:"expires_at"`
+}

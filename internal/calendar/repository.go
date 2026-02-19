@@ -19,6 +19,8 @@ type EventRepository interface {
 	ListEvents(ctx context.Context, userID string, startTime, endTime time.Time) ([]*models.Event, error)
 	UpdateEvent(ctx context.Context, event *models.Event) error
 	DeleteEvent(ctx context.Context, id string) error
+	GetActiveRecurringEvents(ctx context.Context, userID string) ([]*models.Event, error)
+	DeactivateRecurringEvent(ctx context.Context, eventID string) error
 }
 
 // TaskRepository defines database operations for tasks
@@ -202,9 +204,46 @@ func (r *SQLEventRepository) DeleteEvent(ctx context.Context, id string) error {
 	return nil
 }
 
-// ===== Task Repository Implementation =====
+// GetActiveRecurringEvents retrieves all active recurring events for a user
+func (r *SQLEventRepository) GetActiveRecurringEvents(ctx context.Context, userID string) ([]*models.Event, error) {
+	rows, err := r.queries.GetActiveRecurringEvents(ctx, database.StringToUUID(userID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active recurring events: %w", err)
+	}
 
-// CreateTask inserts a new task into the database
+	events := make([]*models.Event, 0, len(rows))
+	for _, row := range rows {
+		events = append(events, &models.Event{
+			ID:                  database.UUIDToString(row.ID),
+			UserID:              database.UUIDToString(row.UserID),
+			Title:               row.Title,
+			Description:         database.TextToString(row.Description),
+			Location:            database.TextToString(row.Location),
+			StartTime:           database.TimestamptzToTime(row.StartTime),
+			EndTime:             database.TimestamptzToTime(row.EndTime),
+			IsRecurring:         row.IsRecurring.Bool,
+			RecurrenceRule:      database.TextToString(row.RecurrenceRule),
+			RecurrenceException: database.TextToString(row.RecurrenceException),
+			CreatedAt:           database.TimestamptzToTime(row.CreatedAt),
+			UpdatedAt:           database.TimestamptzToTime(row.UpdatedAt),
+		})
+	}
+	return events, nil
+}
+
+// DeactivateRecurringEvent deactivates a recurring event by setting is_recurring to FALSE
+func (r *SQLEventRepository) DeactivateRecurringEvent(ctx context.Context, eventID string) error {
+	params := db.DeactivateRecurringEventParams{
+		UpdatedAt: database.TimeToTimestamptz(time.Now()),
+		ID:        database.StringToUUID(eventID),
+	}
+	if err := r.queries.DeactivateRecurringEvent(ctx, params); err != nil {
+		return fmt.Errorf("failed to deactivate recurring event: %w", err)
+	}
+	return nil
+}
+
+// ===== Task Repository Implementation =====
 func (r *SQLTaskRepository) CreateTask(ctx context.Context, task *models.Task) error {
 	params := db.CreateTaskParams{
 		ID:          database.StringToUUID(task.ID),

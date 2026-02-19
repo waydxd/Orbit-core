@@ -34,7 +34,7 @@ func (s *Service) generateJWT(email, userID string) (string, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(s.config.Auth.JWTSecret))
+	return token.SignedString([]byte(s.config.Auth.JWTKey))
 }
 
 // hashPassword hashes a password using Argon2id
@@ -87,7 +87,7 @@ func (s *Service) verifyPassword(password, hashedPassword string) bool {
 
 // hashToken creates a SHA-256 hash of the token for storage
 func (s *Service) hashToken(token string) string {
-	sum := sha256.Sum256([]byte(token + s.config.Auth.JWTSecret))
+	sum := sha256.Sum256([]byte(token + s.config.Auth.JWTKey))
 	return fmt.Sprintf("%x", sum)
 }
 
