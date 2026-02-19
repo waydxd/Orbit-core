@@ -374,7 +374,7 @@ func (s *Service) handleAcceptSuggestion(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":         true,
-		"message":         fmt.Sprintf("Habit accepted! '%s' will be scheduled weekly until %s", event.Title, event.EndTime.AddDate(5, 0, 0).Format("January 2, 2006")),
+		"message":         fmt.Sprintf("Habit accepted! '%s' will be scheduled weekly until %s", event.Title, event.EndTime.Format("January 2, 2006")),
 		"recurring_event": event,
 	}); err != nil {
 		s.logger.Error("Failed to encode JSON response", "error", err)
