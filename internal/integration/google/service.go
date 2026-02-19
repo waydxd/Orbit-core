@@ -106,7 +106,11 @@ const (
 // NewService creates a new Google Calendar integration service
 func NewService(cfg *config.Config, log *logger.Logger, tokenStore TokenStore) *Service {
 	// Create OAuth2 config for Google Calendar
-	// Using only CalendarEventsScope which provides read and write access to calendar events
+	// Requesting both CalendarScope and CalendarEventsScope:
+	// - gcal.CalendarScope grants full access to calendars (metadata and settings).
+	// - gcal.CalendarEventsScope grants read/write access to calendar events.
+	// If only event-level access is required, consider removing gcal.CalendarScope to
+	// limit permissions.
 	oauthConfig := &oauth2.Config{
 		ClientID:     cfg.GoogleCalendar.ClientID,
 		ClientSecret: cfg.GoogleCalendar.ClientKey,

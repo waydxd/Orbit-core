@@ -233,7 +233,8 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Track event for habit detection (async, don't block response)
-	if s.habitTracker != nil {
+	// Skip habit tracking for events already marked as recurring to avoid redundant suggestions
+	if s.habitTracker != nil && !event.IsRecurring {
 		go func() {
 			trackCtx, trackCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer trackCancel()

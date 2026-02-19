@@ -18,8 +18,6 @@ var MongoClient *mongo.Client
 
 func InitMongoDB(uri string) error {
 	var err error
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	MongoClient, err = mongo.Connect(options.Client().ApplyURI(uri))
 	if err != nil {
@@ -27,6 +25,8 @@ func InitMongoDB(uri string) error {
 		return err
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	// Check the connection
 	err = MongoClient.Ping(ctx, nil)
 	if err != nil {
