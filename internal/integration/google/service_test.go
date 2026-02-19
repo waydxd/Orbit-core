@@ -76,9 +76,9 @@ func TestServiceIsConfigured(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &config.Config{
 				GoogleCalendar: config.GoogleCalendarConfig{
-					ClientID:     tc.clientID,
-					ClientSecret: tc.clientSec,
-					RedirectURL:  "http://localhost/callback",
+					ClientID:    tc.clientID,
+					ClientKey:   tc.clientSec,
+					RedirectURL: "http://localhost/callback",
 				},
 			}
 
@@ -110,9 +110,9 @@ func TestGetAuthURL(t *testing.T) {
 	// Test with configured service
 	cfg = &config.Config{
 		GoogleCalendar: config.GoogleCalendarConfig{
-			ClientID:     "test-client-id",
-			ClientSecret: "test-client-secret",
-			RedirectURL:  "http://localhost/callback",
+			ClientID:    "test-client-id",
+			ClientKey:   "test-client-secret",
+			RedirectURL: "http://localhost/callback",
 		},
 	}
 	svc = NewService(cfg, log, tokenStore)
@@ -233,9 +233,9 @@ func TestHandleCallbackInvalidState(t *testing.T) {
 	log := logger.New()
 	cfg := &config.Config{
 		GoogleCalendar: config.GoogleCalendarConfig{
-			ClientID:     "test-client-id",
-			ClientSecret: "test-client-secret",
-			RedirectURL:  "http://localhost/callback",
+			ClientID:    "test-client-id",
+			ClientKey:   "test-client-secret",
+			RedirectURL: "http://localhost/callback",
 		},
 	}
 	tokenStore := NewInMemoryTokenStore()

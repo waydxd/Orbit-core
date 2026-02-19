@@ -29,6 +29,7 @@ type ServiceConfig struct {
 	IntegrationService IntegrationServiceInterface
 	AgentService       AgentServiceInterface
 	ChatService        ChatServiceInterface
+	HabitService       HabitServiceInterface
 }
 
 // AuthServiceInterface defines methods for auth service
@@ -66,6 +67,11 @@ type ChatServiceInterface interface {
 	RegisterRoutes(router *mux.Router)
 }
 
+// HabitServiceInterface defines methods for habit service
+type HabitServiceInterface interface {
+	RegisterRoutes(router *mux.Router)
+}
+
 // NewService creates a new Gateway Service
 func NewService(cfg *config.Config, log *logger.Logger, svcConfig ServiceConfig) *Service {
 	router := mux.NewRouter()
@@ -73,14 +79,14 @@ func NewService(cfg *config.Config, log *logger.Logger, svcConfig ServiceConfig)
 	// Initialize rate limiter with Redis
 	rateLimiter := middleware.NewRateLimiter(
 		cfg.Redis.RedisAddr(),
-		cfg.Redis.Password,
+		cfg.Redis.Pass,
 		cfg.Redis.DB,
 		100,           // 100 requests
 		1*time.Minute, // per minute
 	)
 
 	// Initialize auth middleware
-	authMiddleware := middleware.NewAuthMiddleware(cfg.Auth.JWTSecret)
+	authMiddleware := middleware.NewAuthMiddleware(cfg.Auth.JWTKey)
 
 	s := &Service{
 		config:         cfg,
@@ -121,6 +127,7 @@ func (s *Service) setupRoutes() {
 	s.services.IntegrationService.RegisterRoutes(protectedRouter)
 	s.services.AgentService.RegisterRoutes(protectedRouter)
 	s.services.ChatService.RegisterRoutes(protectedRouter)
+	s.services.HabitService.RegisterRoutes(protectedRouter)
 }
 
 // Router returns the configured router

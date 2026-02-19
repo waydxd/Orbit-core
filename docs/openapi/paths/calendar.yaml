@@ -134,6 +134,63 @@ paths:
         '204':
           description: Event deleted successfully
 
+  /api/v1/calendar/recurring:
+    get:
+      summary: List active recurring events for the authenticated user
+      tags:
+        - Calendar
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of active recurring events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RecurringEvent'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/calendar/recurring/{id}/deactivate:
+    post:
+      summary: Deactivate a recurring event
+      tags:
+        - Calendar
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Recurring event ID
+      responses:
+        '200':
+          description: Recurring event deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/v1/calendar/tasks:
     get:
       summary: List all tasks
@@ -248,4 +305,3 @@ paths:
       responses:
         '204':
           description: Task deleted successfully
-

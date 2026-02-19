@@ -12,23 +12,31 @@ import (
 
 type Querier interface {
 	CreateEvent(ctx context.Context, arg CreateEventParams) error
+	CreateHabitSuggestion(ctx context.Context, arg CreateHabitSuggestionParams) error
 	CreateIntegration(ctx context.Context, arg CreateIntegrationParams) error
 	CreateLocation(ctx context.Context, arg CreateLocationParams) error
+	CreateRecurringEvent(ctx context.Context, arg CreateRecurringEventParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) (pgtype.UUID, error)
 	CreateTask(ctx context.Context, arg CreateTaskParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
+	DeactivateRecurringEvent(ctx context.Context, arg DeactivateRecurringEventParams) error
 	DeleteEvent(ctx context.Context, id pgtype.UUID) error
 	DeleteIntegration(ctx context.Context, id pgtype.UUID) error
 	DeleteSession(ctx context.Context, id pgtype.UUID) error
 	DeleteTask(ctx context.Context, id pgtype.UUID) error
 	DeleteUser(ctx context.Context, id pgtype.UUID) error
 	FindNearby(ctx context.Context, arg FindNearbyParams) ([]Location, error)
+	GetActiveRecurringEvents(ctx context.Context, userID pgtype.UUID) ([]GetActiveRecurringEventsRow, error)
 	GetCurrentLocation(ctx context.Context, userID pgtype.UUID) (Location, error)
 	GetEventByID(ctx context.Context, id pgtype.UUID) (GetEventByIDRow, error)
+	GetEventFrequenciesAboveThreshold(ctx context.Context, arg GetEventFrequenciesAboveThresholdParams) ([]EventFrequency, error)
+	GetEventFrequencyByPattern(ctx context.Context, arg GetEventFrequencyByPatternParams) (EventFrequency, error)
+	GetHabitSuggestionByID(ctx context.Context, id pgtype.UUID) (HabitSuggestion, error)
 	GetIntegrationByID(ctx context.Context, id pgtype.UUID) (Integration, error)
 	GetIntegrationByService(ctx context.Context, arg GetIntegrationByServiceParams) (Integration, error)
 	GetLocationByID(ctx context.Context, id pgtype.UUID) (Location, error)
 	GetLocationHistory(ctx context.Context, arg GetLocationHistoryParams) ([]Location, error)
+	GetPendingHabitSuggestions(ctx context.Context, userID pgtype.UUID) ([]HabitSuggestion, error)
 	GetSessionByToken(ctx context.Context, tokenHash string) (Session, error)
 	GetTaskByID(ctx context.Context, id pgtype.UUID) (Task, error)
 	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
@@ -39,10 +47,13 @@ type Querier interface {
 	ListIntegrations(ctx context.Context, userID pgtype.UUID) ([]Integration, error)
 	ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, error)
 	UpdateEvent(ctx context.Context, arg UpdateEventParams) error
+	UpdateEventFrequency(ctx context.Context, arg UpdateEventFrequencyParams) error
+	UpdateHabitSuggestionStatus(ctx context.Context, arg UpdateHabitSuggestionStatusParams) error
 	UpdateIntegration(ctx context.Context, arg UpdateIntegrationParams) error
 	UpdateLastSync(ctx context.Context, id pgtype.UUID) error
 	UpdateTask(ctx context.Context, arg UpdateTaskParams) error
 	UpdateUser(ctx context.Context, arg UpdateUserParams) error
+	UpsertEventFrequency(ctx context.Context, arg UpsertEventFrequencyParams) (UpsertEventFrequencyRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

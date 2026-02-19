@@ -27,6 +27,11 @@ The `orbit-core` repository encapsulates the following key services, implemented
 6. **Chat Service**
     - Provides a complete backend implementation for an AI-powered chatbot with action confirmation workflows.
 
+7. **Habit Tracking Service**
+    - Automatically detects recurring event patterns based on user behavior.
+    - When an event (with the same title, time, duration, and day of week) occurs 3+ times, suggests making it a recurring habit.
+    - Allows users to accept suggestions to auto-schedule the event for the next 5 years.
+
 ## Core Principles
 
 - **Modularity**: Each service is implemented as a distinct module to ensure clear separation of concerns, enabling easier refactoring into microservices when needed.
@@ -184,10 +189,11 @@ The full API documentation is available in `docs/openapi.yaml` and a summary is 
 - **Chat**: `POST /chat/messages`, `GET /chat/conversations/{id}`
 - **Location**: `POST /location/track`, `GET /location/history`
 - **Integrations**: `POST /integration/external/connect`
+- **Habit Tracking**: `GET /habit/suggestions`, `POST /habit/suggestions/{id}/accept`, `POST /habit/suggestions/{id}/reject`, `GET /habit/recurring`
 
 ## Database
 
-The database schema is defined in `migrations/001_initial_schema.sql` and includes tables for `users`, `events`, `tasks`, `locations`, `integrations`, and `sessions`. A second migration `migrations/002_chat_and_pending_actions.sql` adds tables for `conversations`, `chat_messages`, `pending_actions`, and `agent_tool_logs`.
+The database schema is defined in `migrations/001_initial_schema.sql` and includes tables for `users`, `events`, `tasks`, `locations`, `integrations`, and `sessions`. A second migration `migrations/002_chat_and_pending_actions.sql` adds tables for `conversations`, `chat_messages`, `pending_actions`, and `agent_tool_logs`. The third migration `migrations/003_habit_tracking.sql` adds tables for `event_frequency`, `habit_suggestions`, and `recurring_events` for the habit tracking feature.
 
 ## Contributing
 

@@ -38,4 +38,5 @@ bin/
 
 *.log
 
+# Binaries
 orbit-core

@@ -1,0 +1,103 @@
+title AI-Enabled Productivity App Architecture
+
+// Client Layer
+Client Layer [icon: users, color: blue] {
+Flutter App [icon: flutter, label: "Flutter App (Mobile/Web)"]
+}
+
+// API Gateway Layer
+API Gateway Layer [icon: gateway, color: purple] {
+API Gateway [icon: aws-api-gateway, label: "API Gateway"]
+}
+
+// Microservices Layer
+Microservices Layer [icon: server, color: green] {
+User Service [icon: user, label: "User Service"]
+Calendar Task Service [icon: calendar, label: "Calendar & Task Service"]
+AI Service [icon: brain, label: "AI Service"]
+Location Service [icon: map-pin, label: "Location Service"]
+}
+
+// Data Access Layer (Optional)
+// Data Access Layer [icon: shuffle, color: yellow] {
+//   Data Gateway Service [icon: shuffle, label: "Data Gateway Service"]
+// }
+
+// Data Layer
+Data Layer [icon: database, color: orange] {
+PostgreSQL [icon: postgresql, label: "PostgreSQL"]
+Redis [icon: redis, label: "Redis"]
+MongoDB [icon: mongodb, label: "MongoDB"]
+}
+
+// External Services
+External Services [icon: globe, color: pink] {
+Gemini API [icon: gemini, label: "Gemini API"]
+Google Maps [icon: map, label: "Google Maps"]
+Email Service [icon: mail, label: "Email Service"]
+}
+
+// Self-Hosted AI
+"Self-Hosted AI" [icon: cpu, color: green] {
+vLLM Server [icon: openai, label: "vLLM Server"]
+TensorFlow Recommenders [icon: tensorflow, label: "TensorFlow Recommenders"]
+}
+
+// Client-Side AI
+"Client-Side AI" [icon: smartphone, color: gray] {
+Google ML Kit [icon: google, label: "Google ML Kit"]
+}
+
+// Storage
+Storage [icon: folder, color: teal] {
+Object Storage [icon: aws-s3, label: "Object Storage"]
+}
+
+
+
+// Connections
+
+// Client to Gateway
+Flutter App > API Gateway: HTTPS REST API
+
+// Gateway to Microservices
+API Gateway > User Service: Route auth requests
+API Gateway > Calendar Task Service: Route planning requests
+API Gateway > AI Service: Route AI requests
+API Gateway > Location Service: Route location requests
+
+// Microservices inter-communication
+Calendar Task Service > User Service: Validate user exists
+AI Service > User Service: Get user preferences
+AI Service > Calendar Task Service: Fetch tasks/events for RAG
+Location Service > Calendar Task Service: Create location events
+AI Service > Location Service: Get location context
+
+// Microservices to Data Layer
+User Service > PostgreSQL: Store user data
+Calendar Task Service > PostgreSQL: Store tasks/events
+AI Service > PostgreSQL: Store AI logs
+Location Service > PostgreSQL: Store GPS data
+AI Service > MongoDB: Store documents, vector embeddings
+
+// Cache Connections
+User Service > Redis: Cache user sessions
+Calendar Task Service > Redis: Cache recent tasks
+API Gateway > Redis: Rate limiting
+
+// External API Connections
+AI Service > Gemini API: Send chat requests
+AI Service > vLLM Server: LangChain calls
+AI Service > TensorFlow Recommenders: Train/run ML models
+Location Service > Google Maps: Geocoding requests
+User Service > Email Service: Send verification emails
+
+// Client-Side AI
+Flutter App > Google ML Kit: Process images locally
+
+// File Storage
+Flutter App > Object Storage: Upload images/files
+
+// Future Enhancements (dashed)
+
+Flutter App < Google ML Kit: Return extracted text

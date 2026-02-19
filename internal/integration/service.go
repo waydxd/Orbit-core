@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -144,12 +145,25 @@ func (s *Service) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	s.respondWithJSON(w, http.StatusOK, map[string]string{"message": "webhook processed"})
 }
 
+// externalConnectRequest keeps secret-like fields unexported but still JSON-decodable.
+type externalConnectRequest struct {
+	service string
+	apiKey  string
+}
+
+func (r *externalConnectRequest) UnmarshalJSON(data []byte) error {
+	var aux map[string]string
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	r.service = aux["service"]
+	r.apiKey = aux["api_key"]
+	return nil
+}
+
 // connectExternal connects to an external API
 func (s *Service) connectExternal(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Service string `json:"service"`
-		APIKey  string `json:"api_key"`
-	}
+	var req externalConnectRequest
 
 	if err := s.decodeJSON(r, &req); err != nil {
 		s.respondWithError(w, http.StatusBadRequest, "invalid request", err)
@@ -157,7 +171,7 @@ func (s *Service) connectExternal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: Store external API credentials securely
-	s.logger.Info("External service connected", "service", req.Service)
+	s.logger.Info("External service connected", "service", req.service)
 
 	s.respondWithJSON(w, http.StatusOK, map[string]string{"message": "external service connected"})
 }
@@ -330,9 +344,9 @@ func (s *Service) exportCalendar(w http.ResponseWriter, r *http.Request) {
 
 	// Set response headers for file download
 	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
+	http.ServeContent(w, r, filename, time.Now(), bytes.NewReader(data))
 }
 
 // parseExportParams parses and validates export query parameters.

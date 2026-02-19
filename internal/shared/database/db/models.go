@@ -23,6 +23,41 @@ type Event struct {
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
 }
 
+type EventFrequency struct {
+	ID                   pgtype.UUID        `json:"id"`
+	UserID               pgtype.UUID        `json:"user_id"`
+	Title                string             `json:"title"`
+	Description          pgtype.Text        `json:"description"`
+	Location             pgtype.Text        `json:"location"`
+	DurationMinutes      int32              `json:"duration_minutes"`
+	TimeOfDay            int32              `json:"time_of_day"`
+	DayOfWeek            pgtype.Int4        `json:"day_of_week"`
+	OccurrenceCount      int32              `json:"occurrence_count"`
+	SuggestionThreshold  int32              `json:"suggestion_threshold"`
+	SuggestionShown      bool               `json:"suggestion_shown"`
+	HabitAccepted        bool               `json:"habit_accepted"`
+	OccurrenceTimestamps []byte             `json:"occurrence_timestamps"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+type HabitSuggestion struct {
+	ID                pgtype.UUID        `json:"id"`
+	UserID            pgtype.UUID        `json:"user_id"`
+	EventFrequencyID  pgtype.UUID        `json:"event_frequency_id"`
+	Title             string             `json:"title"`
+	Description       pgtype.Text        `json:"description"`
+	Location          pgtype.Text        `json:"location"`
+	DurationMinutes   int32              `json:"duration_minutes"`
+	TimeOfDay         int32              `json:"time_of_day"`
+	DayOfWeek         int32              `json:"day_of_week"`
+	Status            pgtype.Text        `json:"status"`
+	RecurrenceEndDate pgtype.Timestamptz `json:"recurrence_end_date"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+}
+
 type Integration struct {
 	ID              pgtype.UUID        `json:"id"`
 	UserID          pgtype.UUID        `json:"user_id"`
@@ -42,6 +77,23 @@ type Location struct {
 	Address   pgtype.Text        `json:"address"`
 	Timestamp pgtype.Timestamptz `json:"timestamp"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type RecurringEvent struct {
+	ID                pgtype.UUID        `json:"id"`
+	UserID            pgtype.UUID        `json:"user_id"`
+	HabitSuggestionID pgtype.UUID        `json:"habit_suggestion_id"`
+	Title             string             `json:"title"`
+	Description       pgtype.Text        `json:"description"`
+	Location          pgtype.Text        `json:"location"`
+	DurationMinutes   int32              `json:"duration_minutes"`
+	TimeOfDay         int32              `json:"time_of_day"`
+	DayOfWeek         int32              `json:"day_of_week"`
+	StartDate         pgtype.Timestamptz `json:"start_date"`
+	EndDate           pgtype.Timestamptz `json:"end_date"`
+	IsActive          bool               `json:"is_active"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Session struct {
