@@ -206,3 +206,63 @@ components:
           type: string
           example: The specified action does not exist or has been deleted
 
+    ChatMetrics:
+      type: object
+      properties:
+        paths:
+          type: number
+        actions_per_minute:
+          type: number
+        messages_per_minute:
+          type: integer
+        conflict_errors:
+          type: integer
+        policy_violations:
+          type: integer
+        validation_errors:
+          type: integer
+        total_errors:
+          type: number
+        success_rate_pct:
+          type: number
+        confirmation_rate_pct:
+          type: integer
+        avg_action_latency_ms:
+          type: integer
+        avg_message_latency_ms:
+          type: integer
+        total_failed_actions:
+          type: integer
+        total_expired_actions:
+          type: integer
+        total_cancelled_actions:
+          type: integer
+        total_confirmed_actions:
+          type: integer
+        total_pending_actions:
+          type: integer
+        total_conversations:
+          type: integer
+        total_messages:
+          type: integer
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Operation completed successfully
+
+    AcceptSuggestionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "Habit accepted! 'Morning Run' will be scheduled weekly until January 2, 2031"
+        recurring_event:
+          $ref: '#/components/schemas/RecurringEvent'
