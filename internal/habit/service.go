@@ -190,11 +190,12 @@ func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string) (*m
 
 	// Build RRULE for weekly recurrence on the specified day of week
 	dayMap := []string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
-	if suggestion.DayOfWeek < 0 || suggestion.DayOfWeek >= len(dayMap) {
-		return nil, fmt.Errorf("invalid day of week in suggestion: %d", suggestion.DayOfWeek)
-	}
+	endDateUTC := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 23, 59, 59, 0, time.UTC)
+
+	// Build RRULE for weekly recurrence on the specified day of week
+	dayMap := []string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
 	byday := dayMap[suggestion.DayOfWeek]
-	rrule := fmt.Sprintf("FREQ=WEEKLY;BYDAY=%s;UNTIL=%s", byday, endDate.Format("20060102"))
+	rrule := fmt.Sprintf("FREQ=WEEKLY;BYDAY=%s;UNTIL=%s", byday, endDateUTC.Format("20060102T150405Z"))
 
 	// Calculate start and end times for the first occurrence
 	daysUntilTarget := (suggestion.DayOfWeek - int(now.Weekday()) + 7) % 7
