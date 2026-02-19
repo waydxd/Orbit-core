@@ -188,8 +188,6 @@ func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string) (*m
 	now := time.Now()
 	endDate := now.AddDate(DefaultRecurrenceYears, 0, 0)
 
-	// Build RRULE for weekly recurrence on the specified day of week
-	dayMap := []string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
 	endDateUTC := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 23, 59, 59, 0, time.UTC)
 
 	// Build RRULE for weekly recurrence on the specified day of week
