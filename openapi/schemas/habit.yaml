@@ -1,0 +1,88 @@
+schemas:
+  HabitSuggestion:
+    type: object
+    properties:
+      id:
+        type: string
+        example: suggestion-uuid-123
+      title:
+        type: string
+        example: Morning Run
+      description:
+        type: string
+        example: Daily jog in the park
+      location:
+        type: string
+        example: Central Park
+      duration_minutes:
+        type: integer
+        example: 30
+      time_of_day:
+        type: string
+        description: Human-readable time of day (e.g. "7:30 AM")
+        example: 7:30 AM
+      day_of_week:
+        type: string
+        description: Day of the week the event typically occurs
+        example: Monday
+      status:
+        type: string
+        enum: [pending, accepted, rejected]
+        example: pending
+      created_at:
+        type: string
+        format: date-time
+      expires_at:
+        type: string
+        format: date-time
+      message:
+        type: string
+        description: Human-readable prompt for the user
+        example: "You've scheduled 'Morning Run' multiple times on Monday at 7:30 AM. Would you like to make this a recurring event for the next 5 years?"
+
+  AcceptSuggestionResponse:
+    type: object
+    properties:
+      success:
+        type: boolean
+        example: true
+      message:
+        type: string
+        example: "Habit accepted! 'Morning Run' will be scheduled weekly until January 2, 2031"
+      recurring_event:
+        type: object
+        properties:
+          id:
+            type: string
+            example: event-uuid-456
+          user_id:
+            type: string
+            example: user-uuid-789
+          title:
+            type: string
+            example: Morning Run
+          description:
+            type: string
+            example: Daily jog in the park
+          location:
+            type: string
+            example: Central Park
+          start_time:
+            type: string
+            format: date-time
+          end_time:
+            type: string
+            format: date-time
+          is_recurring:
+            type: boolean
+            example: true
+          recurrence_rule:
+            type: string
+            example: FREQ=WEEKLY;BYDAY=MO;UNTIL=20310102
+          created_at:
+            type: string
+            format: date-time
+          updated_at:
+            type: string
+            format: date-time
+
