@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 var MongoClient *mongo.Client
@@ -21,7 +21,7 @@ func InitMongoDB(uri string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	MongoClient, err = mongo.Connect(ctx, options.Client().ApplyURI(uri))
+	MongoClient, err = mongo.Connect(options.Client().ApplyURI(uri))
 	if err != nil {
 		log.Printf("Failed to connect to MongoDB: %v", err)
 		return err
