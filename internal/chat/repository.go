@@ -130,8 +130,8 @@ func (r *MongoRepository) GetConversationByCorrelationID(ctx context.Context, co
 func (r *MongoRepository) ListConversationsByUser(ctx context.Context, userID string, limit int) ([]*models.Conversation, error) {
 	collection := r.client.Database(r.dbName).Collection("conversations")
 
-	opts := options.Find().SetSort(bson.D{{Key: "createdat", Value: -1}}).SetLimit(int64(limit))
-	cursor, err := collection.Find(ctx, bson.M{"userid": userID}, opts)
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}).SetLimit(int64(limit))
+	cursor, err := collection.Find(ctx, bson.M{"user_id": userID}, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list conversations: %w", err)
 	}
@@ -161,7 +161,7 @@ func (r *MongoRepository) UpdateConversationStatus(ctx context.Context, conversa
 	_, err := collection.UpdateOne(
 		ctx,
 		bson.M{"id": conversationID},
-		bson.M{"$set": bson.M{"status": status, "updatedat": time.Now()}},
+		bson.M{"$set": bson.M{"status": status, "updated_at": time.Now()}},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to update conversation status: %w", err)
@@ -188,8 +188,8 @@ func (r *MongoRepository) CreateMessage(ctx context.Context, msg *models.ChatMes
 func (r *MongoRepository) GetMessagesByConversation(ctx context.Context, conversationID string) ([]*models.ChatMessage, error) {
 	collection := r.client.Database(r.dbName).Collection("chat_messages")
 
-	opts := options.Find().SetSort(bson.D{{Key: "createdat", Value: 1}})
-	cursor, err := collection.Find(ctx, bson.M{"conversationid": conversationID}, opts)
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}})
+	cursor, err := collection.Find(ctx, bson.M{"conversation_id": conversationID}, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get messages: %w", err)
 	}
@@ -233,7 +233,7 @@ func (r *MongoRepository) GetPendingActionByID(ctx context.Context, actionID str
 	collection := r.client.Database(r.dbName).Collection("pending_actions")
 
 	var pa models.PendingAction
-	err := collection.FindOne(ctx, bson.M{"actionid": actionID}).Decode(&pa)
+	err := collection.FindOne(ctx, bson.M{"action_id": actionID}).Decode(&pa)
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return nil, fmt.Errorf("pending action not found")
@@ -248,8 +248,8 @@ func (r *MongoRepository) GetPendingActionByID(ctx context.Context, actionID str
 func (r *MongoRepository) GetPendingActionsByConversation(ctx context.Context, conversationID string) ([]*models.PendingAction, error) {
 	collection := r.client.Database(r.dbName).Collection("pending_actions")
 
-	opts := options.Find().SetSort(bson.D{{Key: "createdat", Value: -1}})
-	cursor, err := collection.Find(ctx, bson.M{"conversationid": conversationID}, opts)
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}})
+	cursor, err := collection.Find(ctx, bson.M{"conversation_id": conversationID}, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pending actions: %w", err)
 	}
@@ -278,12 +278,12 @@ func (r *MongoRepository) UpdatePendingActionStatus(ctx context.Context, actionI
 
 	result, err := collection.UpdateOne(
 		ctx,
-		bson.M{"actionid": actionID, "version": version},
+		bson.M{"action_id": actionID, "version": version},
 		bson.M{"$set": bson.M{
-			"status":       status,
-			"version":      version + 1,
-			"errormessage": errorMsg,
-			"updatedat":    time.Now(),
+			"status":        status,
+			"version":       version + 1,
+			"error_message": errorMsg,
+			"updated_at":    time.Now(),
 		}},
 	)
 	if err != nil {
@@ -345,8 +345,8 @@ func (r *MongoRepository) CreateToolLog(ctx context.Context, log *models.AgentTo
 func (r *MongoRepository) GetToolLogsByConversation(ctx context.Context, conversationID string) ([]*models.AgentToolLog, error) {
 	collection := r.client.Database(r.dbName).Collection("agent_tool_logs")
 
-	opts := options.Find().SetSort(bson.D{{Key: "createdat", Value: 1}})
-	cursor, err := collection.Find(ctx, bson.M{"conversationid": conversationID}, opts)
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}})
+	cursor, err := collection.Find(ctx, bson.M{"conversation_id": conversationID}, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tool logs: %w", err)
 	}
@@ -373,8 +373,8 @@ func (r *MongoRepository) GetToolLogsByConversation(ctx context.Context, convers
 func (r *MongoRepository) GetToolLogsByPendingAction(ctx context.Context, pendingActionID string) ([]*models.AgentToolLog, error) {
 	collection := r.client.Database(r.dbName).Collection("agent_tool_logs")
 
-	opts := options.Find().SetSort(bson.D{{Key: "createdat", Value: 1}})
-	cursor, err := collection.Find(ctx, bson.M{"pendingactionid": pendingActionID}, opts)
+	opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: 1}})
+	cursor, err := collection.Find(ctx, bson.M{"pending_action_id": pendingActionID}, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tool logs: %w", err)
 	}

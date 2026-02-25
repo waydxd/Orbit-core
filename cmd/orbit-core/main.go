@@ -63,7 +63,7 @@ func main() {
 	taskRepo := calendar.NewSQLTaskRepository(db)
 	locationRepo := location.NewSQLRepository(db)
 	habitRepo := habit.NewSQLRepository(db)
-	chatRepo, err := chat.NewMongoRepository(context.Background(), database.MongoClient, cfg.Database.DBName)
+	chatRepo, err := chat.NewMongoRepository(context.Background(), database.MongoClient, cfg.MongoDB.DBName)
 	if err != nil {
 		log.Error("Failed to initialize chat repository", "error", err)
 		return

@@ -20,11 +20,12 @@ import (
 )
 
 var (
-	ErrInvalidIdempotencyKey = errors.New("invalid idempotency key")
-	ErrActionNotPending      = errors.New("action not pending")
-	ErrActionExpired         = errors.New("action has expired")
-	ErrActionValidation      = errors.New("action validation failed")
-	ErrActionConflict        = errors.New("action conflicts with existing data")
+	ErrInvalidIdempotencyKey  = errors.New("invalid idempotency key")
+	ErrActionNotPending       = errors.New("action not pending")
+	ErrActionExpired          = errors.New("action has expired")
+	ErrActionValidation       = errors.New("action validation failed")
+	ErrActionConflict         = errors.New("action conflicts with existing data")
+	ErrConversationNotFound   = errors.New("conversation not found")
 )
 
 // Service represents the Chat Service for chatbot functionality
@@ -155,7 +156,11 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	// Get or create conversation (updates userID internal usage)
 	conv, err := s.getOrCreateConversation(ctx, &req, userID, correlationID)
 	if err != nil {
-		s.respondError(w, http.StatusInternalServerError, "conversation_error", "Failed to get or create conversation", err.Error())
+		if errors.Is(err, ErrConversationNotFound) {
+			s.respondError(w, http.StatusNotFound, "conversation_not_found", "Conversation not found", err.Error())
+		} else {
+			s.respondError(w, http.StatusInternalServerError, "conversation_error", "Failed to get or create conversation", err.Error())
+		}
 		m.IncrementErrors()
 		return
 	}
@@ -167,7 +172,9 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	agentReply, proposedAction, err := s.forwardToAgent(ctx, userID, req.Message, correlationID, conv.ID)
 	if err != nil {
 		s.logger.Error("Agent communication failed", "error", err, "correlation_id", correlationID)
-		agentReply = "I'm sorry, I'm having trouble processing your request right now. Please try again."
+		m.IncrementErrors()
+		s.respondError(w, http.StatusBadGateway, "agent_error", "Agent communication failed", err.Error())
+		return
 	}
 
 	// Persist agent reply
@@ -264,7 +271,7 @@ func (s *Service) getOrCreateConversation(ctx context.Context, req *PostMessageR
 			}
 			return conv, nil
 		}
-		s.logger.Warn("Conversation not found, creating new", "conversation_id", req.ConversationID, "error", err)
+		return nil, fmt.Errorf("%w: %s", ErrConversationNotFound, req.ConversationID)
 	}
 
 	conv, err := s.repo.CreateConversation(ctx, userID, correlationID)
@@ -389,11 +396,6 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	actionID := vars["action_id"]
 	if actionID == "" {
 		s.respondError(w, http.StatusBadRequest, "missing_action_id", "Action ID is required", "")
-		m.IncrementErrors()
-		return
-	}
-	if _, err := uuid.Parse(actionID); err != nil {
-		s.respondError(w, http.StatusBadRequest, "invalid_action_id", "Invalid action ID format", "")
 		m.IncrementErrors()
 		return
 	}
@@ -531,11 +533,6 @@ func (s *Service) handleCancelAction(w http.ResponseWriter, r *http.Request) {
 		m.IncrementErrors()
 		return
 	}
-	if _, err := uuid.Parse(actionID); err != nil {
-		s.respondError(w, http.StatusBadRequest, "invalid_action_id", "Invalid action ID format", "")
-		m.IncrementErrors()
-		return
-	}
 
 	// Get pending action
 	action, err := s.repo.GetPendingActionByID(ctx, actionID)
@@ -595,10 +592,6 @@ func (s *Service) handleGetAction(w http.ResponseWriter, r *http.Request) {
 	actionID := vars["action_id"]
 	if actionID == "" {
 		s.respondError(w, http.StatusBadRequest, "missing_action_id", "Action ID is required", "")
-		return
-	}
-	if _, err := uuid.Parse(actionID); err != nil {
-		s.respondError(w, http.StatusBadRequest, "invalid_action_id", "Invalid action ID format", "")
 		return
 	}
 
