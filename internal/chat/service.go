@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -20,12 +21,19 @@ import (
 )
 
 var (
-	ErrInvalidIdempotencyKey  = errors.New("invalid idempotency key")
-	ErrActionNotPending       = errors.New("action not pending")
-	ErrActionExpired          = errors.New("action has expired")
-	ErrActionValidation       = errors.New("action validation failed")
-	ErrActionConflict         = errors.New("action conflicts with existing data")
-	ErrConversationNotFound   = errors.New("conversation not found")
+	ErrInvalidIdempotencyKey = errors.New("invalid idempotency key")
+	ErrActionNotPending      = errors.New("action not pending")
+	ErrActionExpired         = errors.New("action has expired")
+	ErrActionValidation      = errors.New("action validation failed")
+	ErrActionConflict        = errors.New("action conflicts with existing data")
+	ErrConversationNotFound  = errors.New("conversation not found")
+	ErrConversationForbidden = errors.New("conversation does not belong to user")
+)
+
+const (
+	maxChatRequestBytes int64 = 1 << 20 // 1MB
+	agentRPCTimeout           = 15 * time.Second
+	actionRPCTimeout          = 10 * time.Second
 )
 
 // Service represents the Chat Service for chatbot functionality
@@ -54,6 +62,9 @@ func NewService(cfg *config.Config, log *logger.Logger, repo Repository, grpcCli
 func (s *Service) RegisterRoutes(router *mux.Router) {
 	chatRouter := router.PathPrefix("/chat").Subrouter()
 
+	chatRouter.HandleFunc("/health", s.handleHealth).Methods("GET")
+	chatRouter.HandleFunc("/conversations", s.handleCreateConversation).Methods("POST")
+	chatRouter.HandleFunc("/conversations/{conversation_id}", s.handleDeleteConversation).Methods("DELETE")
 	chatRouter.HandleFunc("/messages", s.handlePostMessage).Methods("POST")
 	chatRouter.HandleFunc("/conversations/{conversation_id}", s.handleGetConversation).Methods("GET")
 	chatRouter.HandleFunc("/actions/{action_id}/confirm", s.handleConfirmAction).Methods("POST")
@@ -87,6 +98,11 @@ type ConversationResponse struct {
 	Status         string                  `json:"status"`
 }
 
+type CreateConversationResponse struct {
+	ConversationID string `json:"conversation_id"`
+	Status         string `json:"status"`
+}
+
 type ActionResponse struct {
 	ActionID       string          `json:"action_id"`
 	ActionType     string          `json:"action_type"`
@@ -113,6 +129,114 @@ type ErrorResponse struct {
 	Details string `json:"details,omitempty"`
 }
 
+func decodeJSONStrict(w http.ResponseWriter, r *http.Request, dest interface{}) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxChatRequestBytes)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dest); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return errors.New("request body must contain exactly one JSON object")
+	}
+	return nil
+}
+
+// GET /chat/health - Get chat service health
+func (s *Service) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := s.grpcClient.HealthCheck(r.Context()); err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "unhealthy",
+			"error":  err.Error(),
+		})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "healthy",
+	})
+}
+
+// POST /chat/conversations - Create conversation
+func (s *Service) handleCreateConversation(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	w.Header().Set("Content-Type", "application/json")
+
+	userID := middleware.GetUserIDFromContext(ctx)
+	if userID == "" {
+		s.respondError(w, http.StatusUnauthorized, "unauthorized", "User ID not found in context", "")
+		return
+	}
+
+	correlationID := GenerateCorrelationID()
+	conv, err := s.repo.CreateConversation(ctx, userID, correlationID)
+	if err != nil {
+		s.respondError(w, http.StatusInternalServerError, "conversation_create_failed", "Failed to create conversation", err.Error())
+		metrics.GetInstance().IncrementErrors()
+		return
+	}
+	metrics.GetInstance().IncrementConversations()
+
+	w.WriteHeader(http.StatusCreated)
+	if err := json.NewEncoder(w).Encode(CreateConversationResponse{
+		ConversationID: conv.ID,
+		Status:         conv.Status,
+	}); err != nil {
+		s.logger.Error("Failed to encode create conversation response", "error", err)
+	}
+}
+
+// DELETE /chat/conversations/{conversation_id} - Soft delete conversation
+func (s *Service) handleDeleteConversation(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	w.Header().Set("Content-Type", "application/json")
+
+	userID := middleware.GetUserIDFromContext(ctx)
+	if userID == "" {
+		s.respondError(w, http.StatusUnauthorized, "unauthorized", "User ID not found in context", "")
+		return
+	}
+
+	conversationID := mux.Vars(r)["conversation_id"]
+	if conversationID == "" {
+		s.respondError(w, http.StatusBadRequest, "missing_conversation_id", "Conversation ID is required", "")
+		return
+	}
+	if _, err := uuid.Parse(conversationID); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid_conversation_id", "Invalid conversation ID format", "")
+		return
+	}
+
+	conv, err := s.getConversationForUser(ctx, userID, conversationID)
+	if err != nil {
+		statusCode := http.StatusInternalServerError
+		code := "conversation_error"
+		if errors.Is(err, ErrConversationNotFound) {
+			statusCode = http.StatusNotFound
+			code = "conversation_not_found"
+		}
+		s.respondError(w, statusCode, code, "Failed to delete conversation", err.Error())
+		metrics.GetInstance().IncrementErrors()
+		return
+	}
+
+	if conv.Status == "deleted" {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Conversation already deleted"})
+		return
+	}
+
+	if err := s.repo.UpdateConversationStatus(ctx, conversationID, "deleted"); err != nil {
+		s.respondError(w, http.StatusInternalServerError, "delete_failed", "Failed to delete conversation", err.Error())
+		metrics.GetInstance().IncrementErrors()
+		return
+	}
+
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Conversation deleted"}); err != nil {
+		s.logger.Error("Failed to encode delete conversation response", "error", err)
+	}
+}
+
 // POST /chat/messages - Process user message
 func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
@@ -129,18 +253,21 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	m.IncrementMessages()
 
 	var req PostMessageRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONStrict(w, r, &req); err != nil {
 		s.respondError(w, http.StatusBadRequest, "invalid_request", "Invalid request body", err.Error())
 		m.IncrementErrors()
 		return
 	}
 
-	if req.ConversationID != "" {
-		if _, err := uuid.Parse(req.ConversationID); err != nil {
-			s.respondError(w, http.StatusBadRequest, "invalid_conversation_id", "Invalid conversation ID format", "")
-			m.IncrementErrors()
-			return
-		}
+	if req.ConversationID == "" {
+		s.respondError(w, http.StatusBadRequest, "missing_conversation_id", "Conversation ID is required", "")
+		m.IncrementErrors()
+		return
+	}
+	if _, err := uuid.Parse(req.ConversationID); err != nil {
+		s.respondError(w, http.StatusBadRequest, "invalid_conversation_id", "Invalid conversation ID format", "")
+		m.IncrementErrors()
+		return
 	}
 
 	if req.Message == "" {
@@ -153,20 +280,26 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	correlationID := GenerateCorrelationID()
 	s.logger.Info("Processing chat message", "correlation_id", correlationID, "user_id", userID)
 
-	// Get or create conversation (updates userID internal usage)
-	conv, err := s.getOrCreateConversation(ctx, &req, userID, correlationID)
+	conv, err := s.getConversationForUser(ctx, userID, req.ConversationID)
 	if err != nil {
-		if errors.Is(err, ErrConversationNotFound) {
+		switch {
+		case errors.Is(err, ErrConversationNotFound):
 			s.respondError(w, http.StatusNotFound, "conversation_not_found", "Conversation not found", err.Error())
-		} else {
-			s.respondError(w, http.StatusInternalServerError, "conversation_error", "Failed to get or create conversation", err.Error())
+		case errors.Is(err, ErrConversationForbidden):
+			s.respondError(w, http.StatusForbidden, "forbidden", "You do not have permission to access this conversation", "")
+		default:
+			s.respondError(w, http.StatusInternalServerError, "conversation_error", "Failed to get conversation", err.Error())
 		}
 		m.IncrementErrors()
 		return
 	}
 
 	// Persist user message
-	s.persistUserMessage(ctx, conv.ID, userID, req.Message, req.Context)
+	if err := s.persistUserMessage(ctx, conv.ID, userID, req.Message, req.Context); err != nil {
+		s.respondError(w, http.StatusInternalServerError, "message_persist_failed", "Failed to persist user message", err.Error())
+		m.IncrementErrors()
+		return
+	}
 
 	// Forward to Agent Runner via gRPC
 	agentReply, proposedAction, err := s.forwardToAgent(ctx, userID, req.Message, correlationID, conv.ID)
@@ -178,7 +311,10 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist agent reply
-	s.persistAssistantMessage(ctx, conv.ID, userID, agentReply)
+	if err := s.persistAssistantMessage(ctx, conv.ID, userID, agentReply); err != nil {
+		s.logger.Error("Failed to persist assistant message", "error", err, "correlation_id", correlationID)
+		m.IncrementErrors()
+	}
 
 	response := PostMessageResponse{
 		ConversationID: conv.ID,
@@ -186,9 +322,10 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 		CorrelationID:  correlationID,
 	}
 
-	// If agent proposed an action, store it
+	// If the interceptor created an action, include it in response.
 	if proposedAction != nil {
-		s.handleProposedAction(ctx, conv, proposedAction, &response)
+		response.ActionID = proposedAction.ActionID
+		response.ProposedActionSummary = proposedAction.Summary
 	}
 
 	// Record latency
@@ -199,90 +336,21 @@ func (s *Service) handlePostMessage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Service) handleProposedAction(ctx context.Context, conv *models.Conversation, proposedAction *ProposedAction, response *PostMessageResponse) {
-	m := metrics.GetInstance()
-	actionID := GenerateActionID()
-	// Use nanosecond timestamp + UUID for better uniqueness
-	idempotencyKey := GenerateIdempotencyKey(conv.UserID, conv.ID, proposedAction.ActionType, time.Now().UnixNano())
-
-	actionJSON, err := MarshalJSON(proposedAction.Action)
+func (s *Service) getConversationForUser(ctx context.Context, userID, conversationID string) (*models.Conversation, error) {
+	conv, err := s.repo.GetConversationByID(ctx, conversationID)
 	if err != nil {
-		s.logger.Error("Failed to marshal proposed action", "error", err)
-		return
+		return nil, fmt.Errorf("%w: %s", ErrConversationNotFound, conversationID)
 	}
-
-	// Validate the proposed action
-	if err := s.policyValidator.ValidateAction(proposedAction.ActionType, actionJSON); err != nil {
-		s.logger.Warn("Proposed action failed validation", "error", err, "action_type", proposedAction.ActionType)
-		m.IncrementValidationErrors()
-		// Still store it but mark with validation error in metadata
-		response.Metadata = map[string]interface{}{
-			"validation_error": err.Error(),
-		}
+	if conv.UserID != userID {
+		return nil, ErrConversationForbidden
 	}
-
-	// Check for bulk action violations
-	if err := s.policyValidator.ValidateBulkAction(proposedAction.ActionType, actionJSON); err != nil {
-		s.logger.Warn("Proposed action violates bulk operation policy", "error", err)
-		m.IncrementPolicyViolations()
-		response.Metadata = map[string]interface{}{
-			"policy_violation": err.Error(),
-		}
-		return
+	if conv.Status == "deleted" {
+		return nil, fmt.Errorf("%w: %s", ErrConversationNotFound, conversationID)
 	}
-
-	pendingAction := &models.PendingAction{
-		ActionID:       actionID,
-		UserID:         conv.UserID,
-		ConversationID: conv.ID,
-		ProposedAction: actionJSON,
-		ActionType:     proposedAction.ActionType,
-		IdempotencyKey: idempotencyKey,
-		Status:         "pending",
-		CorrelationID:  response.CorrelationID,
-		ExpiresAt:      time.Now().Add(time.Duration(s.actionExpiryHours) * time.Hour),
-	}
-
-	if proposedAction.Metadata != nil {
-		metadata, err := MarshalJSON(proposedAction.Metadata)
-		if err == nil {
-			pendingAction.AgentMetadata = metadata
-		}
-	}
-
-	_, err = s.repo.CreatePendingAction(ctx, pendingAction)
-	if err != nil {
-		s.logger.Error("Failed to create pending action", "error", err)
-		m.IncrementErrors()
-	} else {
-		response.ActionID = actionID
-		response.ProposedActionSummary = proposedAction.Summary
-		m.IncrementPendingActions()
-	}
-}
-
-func (s *Service) getOrCreateConversation(ctx context.Context, req *PostMessageRequest, userID, correlationID string) (*models.Conversation, error) {
-	m := metrics.GetInstance()
-	if req.ConversationID != "" {
-		conv, err := s.repo.GetConversationByID(ctx, req.ConversationID)
-		if err == nil {
-			if conv.UserID != userID {
-				return nil, errors.New("conversation does not belong to user")
-			}
-			return conv, nil
-		}
-		return nil, fmt.Errorf("%w: %s", ErrConversationNotFound, req.ConversationID)
-	}
-
-	conv, err := s.repo.CreateConversation(ctx, userID, correlationID)
-	if err != nil {
-		return nil, err
-	}
-	m.IncrementConversations()
 	return conv, nil
 }
 
-func (s *Service) persistUserMessage(ctx context.Context, convID, userID, message string, context map[string]interface{}) {
+func (s *Service) persistUserMessage(ctx context.Context, convID, userID, message string, context map[string]interface{}) error {
 	userMsg := &models.ChatMessage{
 		ConversationID: convID,
 		UserID:         userID,
@@ -299,11 +367,13 @@ func (s *Service) persistUserMessage(ctx context.Context, convID, userID, messag
 
 	_, err := s.repo.CreateMessage(ctx, userMsg)
 	if err != nil {
-		s.logger.Error("Failed to persist user message", "error", err)
+		return fmt.Errorf("failed to persist user message: %w", err)
 	}
+
+	return nil
 }
 
-func (s *Service) persistAssistantMessage(ctx context.Context, convID, userID, message string) {
+func (s *Service) persistAssistantMessage(ctx context.Context, convID, userID, message string) error {
 	assistantMsg := &models.ChatMessage{
 		ConversationID: convID,
 		UserID:         userID,
@@ -312,8 +382,9 @@ func (s *Service) persistAssistantMessage(ctx context.Context, convID, userID, m
 	}
 	_, err := s.repo.CreateMessage(ctx, assistantMsg)
 	if err != nil {
-		s.logger.Error("Failed to persist agent reply", "error", err)
+		return fmt.Errorf("failed to persist agent reply: %w", err)
 	}
+	return nil
 }
 
 // GET /chat/conversations/{conversation_id} - Get conversation history
@@ -340,14 +411,9 @@ func (s *Service) handleGetConversation(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Get conversation
-	conv, err := s.repo.GetConversationByID(ctx, conversationID)
+	conv, err := s.getConversationForUser(ctx, userID, conversationID)
 	if err != nil {
 		s.respondError(w, http.StatusNotFound, "conversation_not_found", "Conversation not found", err.Error())
-		return
-	}
-
-	if conv.UserID != userID {
-		s.respondError(w, http.StatusForbidden, "forbidden", "You do not have permission to access this conversation", "")
 		return
 	}
 
@@ -401,7 +467,7 @@ func (s *Service) handleConfirmAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req ConfirmActionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONStrict(w, r, &req); err != nil {
 		s.respondError(w, http.StatusBadRequest, "invalid_request", "Invalid request body", err.Error())
 		m.IncrementErrors()
 		return
@@ -624,6 +690,7 @@ func (s *Service) handleGetAction(w http.ResponseWriter, r *http.Request) {
 // Helper functions
 
 type ProposedAction struct {
+	ActionID   string                 `json:"action_id"`
 	ActionType string                 `json:"action_type"`
 	Action     map[string]interface{} `json:"action"`
 	Summary    string                 `json:"summary"`
@@ -651,7 +718,9 @@ func (s *Service) forwardToAgent(ctx context.Context, userID, message, correlati
 	// Propagate userID via metadata
 	ctx = middleware.PassUserIDToMetadata(ctx)
 
-	resp, err := s.grpcClient.ProcessMessage(ctx, req)
+	rpcCtx, cancel := context.WithTimeout(ctx, agentRPCTimeout)
+	defer cancel()
+	resp, err := s.grpcClient.ProcessMessage(rpcCtx, req)
 	if err != nil {
 		s.logger.Error("Failed to call agent ProcessMessage", "error", err, "correlation_id", correlationID)
 		return "", nil, fmt.Errorf("failed to process message with agent: %w", err)
@@ -716,7 +785,9 @@ func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]
 		Location:    location,
 	}
 
-	res, err := client.CreateEvent(ctx, req)
+	rpcCtx, cancel := context.WithTimeout(ctx, actionRPCTimeout)
+	defer cancel()
+	res, err := client.CreateEvent(rpcCtx, req)
 	if err != nil {
 		return nil, "", fmt.Errorf("gRPC CreateEvent failed: %w", err)
 	}
@@ -788,7 +859,9 @@ func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]
 		Location:    location,
 	}
 
-	res, err := client.UpdateEvent(ctx, req)
+	rpcCtx, cancel := context.WithTimeout(ctx, actionRPCTimeout)
+	defer cancel()
+	res, err := client.UpdateEvent(rpcCtx, req)
 	if err != nil {
 		return nil, "", fmt.Errorf("gRPC UpdateEvent failed: %w", err)
 	}
@@ -818,7 +891,9 @@ func (s *Service) executeDeleteEvent(ctx context.Context, actionData map[string]
 		Id: eventID,
 	}
 
-	res, err := client.DeleteEvent(ctx, req)
+	rpcCtx, cancel := context.WithTimeout(ctx, actionRPCTimeout)
+	defer cancel()
+	res, err := client.DeleteEvent(rpcCtx, req)
 	if err != nil {
 		return nil, "", fmt.Errorf("gRPC DeleteEvent failed: %w", err)
 	}
@@ -959,6 +1034,7 @@ func (s *Service) parseProposedAction(ctx context.Context, _ *pb.ProcessMessageR
 	summary := generateActionSummary(latestAction.ActionType, actionData)
 
 	return &ProposedAction{
+		ActionID:   latestAction.ActionID,
 		ActionType: latestAction.ActionType,
 		Action:     actionData,
 		Summary:    summary,

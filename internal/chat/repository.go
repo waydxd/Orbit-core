@@ -399,7 +399,7 @@ func (r *MongoRepository) GetToolLogsByPendingAction(ctx context.Context, pendin
 
 // GenerateActionID Helper function to generate action ID
 func GenerateActionID() string {
-	return fmt.Sprintf("action_%s", uuid.New().String())
+	return uuid.New().String()
 }
 
 // GenerateCorrelationID Helper function to generate correlation ID

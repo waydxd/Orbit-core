@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/waydxd/Orbit-core/internal/agent"
 	"github.com/waydxd/Orbit-core/internal/auth"
 	"github.com/waydxd/Orbit-core/internal/calendar"
 	"github.com/waydxd/Orbit-core/internal/chat"
@@ -95,17 +94,8 @@ func main() {
 		}
 	}(grpcClient)
 
-	// Initialize agent service for AI interactions
-	agentService := agent.NewService(cfg, log, grpcClient, calendarService)
-
 	// Initialize chat service for chatbot functionality
 	chatService := chat.NewService(cfg, log, chatRepo, grpcClient)
-
-	// Start cleanup job for expired actions
-	cleanupJob := chat.NewCleanupJob(chatService, log, 5*time.Minute)
-	cancelContext, cancelFunc := context.WithCancel(context.Background())
-	defer cancelFunc()
-	go cleanupJob.Start(cancelContext)
 
 	// Create action interceptor for capturing mutating operations
 	actionInterceptor := grpc.NewActionInterceptor(log, chatRepo)
@@ -141,7 +131,6 @@ func main() {
 		CalendarService:    calendarService,
 		LocationService:    locationService,
 		IntegrationService: integrationService,
-		AgentService:       agentService,
 		ChatService:        chatService,
 		HabitService:       habitService,
 	})
