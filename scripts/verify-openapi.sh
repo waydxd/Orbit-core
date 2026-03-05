@@ -22,10 +22,10 @@ check_endpoints() {
     echo ""
 
     # Get all endpoints from code
-    CODE_ENDPOINTS=$(grep -rh "HandleFunc" "$PROJECT_ROOT/internal"*/service.go 2>/dev/null | grep -oP '"\K[^"]+' | sort -u || true)
+    CODE_ENDPOINTS=$(grep -rh "HandleFunc" "$PROJECT_ROOT/internal"*/service.go 2>/dev/null | sed -E 's/.*HandleFunc\("([^"]+)".*/\1/' | sort -u || true)
 
     # Get all endpoints from OpenAPI
-    OPENAPI_ENDPOINTS=$(grep -rh "^  /api/v1\|^  /health" "$PROJECT_ROOT/docs/openapi"/paths/*.yaml 2>/dev/null | sed 's/^  //; s/:$//' | sort -u || true)
+    OPENAPI_ENDPOINTS=$(grep -rhE "^  /api/v1|^  /health" "$PROJECT_ROOT/docs/openapi"/paths/*.yaml 2>/dev/null | sed 's/^  //; s/:$//' | sort -u || true)
 
     # Check each code endpoint is in OpenAPI
     for endpoint in $CODE_ENDPOINTS; do
@@ -49,7 +49,7 @@ check_schemas() {
     echo ""
 
     # Get all struct names from code (simplified)
-    CODE_STRUCTS=$(grep -rh "^type.*struct" "$PROJECT_ROOT/internal"*/service.go 2>/dev/null | grep -oP 'type \K[a-zA-Z]+' | sort -u || true)
+    CODE_STRUCTS=$(grep -rh "^type.*struct" "$PROJECT_ROOT/internal"*/service.go 2>/dev/null | sed -E 's/^type ([A-Za-z_][A-Za-z0-9_]*) struct.*/\1/' | sort -u || true)
 
     # Get all schema names from OpenAPI
     OPENAPI_SCHEMAS=$(grep -rh "^    [A-Z][a-zA-Z]*:" "$PROJECT_ROOT/docs/openapi"/schemas/*.yaml 2>/dev/null | sed 's/^    //; s/:$//' | sort -u || true)
@@ -65,9 +65,83 @@ check_schemas() {
         fi
     done
 
-    if [ $MISSING -eq 0 ]; then
+    if [ $WARNINGS -eq 0 ]; then
         echo -e "${GREEN}✓ Common schemas are documented${NC}"
     fi
+    echo ""
+}
+
+check_openapi_structure() {
+    echo "Checking merged OpenAPI structure..."
+    echo ""
+
+    GENERATED_FILE="$PROJECT_ROOT/docs/openapi.yaml"
+    if [ ! -f "$GENERATED_FILE" ]; then
+        echo -e "${YELLOW}⚠ Generated spec not found at docs/openapi.yaml; skipping structural checks${NC}"
+        echo ""
+        return
+    fi
+
+    STRUCT_OUTPUT=$(python3 - "$GENERATED_FILE" <<'PY'
+import sys
+from pathlib import Path
+
+try:
+    import yaml
+except Exception as exc:
+    print(f"ERR:pyyaml_missing:{exc}")
+    sys.exit(2)
+
+target = Path(sys.argv[1])
+doc = yaml.safe_load(target.read_text(encoding="utf-8"))
+
+errors = []
+
+if not isinstance(doc, dict):
+    errors.append("OpenAPI document root is not a mapping")
+else:
+    if not isinstance(doc.get("paths"), dict):
+        errors.append("Top-level 'paths' is missing or not a mapping")
+    if not isinstance(doc.get("components"), dict):
+        errors.append("Top-level 'components' is missing or not a mapping")
+
+def walk(node, path):
+    if isinstance(node, dict):
+        if "schema" in node and isinstance(node["schema"], dict) and "paths" in node["schema"]:
+            errors.append(f"Invalid nested 'paths' inside schema at {'/'.join(path + ['schema'])}")
+        if "properties" in node and isinstance(node["properties"], dict) and "components" in node["properties"]:
+            errors.append(f"Invalid nested 'components' inside schema properties at {'/'.join(path + ['properties'])}")
+        for key, value in node.items():
+            walk(value, path + [str(key)])
+    elif isinstance(node, list):
+        for idx, item in enumerate(node):
+            walk(item, path + [str(idx)])
+
+walk(doc, [])
+
+if errors:
+    for err in errors:
+        print(f"ERR:{err}")
+    sys.exit(1)
+
+print("OK")
+PY
+)
+    STRUCT_EXIT=$?
+
+    if [ $STRUCT_EXIT -eq 2 ]; then
+        echo -e "${YELLOW}⚠ Could not run structural validation: $STRUCT_OUTPUT${NC}"
+    elif [ $STRUCT_EXIT -ne 0 ]; then
+        echo "$STRUCT_OUTPUT" | while IFS= read -r line; do
+            if [[ "$line" == ERR:* ]]; then
+                echo -e "${RED}✗ ${line#ERR:}${NC}"
+            fi
+        done
+        ((ERRORS++))
+    else
+        echo -e "${GREEN}✓ Merged OpenAPI structure is valid${NC}"
+    fi
+
     echo ""
 }
 
@@ -164,5 +238,6 @@ check_schemas
 check_security
 check_yaml_syntax
 check_response_codes
+check_openapi_structure
 print_summary
 

@@ -1,4 +1,347 @@
 paths:
+  /api/v1/chat/health:
+    get:
+      summary: Get chat service health
+      tags:
+        - Chat
+      security: []
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: unhealthy
+                  error:
+                    type: string
+                    example: grpc health check failed
+
+  /api/v1/chat/conversations:
+    post:
+      summary: Create a new conversation
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: Conversation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateConversationResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+
+  /api/v1/chat/conversations/{conversation_id}:
+    get:
+      summary: Get conversation history and pending actions
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Conversation ID
+      responses:
+        '200':
+          description: Conversation retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationResponse'
+        '400':
+          description: Invalid conversation ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '404':
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+    delete:
+      summary: Soft delete a conversation
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Conversation ID
+      responses:
+        '200':
+          description: Conversation deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid conversation ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '404':
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+
+  /api/v1/chat/messages:
+    post:
+      summary: Send a chat message to the AI assistant
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostMessageRequest'
+      responses:
+        '200':
+          description: Message processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostMessageResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '404':
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '502':
+          description: Agent communication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+
+  /api/v1/chat/actions/{action_id}/confirm:
+    post:
+      summary: Confirm and execute a pending action
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Action ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmActionRequest'
+      responses:
+        '200':
+          description: Action executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfirmActionResponse'
+        '400':
+          description: Invalid request or idempotency key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '404':
+          description: Action not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '409':
+          description: Action not pending or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '410':
+          description: Action expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+
+  /api/v1/chat/actions/{action_id}/cancel:
+    post:
+      summary: Cancel a pending action
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Action ID
+      responses:
+        '200':
+          description: Action cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '404':
+          description: Action not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '409':
+          description: Action already processed or not pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+
+  /api/v1/chat/actions/{action_id}:
+    get:
+      summary: Get pending action details
+      tags:
+        - Chat
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: action_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Action ID
+      responses:
+        '200':
+          description: Action details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '404':
+          description: Action not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+
   /api/v1/chat/metrics:
     get:
       summary: Get chat service metrics
@@ -7,365 +350,15 @@ paths:
       security:
         - BearerAuth: []
       responses:
-        "200":
+        '200':
           description: Metrics retrieved successfully
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatMetrics'
-        "500":
+        '500':
           description: Internal server error
           content:
             application/json:
               schema:
-                paths:
-                  /api/v1/chat/health:
-                    get:
-                      summary: Get chat service health
-                      tags:
-                        - Chat
-                      responses:
-                        "200":
-                          description: Service healthy
-                          content:
-                            application/json:
-                              schema:
-                                type: object
-                                properties:
-                                  status:
-                                    type: string
-                                    example: healthy
-                        "503":
-                          description: Service unavailable
-                          content:
-                            application/json:
-                              schema:
-                                type: object
-                                properties:
-                                  status:
-                                    type: string
-                                    example: unhealthy
-                                  error:
-                                    type: string
-                                    example: grpc health check failed
-
-                  /api/v1/chat/conversations:
-                    post:
-                      summary: Create a new conversation
-                      tags:
-                        - Chat
-                      security:
-                        - BearerAuth: []
-                      responses:
-                        "201":
-                          description: Conversation created
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/CreateConversationResponse'
-                        "401":
-                          description: Unauthorized
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-
-                  /api/v1/chat/conversations/{conversation_id}:
-                    get:
-                      summary: Get conversation history and pending actions
-                      tags:
-                        - Chat
-                      security:
-                        - BearerAuth: []
-                      parameters:
-                        - name: conversation_id
-                          in: path
-                          required: true
-                          schema:
-                            type: string
-                          description: Conversation ID
-                      responses:
-                        "200":
-                          description: Conversation retrieved successfully
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ConversationResponse'
-                        "404":
-                          description: Conversation not found
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-                        "500":
-                          description: Internal server error
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-                    delete:
-                      summary: Soft delete a conversation
-                      tags:
-                        - Chat
-                      security:
-                        - BearerAuth: []
-                      parameters:
-                        - name: conversation_id
-                          in: path
-                          required: true
-                          schema:
-                            type: string
-                          description: Conversation ID
-                      responses:
-                        "200":
-                          description: Conversation deleted
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/SuccessResponse'
-                        "404":
-                          description: Conversation not found
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-
-                  /api/v1/chat/messages:
-                    post:
-                      summary: Send a chat message to the AI assistant
-                      tags:
-                        - Chat
-                      security:
-                        - BearerAuth: []
-                      requestBody:
-                        required: true
-                        content:
-                          application/json:
-                            schema:
-                              $ref: '#/components/schemas/PostMessageRequest'
-                      responses:
-                        "200":
-                          description: Message processed successfully
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/PostMessageResponse'
-                        "400":
-                          description: Invalid input
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-                        "401":
-                          description: Unauthorized
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-                        "502":
-                          description: Agent communication failed
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-
-                  /api/v1/chat/actions/{action_id}/confirm:
-                    post:
-                      summary: Confirm and execute a pending action
-                      tags:
-                        - Chat
-                      security:
-                        - BearerAuth: []
-                      parameters:
-                        - name: action_id
-                          in: path
-                          required: true
-                          schema:
-                            type: string
-                          description: Action ID
-                      requestBody:
-                        required: true
-                        content:
-                          application/json:
-                            schema:
-                              $ref: '#/components/schemas/ConfirmActionRequest'
-                      responses:
-                        "200":
-                          description: Action executed successfully
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ConfirmActionResponse'
-                        "400":
-                          description: Invalid request or idempotency key
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-                        "404":
-                          description: Action not found
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-                        "409":
-                          description: Action not pending or conflict
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-                        "410":
-                          description: Action expired
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-
-                  /api/v1/chat/actions/{action_id}/cancel:
-                    post:
-                      summary: Cancel a pending action
-                      tags:
-                        - Chat
-                      security:
-                        - BearerAuth: []
-                      parameters:
-                        - name: action_id
-                          in: path
-                          required: true
-                          schema:
-                            type: string
-                          description: Action ID
-                      responses:
-                        "200":
-                          description: Action cancelled successfully
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/SuccessResponse'
-                        "400":
-                          description: Invalid request
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-                        "404":
-                          description: Action not found
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-                        "409":
-                          description: Action already processed or not pending
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-                        "410":
-                          description: Action expired
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-
-                  /api/v1/chat/actions/{action_id}:
-                    get:
-                      summary: Get pending action details
-                      tags:
-                        - Chat
-                      security:
-                        - BearerAuth: []
-                      parameters:
-                        - name: action_id
-                          in: path
-                          required: true
-                          schema:
-                            type: string
-                          description: Action ID
-                      responses:
-                        "200":
-                          description: Action details retrieved successfully
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ActionResponse'
-                        "404":
-                          description: Action not found
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-                        "403":
-                          description: Forbidden
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-
-                  /api/v1/chat/metrics:
-                    get:
-                      summary: Get chat service metrics
-                      tags:
-                        - Chat
-                      security:
-                        - BearerAuth: []
-                      responses:
-                        "200":
-                          description: Metrics retrieved successfully
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatMetrics'
-                        "500":
-                          description: Internal server error
-                          content:
-                            application/json:
-                              schema:
-                                $ref: '#/components/schemas/ChatError'
-    ConversationResponse:
-      type: object
-      properties:
-        conversation_id:
-          type: string
-        messages:
-          type: array
-          items:
-            type: object
-            properties:
-              sender:
-                type: string
-              content:
-                type: string
-              timestamp:
-                type: string
-                format: date-time
-        pending_actions:
-          type: array
-          items:
-            type: object
-            properties:
-              action_id:
-                type: string
-              type:
-                type: string
-              status:
-                type: string
-                enum: [pending, confirmed, cancelled, expired]
-              error:
                 $ref: '#/components/schemas/ChatError'
-    PostMessageRequest:
-      type: object
-      properties:
-        conversation_id:
-          type: string
-        content:
-          type: string
-    PostMessageResponse:
-      type: object
-      properties:
-        message_id:
-          type: string
-        status:
-          type: string
-          enum: [sent, failed]
-        error:
-          $ref: '#/components/schemas/ChatError'
