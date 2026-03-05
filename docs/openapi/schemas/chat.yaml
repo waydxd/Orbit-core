@@ -4,7 +4,7 @@ components:
       type: object
       required:
         - message
-        - user_id
+        - conversation_id
       properties:
         message:
           type: string
@@ -12,264 +12,250 @@ components:
         conversation_id:
           type: string
           example: conv-uuid-123
-        components:
-          schemas:
-            PostMessageRequest:
-              type: object
-              required:
-                - message
-                - conversation_id
-              properties:
-                message:
-                  type: string
-                  example: "Schedule a meeting with John tomorrow at 2pm"
-                conversation_id:
-                  type: string
-                  example: conv-uuid-123
-                context:
-                  type: object
-                  additionalProperties: true
+        context:
+          type: object
+          additionalProperties: true
 
-            PostMessageResponse:
-              type: object
-              properties:
-                conversation_id:
-                  type: string
-                  example: conv-uuid-123
-                reply:
-                  type: string
-                  example: "I can help you schedule that meeting. Let me propose creating an event for tomorrow at 2pm with John."
-                proposed_action_summary:
-                  type: string
-                  example: "Create calendar event \"Meeting with John\" on 2024-01-16 14:00-15:00"
-                action_id:
-                  type: string
-                  example: action_uuid-789
-                correlation_id:
-                  type: string
-                  example: corr-uuid-abc
-                metadata:
-                  type: object
-                  additionalProperties: true
+    PostMessageResponse:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+          example: conv-uuid-123
+        reply:
+          type: string
+          example: I can help you schedule that meeting. Let me propose creating an event for tomorrow at 2pm with John.
+        proposed_action_summary:
+          type: string
+          example: Create calendar event "Meeting with John" on 2024-01-16 14:00-15:00
+        action_id:
+          type: string
+          example: action_uuid-789
+        correlation_id:
+          type: string
+          example: corr-uuid-abc
+        metadata:
+          type: object
+          additionalProperties: true
 
-            CreateConversationResponse:
-              type: object
-              properties:
-                conversation_id:
-                  type: string
-                  example: conv-uuid-123
-                status:
-                  type: string
-                  example: active
+    CreateConversationResponse:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+          example: conv-uuid-123
+        status:
+          type: string
+          example: active
 
-            ConversationResponse:
-              type: object
-              properties:
-                conversation_id:
-                  type: string
-                  example: conv-uuid-123
-                user_id:
-                  type: string
-                  example: user-uuid-456
-                messages:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/ChatMessage'
-                pending_actions:
-                  type: array
-                  items:
-                    $ref: '#/components/schemas/PendingAction'
-                status:
-                  type: string
-                  enum: [active, closed, archived, deleted]
-                  example: active
+    ConversationResponse:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+          example: conv-uuid-123
+        user_id:
+          type: string
+          example: user-uuid-456
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        pending_actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PendingAction'
+        status:
+          type: string
+          enum: [active, closed, archived, deleted]
+          example: active
 
-            ChatMessage:
-              type: object
-              properties:
-                id:
-                  type: string
-                  example: msg-uuid-001
-                conversation_id:
-                  type: string
-                  example: conv-uuid-123
-                user_id:
-                  type: string
-                  example: user-uuid-456
-                role:
-                  type: string
-                  enum: [user, assistant, system]
-                  example: user
-                content:
-                  type: string
-                  example: "Schedule a meeting with John tomorrow at 2pm"
-                metadata:
-                  type: object
-                  additionalProperties: true
-                created_at:
-                  type: string
-                  format: date-time
+    ChatMessage:
+      type: object
+      properties:
+        id:
+          type: string
+          example: msg-uuid-001
+        conversation_id:
+          type: string
+          example: conv-uuid-123
+        user_id:
+          type: string
+          example: user-uuid-456
+        role:
+          type: string
+          enum: [user, assistant, system]
+          example: user
+        content:
+          type: string
+          example: Schedule a meeting with John tomorrow at 2pm
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
 
-            PendingAction:
-              type: object
-              properties:
-                action_id:
-                  type: string
-                  example: action_uuid-789
-                user_id:
-                  type: string
-                  example: user-uuid-456
-                conversation_id:
-                  type: string
-                  example: conv-uuid-123
-                proposed_action:
-                  type: object
-                  additionalProperties: true
-                  example:
-                    title: Meeting with John
-                    start_time: 1705413600
-                    end_time: 1705417200
-                action_type:
-                  type: string
-                  example: create_event
-                idempotency_key:
-                  type: string
-                  example: idem-key-xyz
-                status:
-                  type: string
-                  enum: [pending, confirmed, cancelled, expired, failed]
-                  example: pending
-                version:
-                  type: integer
-                  example: 1
-                correlation_id:
-                  type: string
-                  example: corr-uuid-abc
-                agent_metadata:
-                  type: object
-                  additionalProperties: true
-                error_message:
-                  type: string
-                created_at:
-                  type: string
-                  format: date-time
-                updated_at:
-                  type: string
-                  format: date-time
-                expires_at:
-                  type: string
-                  format: date-time
+    PendingAction:
+      type: object
+      properties:
+        action_id:
+          type: string
+          example: action_uuid-789
+        user_id:
+          type: string
+          example: user-uuid-456
+        conversation_id:
+          type: string
+          example: conv-uuid-123
+        proposed_action:
+          type: object
+          additionalProperties: true
+          example:
+            title: Meeting with John
+            start_time: 1705413600
+            end_time: 1705417200
+        action_type:
+          type: string
+          example: create_event
+        idempotency_key:
+          type: string
+          example: idem-key-xyz
+        status:
+          type: string
+          enum: [pending, confirmed, cancelled, expired, failed]
+          example: pending
+        version:
+          type: integer
+          example: 1
+        correlation_id:
+          type: string
+          example: corr-uuid-abc
+        agent_metadata:
+          type: object
+          additionalProperties: true
+        error_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
 
-            ActionResponse:
-              type: object
-              properties:
-                action_id:
-                  type: string
-                  example: action_uuid-789
-                action_type:
-                  type: string
-                  example: create_event
-                proposed_action:
-                  type: object
-                  additionalProperties: true
-                status:
-                  type: string
-                  enum: [pending, confirmed, cancelled, expired, failed]
-                  example: pending
-                created_at:
-                  type: string
-                  format: date-time
-                expires_at:
-                  type: string
-                  format: date-time
+    ActionResponse:
+      type: object
+      properties:
+        action_id:
+          type: string
+          example: action_uuid-789
+        action_type:
+          type: string
+          example: create_event
+        proposed_action:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          enum: [pending, confirmed, cancelled, expired, failed]
+          example: pending
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
 
-            ConfirmActionRequest:
-              type: object
-              required:
-                - idempotency_key
-              properties:
-                idempotency_key:
-                  type: string
-                  example: idem-key-xyz
+    ConfirmActionRequest:
+      type: object
+      required:
+        - idempotency_key
+      properties:
+        idempotency_key:
+          type: string
+          example: idem-key-xyz
 
-            ConfirmActionResponse:
-              type: object
-              properties:
-                success:
-                  type: boolean
-                  example: true
-                message:
-                  type: string
-                  example: Action executed successfully
-                result:
-                  type: object
-                  additionalProperties: true
-                  example:
-                    event_id: event-uuid-123
-                    message: Event created successfully
-                operation_id:
-                  type: string
-                  example: op-uuid-456
+    ConfirmActionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Action executed successfully
+        result:
+          type: object
+          additionalProperties: true
+          example:
+            event_id: event-uuid-123
+            message: Event created successfully
+        operation_id:
+          type: string
+          example: op-uuid-456
 
-            ChatError:
-              type: object
-              properties:
-                error:
-                  type: string
-                  example: Action not found
-                code:
-                  type: string
-                  example: action_not_found
-                details:
-                  type: string
-                  example: The specified action does not exist or has been deleted
+    ChatError:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Action not found
+        code:
+          type: string
+          example: action_not_found
+        details:
+          type: string
+          example: The specified action does not exist or has been deleted
 
-            ChatMetrics:
-              type: object
-              properties:
-                paths:
-                  type: number
-                actions_per_minute:
-                  type: number
-                messages_per_minute:
-                  type: integer
-                conflict_errors:
-                  type: integer
-                policy_violations:
-                  type: integer
-                validation_errors:
-                  type: integer
-                total_errors:
-                  type: number
-                success_rate_pct:
-                  type: number
-                confirmation_rate_pct:
-                  type: integer
-                avg_action_latency_ms:
-                  type: integer
-                avg_message_latency_ms:
-                  type: integer
-                total_failed_actions:
-                  type: integer
-                total_expired_actions:
-                  type: integer
-                total_cancelled_actions:
-                  type: integer
-                total_confirmed_actions:
-                  type: integer
-                total_pending_actions:
-                  type: integer
-                total_conversations:
-                  type: integer
-                total_messages:
-                  type: integer
+    ChatMetrics:
+      type: object
+      properties:
+        paths:
+          type: number
+        actions_per_minute:
+          type: number
+        messages_per_minute:
+          type: integer
+        conflict_errors:
+          type: integer
+        policy_violations:
+          type: integer
+        validation_errors:
+          type: integer
+        total_errors:
+          type: number
+        success_rate_pct:
+          type: number
+        confirmation_rate_pct:
+          type: integer
+        avg_action_latency_ms:
+          type: integer
+        avg_message_latency_ms:
+          type: integer
+        total_failed_actions:
+          type: integer
+        total_expired_actions:
+          type: integer
+        total_cancelled_actions:
+          type: integer
+        total_confirmed_actions:
+          type: integer
+        total_pending_actions:
+          type: integer
+        total_conversations:
+          type: integer
+        total_messages:
+          type: integer
 
-            SuccessResponse:
-              type: object
-              properties:
-                success:
-                  type: boolean
-                  example: true
-                message:
-                  type: string
-                  example: Operation completed successfully
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Operation completed successfully
