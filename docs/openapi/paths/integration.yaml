@@ -263,6 +263,7 @@ paths:
         Callback endpoint that Google will redirect to with `code` and `state` query parameters. The server must validate the CSRF `state` and exchange the `code` for access and refresh tokens.
       tags:
         - Integration
+      security: []
       parameters:
         - name: code
           in: query
