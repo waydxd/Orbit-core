@@ -41,7 +41,7 @@ components:
                   example: "I can help you schedule that meeting. Let me propose creating an event for tomorrow at 2pm with John."
                 proposed_action_summary:
                   type: string
-                  example: "Create calendar event \"Meeting with John\" on 2024-01-16 14:00-15:00"
+                  example: 'Create calendar event "Meeting with John" on 2024-01-16 14:00-15:00'
                 action_id:
                   type: string
                   example: action_uuid-789
@@ -74,11 +74,11 @@ components:
                 messages:
                   type: array
                   items:
-                    $ref: '#/components/schemas/ChatMessage'
+                    $ref: "#/components/schemas/ChatMessage"
                 pending_actions:
                   type: array
                   items:
-                    $ref: '#/components/schemas/PendingAction'
+                    $ref: "#/components/schemas/PendingAction"
                 status:
                   type: string
                   enum: [active, closed, archived, deleted]
@@ -273,3 +273,42 @@ components:
                 message:
                   type: string
                   example: Operation completed successfully
+    ChatMetrics:
+      type: object
+      properties:
+        paths:
+          type: number
+        actions_per_minute:
+          type: number
+        messages_per_minute:
+          type: integer
+        conflict_errors:
+          type: integer
+        policy_violations:
+          type: integer
+        validation_errors:
+          type: integer
+        total_errors:
+          type: number
+        success_rate_pct:
+          type: number
+        confirmation_rate_pct:
+          type: integer
+        avg_action_latency_ms:
+          type: integer
+        avg_message_latency_ms:
+          type: integer
+        total_failed_actions:
+          type: integer
+        total_expired_actions:
+          type: integer
+        total_cancelled_actions:
+          type: integer
+        total_confirmed_actions:
+          type: integer
+        total_pending_actions:
+          type: integer
+        total_conversations:
+          type: integer
+        total_messages:
+          type: integer
