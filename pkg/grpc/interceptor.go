@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/logger"
 	pb "github.com/waydxd/Orbit-core/proto/calendar"
@@ -160,7 +161,7 @@ func extractCorrelationID(ctx context.Context) string {
 
 // generateActionID generates a unique action ID
 func generateActionID() string {
-	return fmt.Sprintf("action_%d", time.Now().UnixNano())
+	return uuid.New().String()
 }
 
 // generateIdempotencyKey generates an idempotency key

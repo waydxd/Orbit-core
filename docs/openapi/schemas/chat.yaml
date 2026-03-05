@@ -4,7 +4,7 @@ components:
       type: object
       required:
         - message
-        - user_id
+        - conversation_id
       properties:
         message:
           type: string
@@ -15,9 +15,6 @@ components:
         context:
           type: object
           additionalProperties: true
-        user_id:
-          type: string
-          example: user-uuid-456
 
     PostMessageResponse:
       type: object
@@ -41,6 +38,16 @@ components:
           type: object
           additionalProperties: true
 
+    CreateConversationResponse:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+          example: conv-uuid-123
+        status:
+          type: string
+          example: active
+
     ConversationResponse:
       type: object
       properties:
@@ -60,7 +67,7 @@ components:
             $ref: '#/components/schemas/PendingAction'
         status:
           type: string
-          enum: [active, closed, archived]
+          enum: [active, closed, archived, deleted]
           example: active
 
     ChatMessage:
@@ -92,9 +99,6 @@ components:
     PendingAction:
       type: object
       properties:
-        id:
-          type: string
-          example: pa-uuid-001
         action_id:
           type: string
           example: action_uuid-789
@@ -245,6 +249,7 @@ components:
           type: integer
         total_messages:
           type: integer
+
     SuccessResponse:
       type: object
       properties:
@@ -254,15 +259,3 @@ components:
         message:
           type: string
           example: Operation completed successfully
-
-    AcceptSuggestionResponse:
-      type: object
-      properties:
-        success:
-          type: boolean
-          example: true
-        message:
-          type: string
-          example: "Habit accepted! 'Morning Run' will be scheduled weekly until January 2, 2031"
-        recurring_event:
-          $ref: '#/components/schemas/RecurringEvent'

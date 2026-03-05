@@ -16,6 +16,7 @@ paths:
       summary: Register a new user
       tags:
       - Authentication
+      security: []
       requestBody:
         required: true
         content:
@@ -44,6 +45,7 @@ paths:
       summary: Login user
       tags:
       - Authentication
+      security: []
       requestBody:
         required: true
         content:
@@ -128,6 +130,7 @@ paths:
       summary: Request a password reset link
       tags:
       - Authentication
+      security: []
       requestBody:
         required: true
         content:
@@ -164,6 +167,7 @@ paths:
       summary: Confirm password reset with token and new password
       tags:
       - Authentication
+      security: []
       requestBody:
         required: true
         content:
@@ -209,6 +213,7 @@ paths:
       summary: Verify email using token from email link
       tags:
       - Authentication
+      security: []
       parameters:
       - name: token
         in: query
@@ -545,74 +550,179 @@ paths:
       responses:
         '204':
           description: Task deleted successfully
-  /api/v1/chat/metrics:
+  /api/v1/chat/health:
     get:
-      summary: Get chat service metrics
+      summary: Get chat service health
       tags:
       - Chat
-      security:
-      - BearerAuth: []
+      security: []
       responses:
         '200':
-          description: Metrics retrieved successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatMetrics'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatError'
-  /api/v1/chat/actions/{action_id}/cancel:
-    post:
-      summary: Cancel a pending action
-      tags:
-      - Chat
-      security:
-      - BearerAuth: []
-      parameters:
-      - name: action_id
-        in: path
-        required: true
-        schema:
-          type: string
-        description: Action ID
-      responses:
-        '200':
-          description: Action cancelled successfully
+          description: Service healthy
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  success:
-                    type: boolean
-                    example: true
-                  message:
+                  status:
                     type: string
-                    example: Action cancelled successfully
+                    example: healthy
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: unhealthy
+                  error:
+                    type: string
+                    example: grpc health check failed
+  /api/v1/chat/conversations:
+    post:
+      summary: Create a new conversation
+      tags:
+      - Chat
+      security:
+      - BearerAuth: []
+      responses:
+        '201':
+          description: Conversation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateConversationResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+  /api/v1/chat/conversations/{conversation_id}:
+    get:
+      summary: Get conversation history and pending actions
+      tags:
+      - Chat
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Conversation ID
+      responses:
+        '200':
+          description: Conversation retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationResponse'
+        '400':
+          description: Invalid conversation ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
         '404':
-          description: Action not found
+          description: Conversation not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatError'
-        '409':
-          description: Action already processed or not pending
+    delete:
+      summary: Soft delete a conversation
+      tags:
+      - Chat
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Conversation ID
+      responses:
+        '200':
+          description: Conversation deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid conversation ID
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatError'
-        '410':
-          description: Action expired
+        '401':
+          description: Unauthorized
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatError'
+        '404':
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+  /api/v1/chat/messages:
+    post:
+      summary: Send a chat message to the AI assistant
+      tags:
+      - Chat
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostMessageRequest'
+      responses:
+        '200':
+          description: Message processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostMessageResponse'
         '400':
           description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '404':
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '502':
+          description: Agent communication failed
           content:
             application/json:
               schema:
@@ -644,6 +754,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ConfirmActionResponse'
+        '400':
+          description: Invalid request or idempotency key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
         '404':
           description: Action not found
           content:
@@ -651,7 +779,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ChatError'
         '409':
-          description: Action cannot be cancelled or processed
+          description: Action not pending or conflict
           content:
             application/json:
               schema:
@@ -662,8 +790,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatError'
+  /api/v1/chat/actions/{action_id}/cancel:
+    post:
+      summary: Cancel a pending action
+      tags:
+      - Chat
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: action_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Action ID
+      responses:
+        '200':
+          description: Action cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
         '400':
           description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '404':
+          description: Action not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '409':
+          description: Action already processed or not pending
           content:
             application/json:
               schema:
@@ -689,77 +862,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ActionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatError'
         '404':
           description: Action not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatError'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatError'
-  /api/v1/chat/conversations/{conversation_id}:
+  /api/v1/chat/metrics:
     get:
-      summary: Get conversation history and pending actions
+      summary: Get chat service metrics
       tags:
       - Chat
       security:
       - BearerAuth: []
-      parameters:
-      - name: conversation_id
-        in: path
-        required: true
-        schema:
-          type: string
-        description: Conversation ID
       responses:
         '200':
-          description: Conversation retrieved successfully
+          description: Metrics retrieved successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ConversationResponse'
-        '404':
-          description: Conversation not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatError'
-        '500':
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatError'
-  /api/v1/chat/messages:
-    post:
-      summary: Send a chat message to the AI assistant
-      tags:
-      - Chat
-      security:
-      - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PostMessageRequest'
-      responses:
-        '200':
-          description: Message processed successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PostMessageResponse'
-        '400':
-          description: Invalid input
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatError'
+                $ref: '#/components/schemas/ChatMetrics'
         '500':
           description: Internal server error
           content:
@@ -905,6 +1045,7 @@ paths:
       summary: Health check endpoint
       tags:
       - Health
+      security: []
       responses:
         '200':
           description: Service is healthy
@@ -1188,6 +1329,7 @@ paths:
         '
       tags:
       - Integration
+      security: []
       parameters:
       - name: code
         in: query
@@ -1820,7 +1962,7 @@ components:
       type: object
       required:
       - message
-      - user_id
+      - conversation_id
       properties:
         message:
           type: string
@@ -1831,9 +1973,6 @@ components:
         context:
           type: object
           additionalProperties: true
-        user_id:
-          type: string
-          example: user-uuid-456
     PostMessageResponse:
       type: object
       properties:
@@ -1856,6 +1995,15 @@ components:
         metadata:
           type: object
           additionalProperties: true
+    CreateConversationResponse:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+          example: conv-uuid-123
+        status:
+          type: string
+          example: active
     ConversationResponse:
       type: object
       properties:
@@ -1879,6 +2027,7 @@ components:
           - active
           - closed
           - archived
+          - deleted
           example: active
     ChatMessage:
       type: object
@@ -1911,9 +2060,6 @@ components:
     PendingAction:
       type: object
       properties:
-        id:
-          type: string
-          example: pa-uuid-001
         action_id:
           type: string
           example: action_uuid-789
@@ -2078,52 +2224,6 @@ components:
         message:
           type: string
           example: Operation completed successfully
-    AcceptSuggestionResponse:
-      type: object
-      properties:
-        success:
-          type: boolean
-          example: true
-        message:
-          type: string
-          example: Habit accepted! 'Morning Run' will be scheduled weekly until January
-            2, 2031
-        recurring_event:
-          type: object
-          properties:
-            id:
-              type: string
-              example: event-uuid-456
-            user_id:
-              type: string
-              example: user-uuid-789
-            title:
-              type: string
-              example: Morning Run
-            description:
-              type: string
-              example: Daily jog in the park
-            location:
-              type: string
-              example: Central Park
-            start_time:
-              type: string
-              format: date-time
-            end_time:
-              type: string
-              format: date-time
-            is_recurring:
-              type: boolean
-              example: true
-            recurrence_rule:
-              type: string
-              example: FREQ=WEEKLY;BYDAY=MO;UNTIL=20310102
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
     Error:
       type: object
       properties:
@@ -2174,6 +2274,52 @@ components:
           description: Human-readable prompt for the user
           example: You've scheduled 'Morning Run' multiple times on Monday at 7:30
             AM. Would you like to make this a recurring event for the next 5 years?
+    AcceptSuggestionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Habit accepted! 'Morning Run' will be scheduled weekly until January
+            2, 2031
+        recurring_event:
+          type: object
+          properties:
+            id:
+              type: string
+              example: event-uuid-456
+            user_id:
+              type: string
+              example: user-uuid-789
+            title:
+              type: string
+              example: Morning Run
+            description:
+              type: string
+              example: Daily jog in the park
+            location:
+              type: string
+              example: Central Park
+            start_time:
+              type: string
+              format: date-time
+            end_time:
+              type: string
+              format: date-time
+            is_recurring:
+              type: boolean
+              example: true
+            recurrence_rule:
+              type: string
+              example: FREQ=WEEKLY;BYDAY=MO;UNTIL=20310102
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
     SyncRequest:
       type: object
       required:

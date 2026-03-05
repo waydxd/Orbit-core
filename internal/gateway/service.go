@@ -27,7 +27,6 @@ type ServiceConfig struct {
 	CalendarService    CalendarServiceInterface
 	LocationService    LocationServiceInterface
 	IntegrationService IntegrationServiceInterface
-	AgentService       AgentServiceInterface
 	ChatService        ChatServiceInterface
 	HabitService       HabitServiceInterface
 }
@@ -54,11 +53,6 @@ type LocationServiceInterface interface {
 
 // IntegrationServiceInterface defines methods for integration service
 type IntegrationServiceInterface interface {
-	RegisterRoutes(router *mux.Router)
-}
-
-// AgentServiceInterface defines methods for agent service
-type AgentServiceInterface interface {
 	RegisterRoutes(router *mux.Router)
 }
 
@@ -125,7 +119,6 @@ func (s *Service) setupRoutes() {
 	s.services.CalendarService.RegisterRoutes(protectedRouter)
 	s.services.LocationService.RegisterRoutes(protectedRouter)
 	s.services.IntegrationService.RegisterRoutes(protectedRouter)
-	s.services.AgentService.RegisterRoutes(protectedRouter)
 	s.services.ChatService.RegisterRoutes(protectedRouter)
 	s.services.HabitService.RegisterRoutes(protectedRouter)
 }

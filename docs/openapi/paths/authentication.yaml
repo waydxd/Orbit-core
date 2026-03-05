@@ -4,6 +4,7 @@ paths:
       summary: Register a new user
       tags:
         - Authentication
+      security: []
       requestBody:
         required: true
         content:
@@ -33,6 +34,7 @@ paths:
       summary: Login user
       tags:
         - Authentication
+      security: []
       requestBody:
         required: true
         content:
@@ -120,6 +122,7 @@ paths:
       summary: Request a password reset link
       tags:
         - Authentication
+      security: []
       requestBody:
         required: true
         content:
@@ -156,6 +159,7 @@ paths:
       summary: Confirm password reset with token and new password
       tags:
         - Authentication
+      security: []
       requestBody:
         required: true
         content:
@@ -202,6 +206,7 @@ paths:
       summary: Verify email using token from email link
       tags:
         - Authentication
+      security: []
       parameters:
         - name: token
           in: query
