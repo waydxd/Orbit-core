@@ -26,6 +26,11 @@ components:
         location:
           type: string
           example: Conference Room A
+        hashtags:
+          type: array
+          items:
+            type: string
+          example: ["#meeting", "#work"]
         is_recurring:
           type: boolean
           example: false
@@ -67,6 +72,11 @@ components:
         location:
           type: string
           example: Conference Room A
+        hashtags:
+          type: array
+          items:
+            type: string
+          example: ["#meeting", "#work"]
         is_recurring:
           type: boolean
           example: false
@@ -106,6 +116,11 @@ components:
           type: string
           enum: [low, medium, high]
           example: high
+        hashtags:
+          type: array
+          items:
+            type: string
+          example: ["#work", "#urgent"]
         created_at:
           type: string
           format: date-time
@@ -134,6 +149,12 @@ components:
           type: string
           enum: [low, medium, high]
           example: high
+        hashtags:
+          type: array
+          items:
+            type: string
+          default: []
+          example: ["#work", "#urgent"]
         user_id:
           type: string
           example: user-123
