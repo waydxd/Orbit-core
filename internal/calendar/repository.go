@@ -44,6 +44,13 @@ type SQLTaskRepository struct {
 	pool    *database.DB
 }
 
+func normalizeStringArray(value []string) []string {
+	if value == nil {
+		return make([]string, 0)
+	}
+	return value
+}
+
 // NewSQLEventRepository creates a new SQL event repository
 func NewSQLEventRepository(pool *database.DB) EventRepository {
 	return &SQLEventRepository{
@@ -102,7 +109,7 @@ func (r *SQLEventRepository) GetEventByID(ctx context.Context, id string) (*mode
 		StartTime:   database.TimestamptzToTime(row.StartTime),
 		EndTime:     database.TimestamptzToTime(row.EndTime),
 		Location:    database.TextToString(row.Location),
-		Hashtags:    row.Hashtags,
+		Hashtags:    normalizeStringArray(row.Hashtags),
 		CreatedAt:   database.TimestamptzToTime(row.CreatedAt),
 		UpdatedAt:   database.TimestamptzToTime(row.UpdatedAt),
 	}, nil
@@ -132,7 +139,7 @@ func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, star
 				StartTime:           database.TimestamptzToTime(row.StartTime),
 				EndTime:             database.TimestamptzToTime(row.EndTime),
 				Location:            database.TextToString(row.Location),
-				Hashtags:            row.Hashtags,
+				Hashtags:            normalizeStringArray(row.Hashtags),
 				IsRecurring:         row.IsRecurring.Bool,
 				RecurrenceRule:      database.TextToString(row.RecurrenceRule),
 				RecurrenceException: database.TextToString(row.RecurrenceException),
@@ -159,7 +166,7 @@ func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, star
 				StartTime:           database.TimestamptzToTime(row.StartTime),
 				EndTime:             database.TimestamptzToTime(row.EndTime),
 				Location:            database.TextToString(row.Location),
-				Hashtags:            row.Hashtags,
+				Hashtags:            normalizeStringArray(row.Hashtags),
 				IsRecurring:         row.IsRecurring.Bool,
 				RecurrenceRule:      database.TextToString(row.RecurrenceRule),
 				RecurrenceException: database.TextToString(row.RecurrenceException),
@@ -224,7 +231,7 @@ func (r *SQLEventRepository) GetActiveRecurringEvents(ctx context.Context, userI
 			Title:               row.Title,
 			Description:         database.TextToString(row.Description),
 			Location:            database.TextToString(row.Location),
-			Hashtags:            row.Hashtags,
+			Hashtags:            normalizeStringArray(row.Hashtags),
 			StartTime:           database.TimestamptzToTime(row.StartTime),
 			EndTime:             database.TimestamptzToTime(row.EndTime),
 			IsRecurring:         row.IsRecurring.Bool,
@@ -289,7 +296,7 @@ func (r *SQLTaskRepository) GetTaskByID(ctx context.Context, id string) (*models
 		DueDate:     database.TimestamptzToTime(row.DueDate),
 		Completed:   row.Completed.Bool,
 		Priority:    database.TextToString(row.Priority),
-		Hashtags:    row.Hashtags,
+		Hashtags:    normalizeStringArray(row.Hashtags),
 		CreatedAt:   database.TimestamptzToTime(row.CreatedAt),
 		UpdatedAt:   database.TimestamptzToTime(row.UpdatedAt),
 	}, nil
@@ -322,7 +329,7 @@ func (r *SQLTaskRepository) ListTasks(ctx context.Context, userID string, comple
 			DueDate:     database.TimestamptzToTime(row.DueDate),
 			Completed:   row.Completed.Bool,
 			Priority:    database.TextToString(row.Priority),
-			Hashtags:    row.Hashtags,
+			Hashtags:    normalizeStringArray(row.Hashtags),
 			CreatedAt:   database.TimestamptzToTime(row.CreatedAt),
 			UpdatedAt:   database.TimestamptzToTime(row.UpdatedAt),
 		})

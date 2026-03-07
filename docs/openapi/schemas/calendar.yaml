@@ -153,6 +153,7 @@ components:
           type: array
           items:
             type: string
+          default: []
           example: ["#work", "#urgent"]
         user_id:
           type: string

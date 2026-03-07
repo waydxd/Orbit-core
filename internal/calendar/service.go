@@ -165,14 +165,15 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Title               string `json:"title"`
-		Description         string `json:"description"`
-		StartTime           string `json:"start_time"`
-		EndTime             string `json:"end_time"`
-		Location            string `json:"location"`
-		IsRecurring         bool   `json:"is_recurring"`
-		RecurrenceRule      string `json:"recurrence_rule"`
-		RecurrenceException string `json:"recurrence_exception"`
+		Title               string   `json:"title"`
+		Description         string   `json:"description"`
+		StartTime           string   `json:"start_time"`
+		EndTime             string   `json:"end_time"`
+		Location            string   `json:"location"`
+		Hashtags            []string `json:"hashtags"`
+		IsRecurring         bool     `json:"is_recurring"`
+		RecurrenceRule      string   `json:"recurrence_rule"`
+		RecurrenceException string   `json:"recurrence_exception"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -212,6 +213,7 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 		StartTime:           startTime,
 		EndTime:             endTime,
 		Location:            req.Location,
+		Hashtags:            req.Hashtags,
 		IsRecurring:         req.IsRecurring,
 		RecurrenceRule:      req.RecurrenceRule,
 		RecurrenceException: req.RecurrenceException,
@@ -499,10 +501,11 @@ func (s *Service) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		DueDate     string `json:"due_date"`
-		Priority    string `json:"priority"`
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		DueDate     string   `json:"due_date"`
+		Priority    string   `json:"priority"`
+		Hashtags    []string `json:"hashtags"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -528,6 +531,7 @@ func (s *Service) createTask(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 		DueDate:     dueDate,
 		Priority:    req.Priority,
+		Hashtags:    req.Hashtags,
 		Completed:   false,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
@@ -600,11 +604,12 @@ func (s *Service) updateTask(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	var req struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		DueDate     string `json:"due_date"`
-		Completed   bool   `json:"completed"`
-		Priority    string `json:"priority"`
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		DueDate     string   `json:"due_date"`
+		Completed   bool     `json:"completed"`
+		Priority    string   `json:"priority"`
+		Hashtags    []string `json:"hashtags"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -637,6 +642,9 @@ func (s *Service) updateTask(w http.ResponseWriter, r *http.Request) {
 		if t, err := time.Parse(time.RFC3339, req.DueDate); err == nil {
 			existing.DueDate = t
 		}
+	}
+	if req.Hashtags != nil {
+		existing.Hashtags = req.Hashtags
 	}
 	existing.Completed = req.Completed
 
@@ -1193,6 +1201,9 @@ func applyUpdateToEvent(event *models.Event, req *updateEventRequest) {
 	if req.Location != "" {
 		event.Location = req.Location
 	}
+	if req.Hashtags != nil {
+		event.Hashtags = req.Hashtags
+	}
 	if req.IsRecurring {
 		event.IsRecurring = req.IsRecurring
 	}
@@ -1216,12 +1227,13 @@ func applyUpdateToEvent(event *models.Event, req *updateEventRequest) {
 }
 
 type updateEventRequest struct {
-	Title               string `json:"title,omitempty"`
-	Description         string `json:"description,omitempty"`
-	StartTime           string `json:"start_time,omitempty"`
-	EndTime             string `json:"end_time,omitempty"`
-	Location            string `json:"location,omitempty"`
-	IsRecurring         bool   `json:"is_recurring,omitempty"`
-	RecurrenceRule      string `json:"recurrence_rule,omitempty"`
-	RecurrenceException string `json:"recurrence_exception,omitempty"`
+	Title               string   `json:"title,omitempty"`
+	Description         string   `json:"description,omitempty"`
+	StartTime           string   `json:"start_time,omitempty"`
+	EndTime             string   `json:"end_time,omitempty"`
+	Location            string   `json:"location,omitempty"`
+	Hashtags            []string `json:"hashtags,omitempty"`
+	IsRecurring         bool     `json:"is_recurring,omitempty"`
+	RecurrenceRule      string   `json:"recurrence_rule,omitempty"`
+	RecurrenceException string   `json:"recurrence_exception,omitempty"`
 }
