@@ -206,6 +206,10 @@ table "locations" {
     null = false
   column "title" {
   }
+    type = sql("text[]")
+    null = true
+  column "hashtags" {
+  }
     type = uuid
     null = false
   column "user_id" {
@@ -265,6 +269,10 @@ table "tasks" {
     type = varchar(255)
     null = false
   column "title" {
+  }
+    type = sql("text[]")
+    null = true
+  column "hashtags" {
   }
     type = uuid
     null = false

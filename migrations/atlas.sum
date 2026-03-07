@@ -1,4 +1,8 @@
-h1:rIcSWRhY0MQnY7Ku67qjERV749D64n4RoBeTi7WzwVE=
+h1:Rd1f/RFsQNabF3v3dIn0I4TXo3kTVZR9PSSziwFfxxc=
 001_initial_schema.sql h1:klCy9xBZBkcEMT+OwqM3ieZ/wLf4NC65OeNWWL9UgtI=
 002_add_email_verified_to_users.sql h1:75Dh9RZHHaBnuyiBUT6+RxwDXhUFGxKEN44VjedVE/0=
 003_add_recurrence_to_events.sql h1:sekV/q3lH7VPRjHlhM51cW/8jVNfdta+qLo+JBD/C84=
+004_add_index_on_events_is_recurring.sql h1:Qcw4+gR3Lp/YyBokgqwdyRZz/G7JCHFResCn2CptPmU=
+005_add_user_profile_fields.sql h1:Yz5+De/bdE7mt9j52LeO9mO/OddxRGjVVzIz85maMyY=
+006_habit_tracking.sql h1:RCjoYmGcOldEtSGdCiroAtinAelFHsmr4c0AA1Sywpw=
+007_add_hashtag_to_events_tasks.sql h1:STulpkXhXr7pYKxaIRydWni7LlZKC+ryBMxDrcGYdyU=
