@@ -206,7 +206,7 @@ table "locations" {
     null = false
   column "title" {
   }
-    type = text
+    type = sql("text[]")
     null = true
   column "hashtag" {
   }
@@ -270,7 +270,7 @@ table "tasks" {
     null = false
   column "title" {
   }
-    type = text
+    type = sql("text[]")
     null = true
   column "hashtag" {
   }

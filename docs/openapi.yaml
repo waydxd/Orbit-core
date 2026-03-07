@@ -1806,8 +1806,10 @@ components:
           type: string
           example: Conference Room A
         hashtag:
-          type: string
-          example: "#meeting"
+          type: array
+          items:
+            type: string
+          example: ["#meeting", "#work"]
         is_recurring:
           type: boolean
           example: false
@@ -1849,8 +1851,10 @@ components:
           type: string
           example: Conference Room A
         hashtag:
-          type: string
-          example: "#meeting"
+          type: array
+          items:
+            type: string
+          example: ["#meeting", "#work"]
         is_recurring:
           type: boolean
           example: false
@@ -1893,8 +1897,10 @@ components:
           - high
           example: high
         hashtag:
-          type: string
-          example: "#work"
+          type: array
+          items:
+            type: string
+          example: ["#work", "#urgent"]
         created_at:
           type: string
           format: date-time
@@ -1926,8 +1932,10 @@ components:
           - high
           example: high
         hashtag:
-          type: string
-          example: "#work"
+          type: array
+          items:
+            type: string
+          example: ["#work", "#urgent"]
         user_id:
           type: string
           example: user-123

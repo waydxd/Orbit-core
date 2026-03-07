@@ -16,7 +16,7 @@ type Event struct {
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             pgtype.Text        `json:"hashtag"`
+	Hashtag             []string           `json:"hashtag"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
@@ -113,7 +113,7 @@ type Task struct {
 	DueDate     pgtype.Timestamptz `json:"due_date"`
 	Completed   pgtype.Bool        `json:"completed"`
 	Priority    pgtype.Text        `json:"priority"`
-	Hashtag     pgtype.Text        `json:"hashtag"`
+	Hashtag     []string           `json:"hashtag"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }

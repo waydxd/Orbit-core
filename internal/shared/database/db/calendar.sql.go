@@ -24,7 +24,7 @@ type CreateEventParams struct {
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             pgtype.Text        `json:"hashtag"`
+	Hashtag             []string           `json:"hashtag"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
@@ -64,7 +64,7 @@ type CreateTaskParams struct {
 	DueDate     pgtype.Timestamptz `json:"due_date"`
 	Completed   pgtype.Bool        `json:"completed"`
 	Priority    pgtype.Text        `json:"priority"`
-	Hashtag     pgtype.Text        `json:"hashtag"`
+	Hashtag     []string           `json:"hashtag"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
@@ -116,7 +116,7 @@ type GetEventByIDRow struct {
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             pgtype.Text        `json:"hashtag"`
+	Hashtag             []string           `json:"hashtag"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
@@ -193,7 +193,7 @@ type ListEventsByTimeRow struct {
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             pgtype.Text        `json:"hashtag"`
+	Hashtag             []string           `json:"hashtag"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
@@ -263,7 +263,7 @@ type ListEventsByUserAndTimeRow struct {
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             pgtype.Text        `json:"hashtag"`
+	Hashtag             []string           `json:"hashtag"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
@@ -361,7 +361,7 @@ type UpdateEventParams struct {
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             pgtype.Text        `json:"hashtag"`
+	Hashtag             []string           `json:"hashtag"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
@@ -398,7 +398,7 @@ type UpdateTaskParams struct {
 	DueDate     pgtype.Timestamptz `json:"due_date"`
 	Completed   pgtype.Bool        `json:"completed"`
 	Priority    pgtype.Text        `json:"priority"`
-	Hashtag     pgtype.Text        `json:"hashtag"`
+	Hashtag     []string           `json:"hashtag"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 	ID          pgtype.UUID        `json:"id"`
 }

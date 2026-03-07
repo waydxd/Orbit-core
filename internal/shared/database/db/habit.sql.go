@@ -126,7 +126,7 @@ type GetActiveRecurringEventsRow struct {
 	Title               string             `json:"title"`
 	Description         pgtype.Text        `json:"description"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             pgtype.Text        `json:"hashtag"`
+	Hashtag             []string           `json:"hashtag"`
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`

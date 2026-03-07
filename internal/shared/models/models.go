@@ -32,7 +32,7 @@ type Event struct {
 	StartTime           time.Time `json:"start_time" db:"start_time"`
 	EndTime             time.Time `json:"end_time" db:"end_time"`
 	Location            string    `json:"location" db:"location"`
-	Hashtag             string    `json:"hashtag" db:"hashtag"`
+	Hashtag             []string  `json:"hashtag" db:"hashtag"`
 	IsRecurring         bool      `json:"is_recurring" db:"is_recurring"`
 	RecurrenceRule      string    `json:"recurrence_rule" db:"recurrence_rule"`
 	RecurrenceException string    `json:"recurrence_exception" db:"recurrence_exception"`
@@ -49,7 +49,7 @@ type Task struct {
 	DueDate     time.Time `json:"due_date" db:"due_date"`
 	Completed   bool      `json:"completed" db:"completed"`
 	Priority    string    `json:"priority" db:"priority"`
-	Hashtag     string    `json:"hashtag" db:"hashtag"`
+	Hashtag     []string  `json:"hashtag" db:"hashtag"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
