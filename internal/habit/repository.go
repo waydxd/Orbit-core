@@ -71,7 +71,7 @@ func (r *SQLRepository) UpsertEventFrequency(ctx context.Context, freq *models.E
 		Location:             database.StringToText(freq.Location),
 		DurationMinutes:      database.IntToInt32(freq.DurationMinutes),
 		TimeOfDay:            database.IntToInt32(freq.TimeOfDay),
-		DayOfWeek:            pgtype.Int4{Int32: database.IntToInt32(freq.DayOfWeek), Valid: true},
+		DayOfWeek:            database.IntToInt32(freq.DayOfWeek),
 		OccurrenceCount:      database.IntToInt32(freq.OccurrenceCount),
 		SuggestionThreshold:  database.IntToInt32(freq.SuggestionThreshold),
 		SuggestionShown:      freq.SuggestionShown,
@@ -98,7 +98,7 @@ func (r *SQLRepository) GetEventFrequencyByPattern(ctx context.Context, userID, 
 		Title:           title,
 		DurationMinutes: database.IntToInt32(durationMinutes),
 		TimeOfDay:       database.IntToInt32(timeOfDay),
-		DayOfWeek:       pgtype.Int4{Int32: database.IntToInt32(dayOfWeek), Valid: true},
+		DayOfWeek:       database.IntToInt32(dayOfWeek),
 	}
 
 	row, err := r.queries.GetEventFrequencyByPattern(ctx, params)
@@ -130,11 +130,7 @@ func (r *SQLRepository) GetEventFrequencyByPattern(ctx context.Context, userID, 
 		return nil, fmt.Errorf("failed to unmarshal occurrence timestamps: %w", err)
 	}
 
-	dayOfWeekValue := 0
-	if row.DayOfWeek.Valid {
-		dayOfWeekValue = int(row.DayOfWeek.Int32)
-	}
-	freq.DayOfWeek = dayOfWeekValue
+	freq.DayOfWeek = int(row.DayOfWeek)
 
 	return freq, nil
 }
@@ -174,11 +170,7 @@ func (r *SQLRepository) GetEventFrequenciesAboveThreshold(ctx context.Context, u
 			return nil, fmt.Errorf("failed to unmarshal occurrence timestamps: %w", err)
 		}
 
-		dayOfWeekValue := 0
-		if row.DayOfWeek.Valid {
-			dayOfWeekValue = int(row.DayOfWeek.Int32)
-		}
-		freq.DayOfWeek = dayOfWeekValue
+		freq.DayOfWeek = int(row.DayOfWeek)
 
 		frequencies = append(frequencies, freq)
 	}
