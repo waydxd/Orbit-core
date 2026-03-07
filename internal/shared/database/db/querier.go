@@ -38,14 +38,14 @@ type Querier interface {
 	GetLocationHistory(ctx context.Context, arg GetLocationHistoryParams) ([]Location, error)
 	GetPendingHabitSuggestions(ctx context.Context, userID pgtype.UUID) ([]HabitSuggestion, error)
 	GetSessionByToken(ctx context.Context, tokenHash string) (Session, error)
-	GetTaskByID(ctx context.Context, id pgtype.UUID) (Task, error)
+	GetTaskByID(ctx context.Context, id pgtype.UUID) (GetTaskByIDRow, error)
 	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	GetUserByUsername(ctx context.Context, username pgtype.Text) (GetUserByUsernameRow, error)
 	ListEventsByTime(ctx context.Context, arg ListEventsByTimeParams) ([]ListEventsByTimeRow, error)
 	ListEventsByUserAndTime(ctx context.Context, arg ListEventsByUserAndTimeParams) ([]ListEventsByUserAndTimeRow, error)
 	ListIntegrations(ctx context.Context, userID pgtype.UUID) ([]Integration, error)
-	ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, error)
+	ListTasks(ctx context.Context, arg ListTasksParams) ([]ListTasksRow, error)
 	UpdateEvent(ctx context.Context, arg UpdateEventParams) error
 	UpdateEventFrequency(ctx context.Context, arg UpdateEventFrequencyParams) error
 	UpdateHabitSuggestionStatus(ctx context.Context, arg UpdateHabitSuggestionStatusParams) error

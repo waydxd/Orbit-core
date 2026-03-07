@@ -16,12 +16,12 @@ type Event struct {
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             []string           `json:"hashtag"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
+	Hashtags            []string           `json:"hashtags"`
 }
 
 type EventFrequency struct {
@@ -32,7 +32,7 @@ type EventFrequency struct {
 	Location             pgtype.Text        `json:"location"`
 	DurationMinutes      int32              `json:"duration_minutes"`
 	TimeOfDay            int32              `json:"time_of_day"`
-	DayOfWeek            pgtype.Int4        `json:"day_of_week"`
+	DayOfWeek            int32              `json:"day_of_week"`
 	OccurrenceCount      int32              `json:"occurrence_count"`
 	SuggestionThreshold  int32              `json:"suggestion_threshold"`
 	SuggestionShown      bool               `json:"suggestion_shown"`
@@ -113,9 +113,9 @@ type Task struct {
 	DueDate     pgtype.Timestamptz `json:"due_date"`
 	Completed   pgtype.Bool        `json:"completed"`
 	Priority    pgtype.Text        `json:"priority"`
-	Hashtag     []string           `json:"hashtag"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Hashtags    []string           `json:"hashtags"`
 }
 
 type User struct {

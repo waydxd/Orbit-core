@@ -12,7 +12,7 @@ import (
 )
 
 const createEvent = `-- name: CreateEvent :exec
-INSERT INTO events (id, user_id, title, description, start_time, end_time, location, hashtag, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at)
+INSERT INTO events (id, user_id, title, description, start_time, end_time, location, hashtags, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 `
 
@@ -24,7 +24,7 @@ type CreateEventParams struct {
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             []string           `json:"hashtag"`
+	Hashtags            []string           `json:"hashtags"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
@@ -41,7 +41,7 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) error 
 		arg.StartTime,
 		arg.EndTime,
 		arg.Location,
-		arg.Hashtag,
+		arg.Hashtags,
 		arg.IsRecurring,
 		arg.RecurrenceRule,
 		arg.RecurrenceException,
@@ -52,7 +52,7 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) error 
 }
 
 const createTask = `-- name: CreateTask :exec
-INSERT INTO tasks (id, user_id, title, description, due_date, completed, priority, hashtag, created_at, updated_at)
+INSERT INTO tasks (id, user_id, title, description, due_date, completed, priority, hashtags, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
@@ -64,7 +64,7 @@ type CreateTaskParams struct {
 	DueDate     pgtype.Timestamptz `json:"due_date"`
 	Completed   pgtype.Bool        `json:"completed"`
 	Priority    pgtype.Text        `json:"priority"`
-	Hashtag     []string           `json:"hashtag"`
+	Hashtags    []string           `json:"hashtags"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
@@ -78,7 +78,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) error {
 		arg.DueDate,
 		arg.Completed,
 		arg.Priority,
-		arg.Hashtag,
+		arg.Hashtags,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -104,7 +104,7 @@ func (q *Queries) DeleteTask(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getEventByID = `-- name: GetEventByID :one
-SELECT id, user_id, title, description, start_time, end_time, location, hashtag, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
+SELECT id, user_id, title, description, start_time, end_time, location, hashtags, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
 FROM events WHERE id = $1
 `
 
@@ -116,7 +116,7 @@ type GetEventByIDRow struct {
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             []string           `json:"hashtag"`
+	Hashtags            []string           `json:"hashtags"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
@@ -135,7 +135,7 @@ func (q *Queries) GetEventByID(ctx context.Context, id pgtype.UUID) (GetEventByI
 		&i.StartTime,
 		&i.EndTime,
 		&i.Location,
-		&i.Hashtag,
+		&i.Hashtags,
 		&i.IsRecurring,
 		&i.RecurrenceRule,
 		&i.RecurrenceException,
@@ -146,13 +146,26 @@ func (q *Queries) GetEventByID(ctx context.Context, id pgtype.UUID) (GetEventByI
 }
 
 const getTaskByID = `-- name: GetTaskByID :one
-SELECT id, user_id, title, description, due_date, completed, priority, hashtag, created_at, updated_at
+SELECT id, user_id, title, description, due_date, completed, priority, hashtags, created_at, updated_at
 FROM tasks WHERE id = $1
 `
 
-func (q *Queries) GetTaskByID(ctx context.Context, id pgtype.UUID) (Task, error) {
+type GetTaskByIDRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	UserID      pgtype.UUID        `json:"user_id"`
+	Title       string             `json:"title"`
+	Description pgtype.Text        `json:"description"`
+	DueDate     pgtype.Timestamptz `json:"due_date"`
+	Completed   pgtype.Bool        `json:"completed"`
+	Priority    pgtype.Text        `json:"priority"`
+	Hashtags    []string           `json:"hashtags"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) GetTaskByID(ctx context.Context, id pgtype.UUID) (GetTaskByIDRow, error) {
 	row := q.db.QueryRow(ctx, getTaskByID, id)
-	var i Task
+	var i GetTaskByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
@@ -161,7 +174,7 @@ func (q *Queries) GetTaskByID(ctx context.Context, id pgtype.UUID) (Task, error)
 		&i.DueDate,
 		&i.Completed,
 		&i.Priority,
-		&i.Hashtag,
+		&i.Hashtags,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -169,11 +182,11 @@ func (q *Queries) GetTaskByID(ctx context.Context, id pgtype.UUID) (Task, error)
 }
 
 const listEventsByTime = `-- name: ListEventsByTime :many
-SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtag, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
 FROM events e
 WHERE e.start_time <= $1 AND e.end_time >= $2
 UNION
-SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtag, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
 FROM events e
 WHERE e.is_recurring = true
   AND e.start_time <= $1
@@ -193,7 +206,7 @@ type ListEventsByTimeRow struct {
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             []string           `json:"hashtag"`
+	Hashtags            []string           `json:"hashtags"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
@@ -218,7 +231,7 @@ func (q *Queries) ListEventsByTime(ctx context.Context, arg ListEventsByTimePara
 			&i.StartTime,
 			&i.EndTime,
 			&i.Location,
-			&i.Hashtag,
+			&i.Hashtags,
 			&i.IsRecurring,
 			&i.RecurrenceRule,
 			&i.RecurrenceException,
@@ -236,12 +249,12 @@ func (q *Queries) ListEventsByTime(ctx context.Context, arg ListEventsByTimePara
 }
 
 const listEventsByUserAndTime = `-- name: ListEventsByUserAndTime :many
-SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtag, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
 FROM events e
 WHERE e.user_id = $1
   AND e.start_time <= $2 AND e.end_time >= $3
 UNION
-SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtag, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
 FROM events e
 WHERE e.user_id = $1
   AND e.is_recurring = true
@@ -263,7 +276,7 @@ type ListEventsByUserAndTimeRow struct {
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             []string           `json:"hashtag"`
+	Hashtags            []string           `json:"hashtags"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
@@ -288,7 +301,7 @@ func (q *Queries) ListEventsByUserAndTime(ctx context.Context, arg ListEventsByU
 			&i.StartTime,
 			&i.EndTime,
 			&i.Location,
-			&i.Hashtag,
+			&i.Hashtags,
 			&i.IsRecurring,
 			&i.RecurrenceRule,
 			&i.RecurrenceException,
@@ -306,7 +319,7 @@ func (q *Queries) ListEventsByUserAndTime(ctx context.Context, arg ListEventsByU
 }
 
 const listTasks = `-- name: ListTasks :many
-SELECT id, user_id, title, description, due_date, completed, priority, hashtag, created_at, updated_at
+SELECT id, user_id, title, description, due_date, completed, priority, hashtags, created_at, updated_at
 FROM tasks
 WHERE user_id = $1
   AND ($2::boolean IS NULL OR completed = $2)
@@ -318,15 +331,28 @@ type ListTasksParams struct {
 	Completed pgtype.Bool `json:"completed"`
 }
 
-func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, error) {
+type ListTasksRow struct {
+	ID          pgtype.UUID        `json:"id"`
+	UserID      pgtype.UUID        `json:"user_id"`
+	Title       string             `json:"title"`
+	Description pgtype.Text        `json:"description"`
+	DueDate     pgtype.Timestamptz `json:"due_date"`
+	Completed   pgtype.Bool        `json:"completed"`
+	Priority    pgtype.Text        `json:"priority"`
+	Hashtags    []string           `json:"hashtags"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]ListTasksRow, error) {
 	rows, err := q.db.Query(ctx, listTasks, arg.UserID, arg.Completed)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Task
+	var items []ListTasksRow
 	for rows.Next() {
-		var i Task
+		var i ListTasksRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
@@ -335,7 +361,7 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, e
 			&i.DueDate,
 			&i.Completed,
 			&i.Priority,
-			&i.Hashtag,
+			&i.Hashtags,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -351,7 +377,7 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]Task, e
 
 const updateEvent = `-- name: UpdateEvent :exec
 UPDATE events
-SET title = $1, description = $2, start_time = $3, end_time = $4, location = $5, hashtag = $6, is_recurring = $7, recurrence_rule = $8, recurrence_exception = $9, updated_at = $10
+SET title = $1, description = $2, start_time = $3, end_time = $4, location = $5, hashtags = $6, is_recurring = $7, recurrence_rule = $8, recurrence_exception = $9, updated_at = $10
 WHERE id = $11
 `
 
@@ -361,7 +387,7 @@ type UpdateEventParams struct {
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	Location            pgtype.Text        `json:"location"`
-	Hashtag             []string           `json:"hashtag"`
+	Hashtags            []string           `json:"hashtags"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
@@ -376,7 +402,7 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) error 
 		arg.StartTime,
 		arg.EndTime,
 		arg.Location,
-		arg.Hashtag,
+		arg.Hashtags,
 		arg.IsRecurring,
 		arg.RecurrenceRule,
 		arg.RecurrenceException,
@@ -388,7 +414,7 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) error 
 
 const updateTask = `-- name: UpdateTask :exec
 UPDATE tasks
-SET title = $1, description = $2, due_date = $3, completed = $4, priority = $5, hashtag = $6, updated_at = $7
+SET title = $1, description = $2, due_date = $3, completed = $4, priority = $5, hashtags = $6, updated_at = $7
 WHERE id = $8
 `
 
@@ -398,7 +424,7 @@ type UpdateTaskParams struct {
 	DueDate     pgtype.Timestamptz `json:"due_date"`
 	Completed   pgtype.Bool        `json:"completed"`
 	Priority    pgtype.Text        `json:"priority"`
-	Hashtag     []string           `json:"hashtag"`
+	Hashtags    []string           `json:"hashtags"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 	ID          pgtype.UUID        `json:"id"`
 }
@@ -410,7 +436,7 @@ func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) error {
 		arg.DueDate,
 		arg.Completed,
 		arg.Priority,
-		arg.Hashtag,
+		arg.Hashtags,
 		arg.UpdatedAt,
 		arg.ID,
 	)
