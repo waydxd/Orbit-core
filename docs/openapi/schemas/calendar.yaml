@@ -26,7 +26,7 @@ components:
         location:
           type: string
           example: Conference Room A
-        hashtag:
+        hashtags:
           type: array
           items:
             type: string
@@ -72,7 +72,7 @@ components:
         location:
           type: string
           example: Conference Room A
-        hashtag:
+        hashtags:
           type: array
           items:
             type: string
@@ -116,7 +116,7 @@ components:
           type: string
           enum: [low, medium, high]
           example: high
-        hashtag:
+        hashtags:
           type: array
           items:
             type: string
@@ -149,7 +149,7 @@ components:
           type: string
           enum: [low, medium, high]
           example: high
-        hashtag:
+        hashtags:
           type: array
           items:
             type: string

@@ -208,7 +208,7 @@ table "locations" {
   }
     type = sql("text[]")
     null = true
-  column "hashtag" {
+  column "hashtags" {
   }
     type = uuid
     null = false
@@ -272,7 +272,7 @@ table "tasks" {
   }
     type = sql("text[]")
     null = true
-  column "hashtag" {
+  column "hashtags" {
   }
     type = uuid
     null = false
