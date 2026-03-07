@@ -235,8 +235,9 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 	// Track event for habit detection (async, don't block response)
 	// Skip habit tracking for events already marked as recurring to avoid redundant suggestions
 	if s.habitTracker != nil && !event.IsRecurring {
+		trackParentCtx := r.Context()
 		go func() {
-			trackCtx, trackCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			trackCtx, trackCancel := context.WithTimeout(trackParentCtx, 5*time.Second)
 			defer trackCancel()
 			if err := s.habitTracker.TrackEventCreation(trackCtx, event); err != nil {
 				s.logger.Error("failed to track event for habit detection", "err", err)
@@ -865,8 +866,9 @@ func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (in
 
 	// Track event for habit detection (async, don't block response)
 	if s.habitTracker != nil {
+		trackParentCtx := ctx
 		go func() {
-			trackCtx, trackCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			trackCtx, trackCancel := context.WithTimeout(trackParentCtx, 5*time.Second)
 			defer trackCancel()
 			if err := s.habitTracker.TrackEventCreation(trackCtx, &ev); err != nil {
 				s.logger.Error("failed to track event for habit detection (adapter)", "err", err)
@@ -1029,8 +1031,9 @@ func (s *Service) CreateEvent(ctx context.Context, req *pb.CreateEventRequest) (
 
 	// Track event for habit detection (async, don't block response)
 	if s.habitTracker != nil {
+		trackParentCtx := ctx
 		go func() {
-			trackCtx, trackCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			trackCtx, trackCancel := context.WithTimeout(trackParentCtx, 5*time.Second)
 			defer trackCancel()
 			if err := s.habitTracker.TrackEventCreation(trackCtx, event); err != nil {
 				s.logger.Error("failed to track event for habit detection (gRPC)", "err", err)
