@@ -1805,11 +1805,13 @@ components:
         location:
           type: string
           example: Conference Room A
-        hashtag:
+        hashtags:
           type: array
           items:
             type: string
-          example: ["#meeting", "#work"]
+          example:
+          - '#meeting'
+          - '#work'
         is_recurring:
           type: boolean
           example: false
@@ -1850,11 +1852,13 @@ components:
         location:
           type: string
           example: Conference Room A
-        hashtag:
+        hashtags:
           type: array
           items:
             type: string
-          example: ["#meeting", "#work"]
+          example:
+          - '#meeting'
+          - '#work'
         is_recurring:
           type: boolean
           example: false
@@ -1896,11 +1900,13 @@ components:
           - medium
           - high
           example: high
-        hashtag:
+        hashtags:
           type: array
           items:
             type: string
-          example: ["#work", "#urgent"]
+          example:
+          - '#work'
+          - '#urgent'
         created_at:
           type: string
           format: date-time
@@ -1931,11 +1937,13 @@ components:
           - medium
           - high
           example: high
-        hashtag:
+        hashtags:
           type: array
           items:
             type: string
-          example: ["#work", "#urgent"]
+          example:
+          - '#work'
+          - '#urgent'
         user_id:
           type: string
           example: user-123
