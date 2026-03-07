@@ -72,6 +72,7 @@ func (r *SQLEventRepository) CreateEvent(ctx context.Context, event *models.Even
 		StartTime:   database.TimeToTimestamptz(event.StartTime),
 		EndTime:     database.TimeToTimestamptz(event.EndTime),
 		Location:    database.StringToText(event.Location),
+		Hashtag:     database.StringToText(event.Hashtag),
 		CreatedAt:   database.TimeToTimestamptz(event.CreatedAt),
 		UpdatedAt:   database.TimeToTimestamptz(event.UpdatedAt),
 	}
@@ -101,6 +102,7 @@ func (r *SQLEventRepository) GetEventByID(ctx context.Context, id string) (*mode
 		StartTime:   database.TimestamptzToTime(row.StartTime),
 		EndTime:     database.TimestamptzToTime(row.EndTime),
 		Location:    database.TextToString(row.Location),
+		Hashtag:     database.TextToString(row.Hashtag),
 		CreatedAt:   database.TimestamptzToTime(row.CreatedAt),
 		UpdatedAt:   database.TimestamptzToTime(row.UpdatedAt),
 	}, nil
@@ -130,6 +132,7 @@ func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, star
 				StartTime:           database.TimestamptzToTime(row.StartTime),
 				EndTime:             database.TimestamptzToTime(row.EndTime),
 				Location:            database.TextToString(row.Location),
+				Hashtag:             database.TextToString(row.Hashtag),
 				IsRecurring:         row.IsRecurring.Bool,
 				RecurrenceRule:      database.TextToString(row.RecurrenceRule),
 				RecurrenceException: database.TextToString(row.RecurrenceException),
@@ -156,6 +159,7 @@ func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, star
 				StartTime:           database.TimestamptzToTime(row.StartTime),
 				EndTime:             database.TimestamptzToTime(row.EndTime),
 				Location:            database.TextToString(row.Location),
+				Hashtag:             database.TextToString(row.Hashtag),
 				IsRecurring:         row.IsRecurring.Bool,
 				RecurrenceRule:      database.TextToString(row.RecurrenceRule),
 				RecurrenceException: database.TextToString(row.RecurrenceException),
@@ -181,6 +185,7 @@ func (r *SQLEventRepository) UpdateEvent(ctx context.Context, event *models.Even
 		StartTime:           database.TimeToTimestamptz(event.StartTime),
 		EndTime:             database.TimeToTimestamptz(event.EndTime),
 		Location:            database.StringToText(event.Location),
+		Hashtag:             database.StringToText(event.Hashtag),
 		IsRecurring:         pgtype.Bool{Bool: event.IsRecurring, Valid: true},
 		RecurrenceRule:      database.StringToText(event.RecurrenceRule),
 		RecurrenceException: database.StringToText(event.RecurrenceException),
@@ -219,6 +224,7 @@ func (r *SQLEventRepository) GetActiveRecurringEvents(ctx context.Context, userI
 			Title:               row.Title,
 			Description:         database.TextToString(row.Description),
 			Location:            database.TextToString(row.Location),
+			Hashtag:             database.TextToString(row.Hashtag),
 			StartTime:           database.TimestamptzToTime(row.StartTime),
 			EndTime:             database.TimestamptzToTime(row.EndTime),
 			IsRecurring:         row.IsRecurring.Bool,
@@ -253,6 +259,7 @@ func (r *SQLTaskRepository) CreateTask(ctx context.Context, task *models.Task) e
 		DueDate:     database.TimeToTimestamptz(task.DueDate),
 		Completed:   pgtype.Bool{Bool: task.Completed, Valid: true},
 		Priority:    pgtype.Text{String: task.Priority, Valid: task.Priority != ""},
+		Hashtag:     database.StringToText(task.Hashtag),
 		CreatedAt:   database.TimeToTimestamptz(task.CreatedAt),
 		UpdatedAt:   database.TimeToTimestamptz(task.UpdatedAt),
 	}
@@ -282,6 +289,7 @@ func (r *SQLTaskRepository) GetTaskByID(ctx context.Context, id string) (*models
 		DueDate:     database.TimestamptzToTime(row.DueDate),
 		Completed:   row.Completed.Bool,
 		Priority:    database.TextToString(row.Priority),
+		Hashtag:     database.TextToString(row.Hashtag),
 		CreatedAt:   database.TimestamptzToTime(row.CreatedAt),
 		UpdatedAt:   database.TimestamptzToTime(row.UpdatedAt),
 	}, nil
@@ -314,6 +322,7 @@ func (r *SQLTaskRepository) ListTasks(ctx context.Context, userID string, comple
 			DueDate:     database.TimestamptzToTime(row.DueDate),
 			Completed:   row.Completed.Bool,
 			Priority:    database.TextToString(row.Priority),
+			Hashtag:     database.TextToString(row.Hashtag),
 			CreatedAt:   database.TimestamptzToTime(row.CreatedAt),
 			UpdatedAt:   database.TimestamptzToTime(row.UpdatedAt),
 		})
@@ -334,6 +343,7 @@ func (r *SQLTaskRepository) UpdateTask(ctx context.Context, task *models.Task) e
 		DueDate:     database.TimeToTimestamptz(task.DueDate),
 		Completed:   pgtype.Bool{Bool: task.Completed, Valid: true},
 		Priority:    pgtype.Text{String: task.Priority, Valid: task.Priority != ""},
+		Hashtag:     database.StringToText(task.Hashtag),
 		UpdatedAt:   database.TimeToTimestamptz(time.Now()),
 		ID:          database.StringToUUID(task.ID),
 	}

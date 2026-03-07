@@ -206,6 +206,10 @@ table "locations" {
     null = false
   column "title" {
   }
+    type = text
+    null = true
+  column "hashtag" {
+  }
     type = uuid
     null = false
   column "user_id" {
@@ -265,6 +269,10 @@ table "tasks" {
     type = varchar(255)
     null = false
   column "title" {
+  }
+    type = text
+    null = true
+  column "hashtag" {
   }
     type = uuid
     null = false
