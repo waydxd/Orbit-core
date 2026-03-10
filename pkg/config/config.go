@@ -34,7 +34,7 @@ type DatabaseConfig struct {
 	Host        string
 	Port        int
 	User        string
-	Pass        string //nolint:gosec
+	Pass        string
 	DBName      string
 	SSLMode     string
 	SSLRootCert string
@@ -45,7 +45,7 @@ type DatabaseConfig struct {
 // MongoDBConfig holds MongoDB configuration
 type MongoDBConfig struct {
 	User   string
-	Pass   string //nolint:gosec
+	Pass   string
 	Host   string
 	DBName string
 }
@@ -54,14 +54,14 @@ type MongoDBConfig struct {
 type RedisConfig struct {
 	Host string
 	Port int
-	Pass string //nolint:gosec
+	Pass string
 	DB   int
 }
 
 // AuthConfig holds authentication configuration
 type AuthConfig struct {
-	JWTKey                       string //nolint:gosec
-	JWTExpiration                int    // in hours
+	JWTKey                       string
+	JWTExpiration                int // in hours
 	ResendAPIKey                 string
 	AppBaseURL                   string
 	PasswordResetExpiryMinutes   int
@@ -84,7 +84,7 @@ type GRPCServerConfig struct {
 // GoogleCalendarConfig holds Google Calendar integration configuration
 type GoogleCalendarConfig struct {
 	ClientID    string
-	ClientKey   string //nolint:gosec
+	ClientKey   string
 	RedirectURL string
 	// WebhookURL is the publicly accessible URL for Google Calendar push notifications
 	WebhookURL string

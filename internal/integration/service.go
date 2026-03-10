@@ -222,6 +222,7 @@ func (s *Service) importCalendar(w http.ResponseWriter, r *http.Request) {
 
 	// Parse multipart form with a 50MB max size
 	const maxFileSize = 50 << 20 // 50MB
+	r.Body = http.MaxBytesReader(w, r.Body, maxFileSize)
 	if err := r.ParseMultipartForm(maxFileSize); err != nil {
 		s.respondWithError(w, http.StatusBadRequest, "invalid multipart form", err)
 		return

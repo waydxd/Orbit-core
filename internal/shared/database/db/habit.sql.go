@@ -112,7 +112,7 @@ func (q *Queries) DeactivateRecurringEvent(ctx context.Context, arg DeactivateRe
 }
 
 const getActiveRecurringEvents = `-- name: GetActiveRecurringEvents :many
-SELECT id, user_id, title, description, location,
+SELECT id, user_id, title, description, location, hashtags,
        start_time, end_time, is_recurring, recurrence_rule, recurrence_exception,
        created_at, updated_at
 FROM events
@@ -126,6 +126,7 @@ type GetActiveRecurringEventsRow struct {
 	Title               string             `json:"title"`
 	Description         pgtype.Text        `json:"description"`
 	Location            pgtype.Text        `json:"location"`
+	Hashtags            []string           `json:"hashtags"`
 	StartTime           pgtype.Timestamptz `json:"start_time"`
 	EndTime             pgtype.Timestamptz `json:"end_time"`
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
@@ -150,6 +151,7 @@ func (q *Queries) GetActiveRecurringEvents(ctx context.Context, userID pgtype.UU
 			&i.Title,
 			&i.Description,
 			&i.Location,
+			&i.Hashtags,
 			&i.StartTime,
 			&i.EndTime,
 			&i.IsRecurring,
@@ -232,7 +234,7 @@ type GetEventFrequencyByPatternParams struct {
 	Title           string      `json:"title"`
 	DurationMinutes int32       `json:"duration_minutes"`
 	TimeOfDay       int32       `json:"time_of_day"`
-	DayOfWeek       pgtype.Int4 `json:"day_of_week"`
+	DayOfWeek       int32       `json:"day_of_week"`
 }
 
 func (q *Queries) GetEventFrequencyByPattern(ctx context.Context, arg GetEventFrequencyByPatternParams) (EventFrequency, error) {
@@ -412,7 +414,7 @@ type UpsertEventFrequencyParams struct {
 	Location             pgtype.Text        `json:"location"`
 	DurationMinutes      int32              `json:"duration_minutes"`
 	TimeOfDay            int32              `json:"time_of_day"`
-	DayOfWeek            pgtype.Int4        `json:"day_of_week"`
+	DayOfWeek            int32              `json:"day_of_week"`
 	OccurrenceCount      int32              `json:"occurrence_count"`
 	SuggestionThreshold  int32              `json:"suggestion_threshold"`
 	SuggestionShown      bool               `json:"suggestion_shown"`
