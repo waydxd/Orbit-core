@@ -18,6 +18,6 @@ jobs:
           image-names: "*"            # select all packages owned by the account
           image-tags: "*"             # consider all tags
           tag-selection: both          # include tagged and untagged images
-          cut-off: 0s                  # consider all images older than 0 seconds
+          cut-off: 2w                  # consider all images older than 2 weeks
           keep-n-most-recent: 10       # retain the 10 most recent images per package
           dry-run: false               # set to true for a dry run
