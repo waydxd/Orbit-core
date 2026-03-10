@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"encoding/base64"
 	"testing"
 	"time"
@@ -140,6 +139,3 @@ func TestValidateUsernameConcurrentSpecials(t *testing.T) {
 		t.Fatalf("expected consecutive hyphens to be invalid")
 	}
 }
-
-// small helper to satisfy linter for unused import in some environments
-var _ = context.Background
