@@ -7,15 +7,17 @@ on:
     - cron: '0 1 * * MON'
 
 jobs:
-  cleanup:
-    runs-on: ubuntu-slim
-    permissions:
-      contents: read
-      packages: write
+  clean:
+    runs-on: ubuntu-latest
+    name: Delete old container images (keep last 10)
     steps:
-      - name: Delete old GHCR images
-        uses: snok/container-retention-policy@v2.0.0
+      - uses: snok/container-retention-policy@v3.0.0
         with:
-          regex: ".*"
-          keep-n-most-recent: 10
-          token: ${{ secrets.GH_PAT_CLASSIC }}
+          account: user
+          token: ${{ secrets.PAT }}
+          image-names: "*"            # select all packages owned by the account
+          image-tags: "*"             # consider all tags
+          tag-selection: both          # include tagged and untagged images
+          cut-off: 0s                  # consider all images older than 0 seconds
+          keep-n-most-recent: 10       # retain the 10 most recent images per package
+          dry-run: false               # set to true for a dry run
