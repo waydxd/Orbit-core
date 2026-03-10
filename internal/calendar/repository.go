@@ -79,7 +79,7 @@ func (r *SQLEventRepository) CreateEvent(ctx context.Context, event *models.Even
 		StartTime:   database.TimeToTimestamptz(event.StartTime),
 		EndTime:     database.TimeToTimestamptz(event.EndTime),
 		Location:    database.StringToText(event.Location),
-		Hashtags:    event.Hashtags,
+		Hashtags:    normalizeStringArray(event.Hashtags),
 		CreatedAt:   database.TimeToTimestamptz(event.CreatedAt),
 		UpdatedAt:   database.TimeToTimestamptz(event.UpdatedAt),
 	}
@@ -192,7 +192,7 @@ func (r *SQLEventRepository) UpdateEvent(ctx context.Context, event *models.Even
 		StartTime:           database.TimeToTimestamptz(event.StartTime),
 		EndTime:             database.TimeToTimestamptz(event.EndTime),
 		Location:            database.StringToText(event.Location),
-		Hashtags:            event.Hashtags,
+		Hashtags:            normalizeStringArray(event.Hashtags),
 		IsRecurring:         pgtype.Bool{Bool: event.IsRecurring, Valid: true},
 		RecurrenceRule:      database.StringToText(event.RecurrenceRule),
 		RecurrenceException: database.StringToText(event.RecurrenceException),
@@ -266,7 +266,7 @@ func (r *SQLTaskRepository) CreateTask(ctx context.Context, task *models.Task) e
 		DueDate:     database.TimeToTimestamptz(task.DueDate),
 		Completed:   pgtype.Bool{Bool: task.Completed, Valid: true},
 		Priority:    pgtype.Text{String: task.Priority, Valid: task.Priority != ""},
-		Hashtags:    task.Hashtags,
+		Hashtags:    normalizeStringArray(task.Hashtags),
 		CreatedAt:   database.TimeToTimestamptz(task.CreatedAt),
 		UpdatedAt:   database.TimeToTimestamptz(task.UpdatedAt),
 	}
@@ -350,7 +350,7 @@ func (r *SQLTaskRepository) UpdateTask(ctx context.Context, task *models.Task) e
 		DueDate:     database.TimeToTimestamptz(task.DueDate),
 		Completed:   pgtype.Bool{Bool: task.Completed, Valid: true},
 		Priority:    pgtype.Text{String: task.Priority, Valid: task.Priority != ""},
-		Hashtags:    task.Hashtags,
+		Hashtags:    normalizeStringArray(task.Hashtags),
 		UpdatedAt:   database.TimeToTimestamptz(time.Now()),
 		ID:          database.StringToUUID(task.ID),
 	}
