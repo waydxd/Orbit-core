@@ -1,0 +1,21 @@
+name: GHCR Cleanup
+
+on:
+  workflow_dispatch:
+  # Optional: run weekly on Monday at 1 AM
+  schedule:
+    - cron: '0 1 * * MON'
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Delete old GHCR images
+        uses: snok/container-retention-policy@v2.0.0
+        with:
+          regex: ".*"
+          keep-n-most-recent: 10
+          token: ${{ secrets.GH_PAT_CLASSIC }}
