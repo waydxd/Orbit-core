@@ -1,0 +1,23 @@
+name: GHCR Cleanup
+
+on:
+  workflow_dispatch:
+  # Optional: run weekly on Monday at 1 AM
+  schedule:
+    - cron: '0 1 * * MON'
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    name: Delete old container images (keep last 10)
+    steps:
+      - uses: snok/container-retention-policy@v3.0.0
+        with:
+          account: user
+          token: ${{ secrets.PAT }}
+          image-names: "*"            # select all packages owned by the account
+          image-tags: "*"             # consider all tags
+          tag-selection: both          # include tagged and untagged images
+          cut-off: 2w                  # consider all images older than 2 weeks
+          keep-n-most-recent: 10       # retain the 10 most recent images per package
+          dry-run: false               # set to true for a dry run

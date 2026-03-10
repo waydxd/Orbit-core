@@ -9,17 +9,17 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Validate OpenAPI
         run: bash scripts/verify-openapi.sh
 
   deploy:
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
