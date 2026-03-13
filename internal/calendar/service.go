@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -1176,16 +1177,76 @@ func (s *Service) DeleteEvent(ctx context.Context, req *pb.DeleteEventRequest) (
 
 // GetAvailableSlots implements CalendarService.GetAvailableSlots
 func (s *Service) GetAvailableSlots(ctx context.Context, req *pb.GetAvailableSlotsRequest) (*pb.GetAvailableSlotsResponse, error) {
-	// This is a simplified implementation. In a real-world scenario, you would
-	// calculate available slots based on existing events and working hours.
-	s.logger.Info("GetAvailableSlots called via gRPC", "user_id", req.UserId)
-	// Suppress unused context warning by using it in logger or ignoring
-	_ = ctx
+	s.logger.Info("GetAvailableSlots called via gRPC", "user_id", req.UserId, "start_time", req.StartTime, "end_time", req.EndTime, "duration", req.Duration)
+
+	if req.StartTime >= req.EndTime {
+		return &pb.GetAvailableSlotsResponse{
+			Slots:   []*pb.TimeSlot{},
+			Success: false,
+			Message: "start_time must be before end_time",
+		}, nil
+	}
+
+	duration := req.Duration
+	if duration <= 0 {
+		duration = 3600 // default to 1 hour if not specified
+	}
+
+	rangeStart := time.Unix(req.StartTime, 0)
+	rangeEnd := time.Unix(req.EndTime, 0)
+
+	events, err := s.eventRepo.ListEvents(ctx, req.UserId, rangeStart, rangeEnd)
+	if err != nil {
+		s.logger.Error("failed to list events for GetAvailableSlots", "err", err)
+		return &pb.GetAvailableSlotsResponse{
+			Slots:   []*pb.TimeSlot{},
+			Success: false,
+			Message: fmt.Sprintf("failed to retrieve events: %v", err),
+		}, nil
+	}
+
+	// Sort events by start time so we can sweep through them linearly
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].StartTime.Before(events[j].StartTime)
+	})
+
+	var slots []*pb.TimeSlot
+	cursor := req.StartTime // Unix timestamp of the current free-time start
+
+	for _, event := range events {
+		evStart := event.StartTime.Unix()
+		evEnd := event.EndTime.Unix()
+
+		// There is a free gap before this event
+		if evStart > cursor && evStart-cursor >= duration {
+			slots = append(slots, &pb.TimeSlot{
+				StartTime: cursor,
+				EndTime:   evStart,
+			})
+		}
+
+		// Advance cursor past the end of this event (do not move it backwards)
+		if evEnd > cursor {
+			cursor = evEnd
+		}
+	}
+
+	// Check the trailing free gap after the last event
+	if req.EndTime > cursor && req.EndTime-cursor >= duration {
+		slots = append(slots, &pb.TimeSlot{
+			StartTime: cursor,
+			EndTime:   req.EndTime,
+		})
+	}
+
+	if slots == nil {
+		slots = []*pb.TimeSlot{}
+	}
 
 	return &pb.GetAvailableSlotsResponse{
-		Slots:   []*pb.TimeSlot{},
+		Slots:   slots,
 		Success: true,
-		Message: "Available slots retrieval not fully implemented",
+		Message: fmt.Sprintf("Found %d available slot(s)", len(slots)),
 	}, nil
 }
 
