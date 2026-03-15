@@ -190,6 +190,58 @@ func TestExecuteCreateEvent_RPCError(t *testing.T) {
 	}
 }
 
+// ===== Tests for executeUpdateEvent =====
+
+func TestExecuteUpdateEvent_Success(t *testing.T) {
+	calClient := &mockCalendarServiceClient{
+		updateResp: &pb.UpdateEventResponse{
+			Success: true,
+			Message: "updated",
+			Event:   &pb.Event{Id: "evt-2"},
+		},
+	}
+	grpcMock := &mockGRPCClient{calendarClient: calClient}
+	svc := newServiceWithGRPC(grpcMock, &mockRepo{})
+
+	actionData := map[string]interface{}{
+		"id":          "evt-2",
+		"title":       "Updated meeting",
+		"description": "Updated description",
+		"start_time":  float64(time.Date(2025, 2, 20, 14, 0, 0, 0, time.UTC).Unix()),
+		"end_time":    float64(time.Date(2025, 2, 20, 15, 0, 0, 0, time.UTC).Unix()),
+	}
+
+	result, opID, err := svc.executeUpdateEvent(context.Background(), actionData)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if opID != "evt-2" {
+		t.Errorf("expected operation ID evt-2, got %s", opID)
+	}
+	if result["event_id"] != "evt-2" {
+		t.Errorf("expected event_id evt-2 in result, got %v", result["event_id"])
+	}
+}
+
+func TestExecuteUpdateEvent_NonSuccessResponse(t *testing.T) {
+	calClient := &mockCalendarServiceClient{
+		updateResp: &pb.UpdateEventResponse{
+			Success: false,
+			Message: "validation failed",
+		},
+	}
+	grpcMock := &mockGRPCClient{calendarClient: calClient}
+	svc := newServiceWithGRPC(grpcMock, &mockRepo{})
+
+	_, _, err := svc.executeUpdateEvent(context.Background(), map[string]interface{}{"id": "evt-x"})
+	if err == nil {
+		t.Fatal("expected error when update response indicates failure")
+	}
+	if !strings.Contains(err.Error(), "update event failed") {
+		t.Errorf("error should mention update event failed, got: %v", err)
+	}
+}
+
 // ===== Tests for executeDeleteEvent =====
 
 func TestExecuteDeleteEvent_Success(t *testing.T) {
