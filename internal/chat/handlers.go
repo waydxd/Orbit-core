@@ -84,11 +84,16 @@ func (s *Service) handleDeleteConversation(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		statusCode := http.StatusInternalServerError
 		code := "conversation_error"
+		detail := err.Error()
 		if errors.Is(err, ErrConversationNotFound) {
 			statusCode = http.StatusNotFound
 			code = "conversation_not_found"
+		} else if errors.Is(err, ErrConversationForbidden) {
+			statusCode = http.StatusForbidden
+			code = "conversation_forbidden"
+			detail = ""
 		}
-		s.respondError(w, statusCode, code, "Failed to delete conversation", err.Error())
+		s.respondError(w, statusCode, code, "Failed to delete conversation", detail)
 		metrics.GetInstance().IncrementErrors()
 		return
 	}
