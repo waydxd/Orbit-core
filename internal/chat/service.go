@@ -337,7 +337,7 @@ func (s *Service) checkConflicts(_ context.Context, action *models.PendingAction
 
 // parseProposedAction retrieves pending actions created by the gRPC interceptor.
 // When the agent calls CalendarService methods, the interceptor creates PendingAction records.
-// We retrieve the most recent one for this conversation and return it.
+// We retrieve the most recent one for this conversation and correlation (if available) and return it.
 func (s *Service) parseProposedAction(ctx context.Context, _ *pb.ProcessMessageResponse, conversationID, correlationID string) *ProposedAction {
 	pendingActions, err := s.repo.GetPendingActionsByConversation(ctx, conversationID)
 	if err != nil {
@@ -345,19 +345,31 @@ func (s *Service) parseProposedAction(ctx context.Context, _ *pb.ProcessMessageR
 		return nil
 	}
 
-	// Find the most recently created pending action with matching correlation ID or status=pending
-	var latestAction *models.PendingAction
+	// Find the most recently created pending action, preferring those with a matching correlation ID.
+	var latestMatchingAction *models.PendingAction
+	var latestPendingAction *models.PendingAction
 	for _, action := range pendingActions {
 		if action.Status != "pending" {
 			continue
 		}
 
-		// Match by correlation ID if available, or just take the most recent pending action
-		if action.CorrelationID == correlationID || latestAction == nil {
-			if latestAction == nil || action.CreatedAt.After(latestAction.CreatedAt) {
-				latestAction = action
+		// Track the most recent pending action overall as a fallback.
+		if latestPendingAction == nil || action.CreatedAt.After(latestPendingAction.CreatedAt) {
+			latestPendingAction = action
+		}
+
+		// Prefer actions whose correlation ID matches the provided correlationID.
+		if action.CorrelationID == correlationID {
+			if latestMatchingAction == nil || action.CreatedAt.After(latestMatchingAction.CreatedAt) {
+				latestMatchingAction = action
 			}
 		}
+	}
+
+	// Prefer the newest correlation-matching action; fall back to newest pending action overall.
+	latestAction := latestMatchingAction
+	if latestAction == nil {
+		latestAction = latestPendingAction
 	}
 
 	if latestAction == nil {
