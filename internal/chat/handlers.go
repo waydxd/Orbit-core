@@ -239,6 +239,11 @@ func (s *Service) handleGetConversation(w http.ResponseWriter, r *http.Request) 
 	// Get conversation
 	conv, err := s.getConversationForUser(ctx, userID, conversationID)
 	if err != nil {
+		if errors.Is(err, ErrConversationForbidden) {
+			s.respondError(w, http.StatusForbidden, "forbidden", "You do not have access to this conversation", err.Error())
+			return
+		}
+
 		s.respondError(w, http.StatusNotFound, "conversation_not_found", "Conversation not found", err.Error())
 		return
 	}
