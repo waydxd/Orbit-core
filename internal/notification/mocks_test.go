@@ -3,8 +3,8 @@ package notification
 import (
 	"context"
 	"sync"
-	"time"
 
+	"github.com/hibiken/asynq"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/fcm"
 )
@@ -17,24 +17,30 @@ type mockRepo struct {
 	mu sync.Mutex
 
 	// Controlled responses
-	upsertErr       error
-	deleteTokenErr  error
-	tokensResp      []*models.DeviceToken
-	tokensErr       error
-	createSubErr    error
-	deleteSubErr    error
-	existsResp      bool
-	existsErr       error
-	pendingSubsResp []*models.EventSubscription
-	pendingSubsErr  error
-	markSentErr     error
+	upsertErr          error
+	deleteTokenErr     error
+	tokensResp         []*models.DeviceToken
+	tokensErr          error
+	createSubErr       error
+	deleteSubErr       error
+	existsResp         bool
+	existsErr          error
+	getSubResp         *models.EventSubscription
+	getSubErr          error
+	getSubsByEventResp []*models.EventSubscription
+	getSubsByEventErr  error
+	markStatusErr      error
+	updateJobIDErr     error
 
 	// Call records
-	UpsertCalled      bool
-	DeleteTokenCalled bool
-	CreateSubCalled   bool
-	DeleteSubCalled   bool
-	MarkSentCalled    bool
+	UpsertCalled          bool
+	DeleteTokenCalled     bool
+	CreateSubCalled       bool
+	DeleteSubCalled       bool
+	GetSubCalled          bool
+	MarkStatusCalled      bool
+	MarkStatusValue       string
+	UpdateJobIDCalled     bool
 }
 
 func (m *mockRepo) UpsertDeviceToken(_ context.Context, _ *models.DeviceToken) error {
@@ -77,17 +83,32 @@ func (m *mockRepo) SubscriptionExists(_ context.Context, _, _ string) (bool, err
 	return m.existsResp, m.existsErr
 }
 
-func (m *mockRepo) GetPendingSubscriptions(_ context.Context, _ time.Time) ([]*models.EventSubscription, error) {
+func (m *mockRepo) GetSubscriptionByUserAndEvent(_ context.Context, _, _ string) (*models.EventSubscription, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.pendingSubsResp, m.pendingSubsErr
+	m.GetSubCalled = true
+	return m.getSubResp, m.getSubErr
 }
 
-func (m *mockRepo) MarkSubscriptionSent(_ context.Context, _ string) error {
+func (m *mockRepo) GetSubscriptionsByEventID(_ context.Context, _ string) ([]*models.EventSubscription, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.MarkSentCalled = true
-	return m.markSentErr
+	return m.getSubsByEventResp, m.getSubsByEventErr
+}
+
+func (m *mockRepo) MarkSubscriptionStatus(_ context.Context, _, status string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.MarkStatusCalled = true
+	m.MarkStatusValue = status
+	return m.markStatusErr
+}
+
+func (m *mockRepo) UpdateSubscriptionJobID(_ context.Context, _, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.UpdateJobIDCalled = true
+	return m.updateJobIDErr
 }
 
 // mockFCMClient records FCM send calls.
@@ -103,3 +124,38 @@ func (m *mockFCMClient) send(_ context.Context, _, _, _ string, _ map[string]str
 	m.callCount++
 	return m.returnErr
 }
+
+// mockEnqueuer records Asynq enqueue calls.
+type mockEnqueuer struct {
+	mu          sync.Mutex
+	returnErr   error
+	returnInfo  *asynq.TaskInfo
+	EnqueueCalled bool
+}
+
+func (m *mockEnqueuer) EnqueueContext(_ context.Context, _ *asynq.Task, _ ...asynq.Option) (*asynq.TaskInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.EnqueueCalled = true
+	if m.returnInfo == nil && m.returnErr == nil {
+		return &asynq.TaskInfo{ID: "mock-task-id-123"}, nil
+	}
+	return m.returnInfo, m.returnErr
+}
+
+// mockCanceller records Asynq task cancellation calls.
+type mockCanceller struct {
+	mu             sync.Mutex
+	returnErr      error
+	DeleteCalled   bool
+	DeletedTaskID  string
+}
+
+func (m *mockCanceller) DeleteTask(_, taskID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.DeleteCalled = true
+	m.DeletedTaskID = taskID
+	return m.returnErr
+}
+

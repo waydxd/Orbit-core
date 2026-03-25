@@ -157,7 +157,12 @@ type EventSubscription struct {
 	EventID     string    `json:"event_id" db:"event_id"`
 	TriggerTime time.Time `json:"trigger_time" db:"trigger_time"`
 	IsSent      bool      `json:"is_sent" db:"is_sent"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	// JobID is the Asynq task ID returned when the notification task is enqueued.
+	// It is used to cancel the task when the user unsubscribes or the event is rescheduled.
+	JobID     *string `json:"job_id,omitempty" db:"job_id"`
+	// Status is the lifecycle state of the subscription: pending, sent, cancelled, or failed.
+	Status    string  `json:"status" db:"status"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
 // EventFrequency tracks the frequency of similar events for habit detection

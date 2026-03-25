@@ -2,7 +2,6 @@ package notification
 
 import (
 	"context"
-	"time"
 
 	"github.com/waydxd/Orbit-core/internal/shared/database"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
@@ -22,8 +21,16 @@ type Repository interface {
 	CreateSubscription(ctx context.Context, sub *models.EventSubscription) error
 	DeleteSubscription(ctx context.Context, userID, eventID string) error
 	SubscriptionExists(ctx context.Context, userID, eventID string) (bool, error)
-	GetPendingSubscriptions(ctx context.Context, now time.Time) ([]*models.EventSubscription, error)
-	MarkSubscriptionSent(ctx context.Context, id string) error
+	// GetSubscriptionByUserAndEvent fetches an active (non-cancelled) subscription so its
+	// Asynq job_id can be retrieved for task cancellation.
+	GetSubscriptionByUserAndEvent(ctx context.Context, userID, eventID string) (*models.EventSubscription, error)
+	// GetSubscriptionsByEventID returns all non-cancelled subscriptions for an event,
+	// used when an event is rescheduled and existing tasks must be replaced.
+	GetSubscriptionsByEventID(ctx context.Context, eventID string) ([]*models.EventSubscription, error)
+	// MarkSubscriptionStatus updates the status field of a subscription.
+	MarkSubscriptionStatus(ctx context.Context, id, status string) error
+	// UpdateSubscriptionJobID stores the Asynq task ID after successful enqueue.
+	UpdateSubscriptionJobID(ctx context.Context, id, jobID string) error
 }
 
 // SQLRepository implements Repository using PostgreSQL.
@@ -81,11 +88,11 @@ func (r *SQLRepository) GetDeviceTokensByUserID(ctx context.Context, userID stri
 	return tokens, rows.Err()
 }
 
-// CreateSubscription inserts a new event subscription.
+// CreateSubscription inserts a new event subscription with status 'pending'.
 func (r *SQLRepository) CreateSubscription(ctx context.Context, sub *models.EventSubscription) error {
 	_, err := r.pool.Pool.Exec(ctx, `
-		INSERT INTO event_subscriptions (user_id, event_id, trigger_time, is_sent)
-		VALUES ($1, $2, $3, false)
+		INSERT INTO event_subscriptions (user_id, event_id, trigger_time, is_sent, status)
+		VALUES ($1, $2, $3, false, 'pending')
 	`, sub.UserID, sub.EventID, sub.TriggerTime.UTC())
 	return err
 }
@@ -105,21 +112,37 @@ func (r *SQLRepository) SubscriptionExists(ctx context.Context, userID, eventID 
 	err := r.pool.Pool.QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM event_subscriptions
-			WHERE user_id = $1 AND event_id = $2 AND is_sent = false
+			WHERE user_id = $1 AND event_id = $2 AND status NOT IN ('cancelled', 'sent')
 		)
 	`, userID, eventID).Scan(&exists)
 	return exists, err
 }
 
-// GetPendingSubscriptions fetches subscriptions that are due and not yet sent.
-// FOR UPDATE SKIP LOCKED prevents concurrent workers from processing the same rows.
-func (r *SQLRepository) GetPendingSubscriptions(ctx context.Context, now time.Time) ([]*models.EventSubscription, error) {
-	rows, err := r.pool.Pool.Query(ctx, `
-		SELECT id, user_id, event_id, trigger_time, is_sent, created_at
+// GetSubscriptionByUserAndEvent fetches the active subscription for a user + event pair.
+func (r *SQLRepository) GetSubscriptionByUserAndEvent(ctx context.Context, userID, eventID string) (*models.EventSubscription, error) {
+	sub := &models.EventSubscription{}
+	err := r.pool.Pool.QueryRow(ctx, `
+		SELECT id, user_id, event_id, trigger_time, is_sent, job_id, status, created_at
 		FROM event_subscriptions
-		WHERE is_sent = false AND trigger_time <= $1
-		FOR UPDATE SKIP LOCKED
-	`, now.UTC())
+		WHERE user_id = $1 AND event_id = $2 AND status NOT IN ('cancelled', 'sent')
+		LIMIT 1
+	`, userID, eventID).Scan(
+		&sub.ID, &sub.UserID, &sub.EventID, &sub.TriggerTime,
+		&sub.IsSent, &sub.JobID, &sub.Status, &sub.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return sub, nil
+}
+
+// GetSubscriptionsByEventID returns all active subscriptions for an event.
+func (r *SQLRepository) GetSubscriptionsByEventID(ctx context.Context, eventID string) ([]*models.EventSubscription, error) {
+	rows, err := r.pool.Pool.Query(ctx, `
+		SELECT id, user_id, event_id, trigger_time, is_sent, job_id, status, created_at
+		FROM event_subscriptions
+		WHERE event_id = $1 AND status NOT IN ('cancelled', 'sent')
+	`, eventID)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +151,7 @@ func (r *SQLRepository) GetPendingSubscriptions(ctx context.Context, now time.Ti
 	var subs []*models.EventSubscription
 	for rows.Next() {
 		s := &models.EventSubscription{}
-		if err := rows.Scan(&s.ID, &s.UserID, &s.EventID, &s.TriggerTime, &s.IsSent, &s.CreatedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.UserID, &s.EventID, &s.TriggerTime, &s.IsSent, &s.JobID, &s.Status, &s.CreatedAt); err != nil {
 			return nil, err
 		}
 		subs = append(subs, s)
@@ -139,11 +162,21 @@ func (r *SQLRepository) GetPendingSubscriptions(ctx context.Context, now time.Ti
 	return subs, rows.Err()
 }
 
-// MarkSubscriptionSent sets is_sent = true for the given subscription ID.
-func (r *SQLRepository) MarkSubscriptionSent(ctx context.Context, id string) error {
+// MarkSubscriptionStatus updates the status column for a subscription.
+func (r *SQLRepository) MarkSubscriptionStatus(ctx context.Context, id, status string) error {
+	isSent := status == StatusSent
 	_, err := r.pool.Pool.Exec(ctx, `
-		UPDATE event_subscriptions SET is_sent = true WHERE id = $1
-	`, id)
+		UPDATE event_subscriptions SET status = $2, is_sent = $3 WHERE id = $1
+	`, id, status, isSent)
 	return err
 }
+
+// UpdateSubscriptionJobID stores the Asynq task ID for a subscription after it has been enqueued.
+func (r *SQLRepository) UpdateSubscriptionJobID(ctx context.Context, id, jobID string) error {
+	_, err := r.pool.Pool.Exec(ctx, `
+		UPDATE event_subscriptions SET job_id = $2 WHERE id = $1
+	`, id, jobID)
+	return err
+}
+
 
