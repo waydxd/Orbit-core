@@ -18,8 +18,10 @@ import (
 	"github.com/waydxd/Orbit-core/internal/habit"
 	"github.com/waydxd/Orbit-core/internal/integration"
 	"github.com/waydxd/Orbit-core/internal/location"
+	"github.com/waydxd/Orbit-core/internal/notification"
 	"github.com/waydxd/Orbit-core/internal/shared/database"
 	"github.com/waydxd/Orbit-core/pkg/config"
+	"github.com/waydxd/Orbit-core/pkg/fcm"
 	"github.com/waydxd/Orbit-core/pkg/grpc"
 	"github.com/waydxd/Orbit-core/pkg/logger"
 	pb "github.com/waydxd/Orbit-core/proto/calendar"
@@ -98,6 +100,19 @@ func main() {
 	// Initialize chat service for chatbot functionality
 	chatService := chat.NewService(cfg, log, chatRepo, grpcClient)
 
+	// Initialize FCM client for push notifications (non-fatal if credentials are missing)
+	fcmClient, fcmErr := fcm.Init(context.Background(), cfg.Firebase.CredentialsJSON)
+	if fcmErr != nil {
+		log.Error("FCM client initialization failed; push notifications will be disabled", "error", fcmErr)
+	}
+
+	// Initialize notification service and background worker
+	notificationRepo := notification.NewSQLRepository(db)
+	notificationService := notification.NewService(cfg, log, notificationRepo, fcmClient)
+	notificationWorker := notification.NewWorker(notificationRepo, fcmClient, log)
+	notificationWorker.Start()
+	defer notificationWorker.Stop()
+
 	// Create action interceptor for capturing mutating operations
 	actionInterceptor := grpc.NewActionInterceptor(log, chatRepo)
 
@@ -128,12 +143,13 @@ func main() {
 
 	// Initialize gateway (API Gateway/Router)
 	gatewayService := gateway.NewService(cfg, log, gateway.ServiceConfig{
-		AuthService:        authService,
-		CalendarService:    calendarService,
-		LocationService:    locationService,
-		IntegrationService: integrationService,
-		ChatService:        chatService,
-		HabitService:       habitService,
+		AuthService:         authService,
+		CalendarService:     calendarService,
+		LocationService:     locationService,
+		IntegrationService:  integrationService,
+		ChatService:         chatService,
+		HabitService:        habitService,
+		NotificationService: notificationService,
 	})
 
 	// Start HTTP server

@@ -23,12 +23,13 @@ type Service struct {
 
 // ServiceConfig holds references to other services
 type ServiceConfig struct {
-	AuthService        AuthServiceInterface
-	CalendarService    CalendarServiceInterface
-	LocationService    LocationServiceInterface
-	IntegrationService IntegrationServiceInterface
-	ChatService        ChatServiceInterface
-	HabitService       HabitServiceInterface
+	AuthService         AuthServiceInterface
+	CalendarService     CalendarServiceInterface
+	LocationService     LocationServiceInterface
+	IntegrationService  IntegrationServiceInterface
+	ChatService         ChatServiceInterface
+	HabitService        HabitServiceInterface
+	NotificationService NotificationServiceInterface
 }
 
 // AuthServiceInterface defines methods for auth service
@@ -63,6 +64,11 @@ type ChatServiceInterface interface {
 
 // HabitServiceInterface defines methods for habit service
 type HabitServiceInterface interface {
+	RegisterRoutes(router *mux.Router)
+}
+
+// NotificationServiceInterface defines methods for notification service
+type NotificationServiceInterface interface {
 	RegisterRoutes(router *mux.Router)
 }
 
@@ -121,6 +127,9 @@ func (s *Service) setupRoutes() {
 	s.services.IntegrationService.RegisterRoutes(protectedRouter)
 	s.services.ChatService.RegisterRoutes(protectedRouter)
 	s.services.HabitService.RegisterRoutes(protectedRouter)
+	if s.services.NotificationService != nil {
+		s.services.NotificationService.RegisterRoutes(protectedRouter)
+	}
 }
 
 // Router returns the configured router

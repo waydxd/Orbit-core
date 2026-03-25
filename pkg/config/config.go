@@ -21,6 +21,7 @@ type Config struct {
 	Orbi           OrbiConfig
 	GRPCServer     GRPCServerConfig
 	GoogleCalendar GoogleCalendarConfig
+	Firebase       FirebaseConfig
 }
 
 // ServerConfig holds server configuration
@@ -90,21 +91,29 @@ type GoogleCalendarConfig struct {
 	WebhookURL string
 }
 
+// FirebaseConfig holds Firebase Cloud Messaging configuration
+type FirebaseConfig struct {
+	// CredentialsJSON is the content of the Firebase service account JSON key.
+	// Set via FIREBASE_CREDENTIALS_JSON environment variable.
+	CredentialsJSON string
+}
+
 // secretEnvMap maps environment variable names to docker secret filenames (base names).
 // When a secret is present, we'll prefer reading the corresponding secret from
 // /run/secrets/<name> (container) or ./secrets/<name>.txt (local dev). If no secret
 // is available we fall back to the environment variable, then to the default value.
 var secretEnvMap = map[string]string{
-	"DB_USER":              "db_user",
-	"DB_PASSWORD":          "db_password",
-	"DB_NAME":              "db_name",
-	"JWT_SECRET":           "jwt_secret",
-	"RESEND_API_KEY":       "resend_api_key",
-	"MONGO_USER":           "mongo_user",
-	"MONGO_PASSWORD":       "mongo_password",
-	"REDIS_PASSWORD":       "redis_password",
-	"GOOGLE_CLIENT_ID":     "google_client_id",
-	"GOOGLE_CLIENT_SECRET": "google_client_secret",
+	"DB_USER":                    "db_user",
+	"DB_PASSWORD":                "db_password",
+	"DB_NAME":                    "db_name",
+	"JWT_SECRET":                 "jwt_secret",
+	"RESEND_API_KEY":             "resend_api_key",
+	"MONGO_USER":                 "mongo_user",
+	"MONGO_PASSWORD":             "mongo_password",
+	"REDIS_PASSWORD":             "redis_password",
+	"GOOGLE_CLIENT_ID":           "google_client_id",
+	"GOOGLE_CLIENT_SECRET":       "google_client_secret",
+	"FIREBASE_CREDENTIALS_JSON":  "firebase_credentials_json",
 }
 
 // Load loads configuration from environment variables and docker secrets
@@ -169,6 +178,9 @@ func Load() (*Config, error) {
 			ClientKey:   getEnv("GOOGLE_CLIENT_SECRET", ""),
 			RedirectURL: getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/v1/integration/google/callback"),
 			WebhookURL:  getEnv("GOOGLE_WEBHOOK_URL", ""),
+		},
+		Firebase: FirebaseConfig{
+			CredentialsJSON: getEnv("FIREBASE_CREDENTIALS_JSON", ""),
 		},
 	}
 
