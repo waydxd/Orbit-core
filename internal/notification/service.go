@@ -2,7 +2,9 @@ package notification
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -214,37 +216,38 @@ func (s *Service) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Retrieve the newly created subscription ID so we can store the task ID.
-	created, err := s.repo.GetSubscriptionByUserAndEvent(r.Context(), userID, eventID)
-	if err != nil {
-		s.logger.Error("failed to retrieve new subscription", "user_id", userID, "event_id", eventID, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal server error")
-		return
-	}
-
 	// Enqueue the Asynq task to fire at triggerTime.
 	if s.enqueuer != nil {
-		task, taskErr := newSendNotificationTask(SendNotificationPayload{
+		task, taskErr := makeSendNotificationTask(SendNotificationPayload{
 			UserID:  userID,
 			EventID: eventID,
-			SubID:   created.ID,
+			SubID:   sub.ID,
 		})
-		if taskErr == nil {
-			info, enqErr := s.enqueuer.EnqueueContext(
-				r.Context(),
-				task,
-				asynq.Queue(QueueDefault),
-				asynq.ProcessAt(triggerTime),
-				asynq.MaxRetry(3),
-			)
-			if enqErr != nil {
-				s.logger.Error("failed to enqueue notification task",
-					"user_id", userID, "event_id", eventID, "error", enqErr)
-				// Non-fatal: subscription is saved; worker can be re-implemented to poll if needed.
-			} else if updErr := s.repo.UpdateSubscriptionJobID(r.Context(), created.ID, info.ID); updErr != nil {
-				s.logger.Error("failed to persist Asynq job_id",
-					"sub_id", created.ID, "job_id", info.ID, "error", updErr)
+		if taskErr != nil {
+			s.logger.Error("failed to construct notification task",
+				"user_id", userID, "event_id", eventID, "sub_id", sub.ID, "error", taskErr)
+			if delErr := s.repo.DeleteSubscription(r.Context(), userID, eventID); delErr != nil {
+				s.logger.Error("failed to roll back subscription after task construction error",
+					"user_id", userID, "event_id", eventID, "sub_id", sub.ID, "error", delErr)
 			}
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+
+		info, enqErr := s.enqueuer.EnqueueContext(
+			r.Context(),
+			task,
+			asynq.Queue(QueueDefault),
+			asynq.ProcessAt(triggerTime),
+			asynq.MaxRetry(3),
+		)
+		if enqErr != nil {
+			s.logger.Error("failed to enqueue notification task",
+				"user_id", userID, "event_id", eventID, "error", enqErr)
+			// Non-fatal: subscription is saved; worker can be re-implemented to poll if needed.
+		} else if updErr := s.repo.UpdateSubscriptionJobID(r.Context(), sub.ID, info.ID); updErr != nil {
+			s.logger.Error("failed to persist Asynq job_id",
+				"sub_id", sub.ID, "job_id", info.ID, "error", updErr)
 		}
 	}
 
@@ -277,10 +280,14 @@ func (s *Service) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	// Fetch the subscription so we can cancel the Asynq task.
 	sub, err := s.repo.GetSubscriptionByUserAndEvent(r.Context(), userID, eventID)
 	if err != nil {
-		// No active subscription found (or DB error); log and fall through to
-		// a best-effort delete so unsubscribe is always idempotent.
-		s.logger.Warn("could not fetch subscription for Asynq cancellation; falling back to direct delete",
+		if errors.Is(err, sql.ErrNoRows) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		s.logger.Error("failed to fetch subscription for cancellation",
 			"user_id", userID, "event_id", eventID, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
 	}
 
 	// Cancel the scheduled Asynq task if we have a job ID and a canceller.
@@ -300,16 +307,6 @@ func (s *Service) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
-	} else {
-		// Fallback path: GetSubscriptionByUserAndEvent returned an error (e.g., the row was
-		// inserted before migration 009 and never received a job_id). Delete the row directly
-		// rather than leaving it in place. This path can be removed once all pre-Asynq
-		// subscriptions have been migrated or expired.
-		if delErr := s.repo.DeleteSubscription(r.Context(), userID, eventID); delErr != nil {
-			s.logger.Error("failed to delete subscription", "user_id", userID, "event_id", eventID, "error", delErr)
-			writeError(w, http.StatusInternalServerError, "internal server error")
-			return
-		}
 	}
 
 	s.logger.Info("event subscription cancelled", "user_id", userID, "event_id", eventID)
@@ -324,4 +321,3 @@ func writeError(w http.ResponseWriter, code int, message string) {
 		_ = err
 	}
 }
-

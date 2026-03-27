@@ -22,9 +22,12 @@ type mockRepo struct {
 	tokensResp         []*models.DeviceToken
 	tokensErr          error
 	createSubErr       error
+	createSubID        string
 	deleteSubErr       error
 	existsResp         bool
 	existsErr          error
+	getSubByIDResp     *models.EventSubscription
+	getSubByIDErr      error
 	getSubResp         *models.EventSubscription
 	getSubErr          error
 	getSubsByEventResp []*models.EventSubscription
@@ -33,14 +36,16 @@ type mockRepo struct {
 	updateJobIDErr     error
 
 	// Call records
-	UpsertCalled          bool
-	DeleteTokenCalled     bool
-	CreateSubCalled       bool
-	DeleteSubCalled       bool
-	GetSubCalled          bool
-	MarkStatusCalled      bool
-	MarkStatusValue       string
-	UpdateJobIDCalled     bool
+	UpsertCalled      bool
+	DeleteTokenCalled bool
+	CreateSubCalled   bool
+	DeleteSubCalled   bool
+	GetSubByIDCalled  bool
+	GetSubCalled      bool
+	MarkStatusCalled  bool
+	MarkStatusValue   string
+	UpdateJobIDValue  string
+	UpdateJobIDCalled bool
 }
 
 func (m *mockRepo) UpsertDeviceToken(_ context.Context, _ *models.DeviceToken) error {
@@ -63,10 +68,16 @@ func (m *mockRepo) GetDeviceTokensByUserID(_ context.Context, _ string) ([]*mode
 	return m.tokensResp, m.tokensErr
 }
 
-func (m *mockRepo) CreateSubscription(_ context.Context, _ *models.EventSubscription) error {
+func (m *mockRepo) CreateSubscription(_ context.Context, sub *models.EventSubscription) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.CreateSubCalled = true
+	if m.createSubID == "" {
+		m.createSubID = "sub-created"
+	}
+	if sub != nil {
+		sub.ID = m.createSubID
+	}
 	return m.createSubErr
 }
 
@@ -81,6 +92,13 @@ func (m *mockRepo) SubscriptionExists(_ context.Context, _, _ string) (bool, err
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.existsResp, m.existsErr
+}
+
+func (m *mockRepo) GetSubscriptionByID(_ context.Context, _ string) (*models.EventSubscription, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.GetSubByIDCalled = true
+	return m.getSubByIDResp, m.getSubByIDErr
 }
 
 func (m *mockRepo) GetSubscriptionByUserAndEvent(_ context.Context, _, _ string) (*models.EventSubscription, error) {
@@ -104,10 +122,11 @@ func (m *mockRepo) MarkSubscriptionStatus(_ context.Context, _, status string) e
 	return m.markStatusErr
 }
 
-func (m *mockRepo) UpdateSubscriptionJobID(_ context.Context, _, _ string) error {
+func (m *mockRepo) UpdateSubscriptionJobID(_ context.Context, _, jobID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.UpdateJobIDCalled = true
+	m.UpdateJobIDValue = jobID
 	return m.updateJobIDErr
 }
 
@@ -127,9 +146,9 @@ func (m *mockFCMClient) send(_ context.Context, _, _, _ string, _ map[string]str
 
 // mockEnqueuer records Asynq enqueue calls.
 type mockEnqueuer struct {
-	mu          sync.Mutex
-	returnErr   error
-	returnInfo  *asynq.TaskInfo
+	mu            sync.Mutex
+	returnErr     error
+	returnInfo    *asynq.TaskInfo
 	EnqueueCalled bool
 }
 
@@ -145,10 +164,10 @@ func (m *mockEnqueuer) EnqueueContext(_ context.Context, _ *asynq.Task, _ ...asy
 
 // mockCanceller records Asynq task cancellation calls.
 type mockCanceller struct {
-	mu             sync.Mutex
-	returnErr      error
-	DeleteCalled   bool
-	DeletedTaskID  string
+	mu            sync.Mutex
+	returnErr     error
+	DeleteCalled  bool
+	DeletedTaskID string
 }
 
 func (m *mockCanceller) DeleteTask(_, taskID string) error {
@@ -158,4 +177,3 @@ func (m *mockCanceller) DeleteTask(_, taskID string) error {
 	m.DeletedTaskID = taskID
 	return m.returnErr
 }
-

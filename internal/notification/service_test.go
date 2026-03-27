@@ -3,7 +3,9 @@ package notification
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -133,9 +135,8 @@ func TestHandleRegisterToken_InvalidPlatform(t *testing.T) {
 }
 
 func TestHandleSubscribe_Success(t *testing.T) {
-	subID := "sub-1"
 	mock := &mockRepo{
-		getSubResp: &models.EventSubscription{ID: subID, UserID: "user-1", EventID: "evt-1"},
+		createSubID: "sub-1",
 	}
 	enq := &mockEnqueuer{}
 	svc := newTestServiceWithEnqueuer(mock, enq, nil)
@@ -162,6 +163,9 @@ func TestHandleSubscribe_Success(t *testing.T) {
 	}
 	if !mock.UpdateJobIDCalled {
 		t.Fatal("expected UpdateSubscriptionJobID to be called with the task ID")
+	}
+	if mock.UpdateJobIDValue != "mock-task-id-123" {
+		t.Fatalf("expected task ID to be persisted, got %q", mock.UpdateJobIDValue)
 	}
 }
 
@@ -207,9 +211,8 @@ func TestHandleSubscribe_Duplicate(t *testing.T) {
 
 func TestHandleSubscribe_NoEnqueuerStillSucceeds(t *testing.T) {
 	// When enqueuer is nil (Redis unavailable), the subscription should still be saved.
-	subID := "sub-no-redis"
 	mock := &mockRepo{
-		getSubResp: &models.EventSubscription{ID: subID},
+		createSubID: "sub-no-redis",
 	}
 	svc := newTestService(mock) // no enqueuer
 
@@ -229,6 +232,39 @@ func TestHandleSubscribe_NoEnqueuerStillSucceeds(t *testing.T) {
 	}
 	if !mock.CreateSubCalled {
 		t.Fatal("expected CreateSubscription to be called")
+	}
+}
+
+func TestHandleSubscribe_TaskConstructionErrorRollsBack(t *testing.T) {
+	oldFactory := makeSendNotificationTask
+	defer func() { makeSendNotificationTask = oldFactory }()
+	makeSendNotificationTask = func(_ SendNotificationPayload) (*asynq.Task, error) {
+		return nil, errors.New("boom")
+	}
+
+	mock := &mockRepo{createSubID: "sub-task-fail"}
+	enq := &mockEnqueuer{}
+	svc := newTestServiceWithEnqueuer(mock, enq, nil)
+
+	future := time.Now().UTC().Add(2 * time.Hour)
+	body, _ := json.Marshal(map[string]interface{}{
+		"event_start_at": future.Format(time.RFC3339),
+	})
+	req := httptest.NewRequest(http.MethodPost, "/events/evt-1/notify", bytes.NewReader(body))
+	req = withUserID(req, "user-1")
+	req = mux.SetURLVars(req, map[string]string{"id": "evt-1"})
+	rr := httptest.NewRecorder()
+
+	svc.handleSubscribe(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !mock.DeleteSubCalled {
+		t.Fatal("expected subscription rollback delete after task construction failure")
+	}
+	if enq.EnqueueCalled {
+		t.Fatal("did not expect enqueue on task construction failure")
 	}
 }
 
@@ -289,6 +325,25 @@ func TestHandleUnsubscribe_NoCanceller(t *testing.T) {
 	}
 }
 
+func TestHandleUnsubscribe_NotFoundIsNoOp(t *testing.T) {
+	mock := &mockRepo{getSubErr: sql.ErrNoRows}
+	svc := newTestService(mock)
+
+	req := httptest.NewRequest(http.MethodDelete, "/events/evt-1/notify", nil)
+	req = withUserID(req, "user-1")
+	req = mux.SetURLVars(req, map[string]string{"id": "evt-1"})
+	rr := httptest.NewRecorder()
+
+	svc.handleUnsubscribe(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if mock.DeleteSubCalled {
+		t.Fatal("did not expect DeleteSubscription on missing active row")
+	}
+}
+
 // ===== Worker (Asynq handler) tests using mock FCM sender =====
 
 func TestWorker_HandleSendNotification_Success(t *testing.T) {
@@ -296,6 +351,7 @@ func TestWorker_HandleSendNotification_Success(t *testing.T) {
 		ID:      "sub-1",
 		UserID:  "user-1",
 		EventID: "evt-1",
+		Status:  StatusPending,
 	}
 	token := &models.DeviceToken{
 		ID:       "dt-1",
@@ -306,7 +362,8 @@ func TestWorker_HandleSendNotification_Success(t *testing.T) {
 
 	mockFCM := &mockFCMClient{}
 	repo := &mockRepo{
-		tokensResp: []*models.DeviceToken{token},
+		getSubByIDResp: sub,
+		tokensResp:     []*models.DeviceToken{token},
 	}
 
 	w := &Worker{repo: repo, fcm: nil, logger: logger.New()}
@@ -332,6 +389,57 @@ func TestWorker_HandleSendNotification_Success(t *testing.T) {
 	}
 }
 
+func TestWorker_HandleSendNotification_SkipsCancelledSubscription(t *testing.T) {
+	repo := &mockRepo{
+		getSubByIDResp: &models.EventSubscription{ID: "sub-1", Status: StatusCancelled},
+	}
+	mockFCM := &mockFCMClient{}
+	w := &Worker{repo: repo, fcm: nil, logger: logger.New()}
+	w.sendFn = mockFCM.send
+
+	payload, _ := json.Marshal(SendNotificationPayload{UserID: "user-1", EventID: "evt-1", SubID: "sub-1"})
+	task := newAsynqTaskForTest(TaskTypeSendNotification, payload)
+
+	err := w.HandleSendNotification(context.Background(), task)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if mockFCM.callCount != 0 {
+		t.Fatalf("expected no sends for cancelled subscription, got %d", mockFCM.callCount)
+	}
+	if repo.MarkStatusCalled {
+		t.Fatal("did not expect status update for cancelled subscription")
+	}
+}
+
+func TestWorker_HandleSendNotification_PartialFailureDoesNotRetry(t *testing.T) {
+	repo := &mockRepo{
+		getSubByIDResp: &models.EventSubscription{ID: "sub-3", Status: StatusPending},
+		tokensResp: []*models.DeviceToken{
+			{ID: "dt-1", UserID: "user-3", Token: "ok-token", Platform: "android"},
+			{ID: "dt-2", UserID: "user-3", Token: "bad-token", Platform: "ios"},
+		},
+	}
+	w := &Worker{repo: repo, fcm: nil, logger: logger.New()}
+	w.sendFn = func(_ context.Context, token, _, _ string, _ map[string]string) error {
+		if token == "bad-token" {
+			return errInvalidToken
+		}
+		return nil
+	}
+
+	payload, _ := json.Marshal(SendNotificationPayload{UserID: "user-3", EventID: "evt-3", SubID: "sub-3"})
+	task := newAsynqTaskForTest(TaskTypeSendNotification, payload)
+
+	err := w.HandleSendNotification(context.Background(), task)
+	if err != nil {
+		t.Fatalf("expected no error on partial failure, got %v", err)
+	}
+	if !repo.MarkStatusCalled || repo.MarkStatusValue != StatusSent {
+		t.Fatalf("expected subscription to be marked sent, got called=%v value=%q", repo.MarkStatusCalled, repo.MarkStatusValue)
+	}
+}
+
 func TestWorker_HandleSendNotification_InvalidToken(t *testing.T) {
 	token := &models.DeviceToken{
 		ID:       "dt-2",
@@ -342,7 +450,8 @@ func TestWorker_HandleSendNotification_InvalidToken(t *testing.T) {
 
 	mockFCM := &mockFCMClient{returnErr: errInvalidToken}
 	repo := &mockRepo{
-		tokensResp: []*models.DeviceToken{token},
+		getSubByIDResp: &models.EventSubscription{ID: "sub-2", Status: StatusPending},
+		tokensResp:     []*models.DeviceToken{token},
 	}
 
 	w := &Worker{repo: repo, fcm: nil, logger: logger.New()}
@@ -373,4 +482,3 @@ func TestWorker_HandleSendNotification_InvalidToken(t *testing.T) {
 func newAsynqTaskForTest(typeName string, payload []byte) *asynq.Task {
 	return asynq.NewTask(typeName, payload)
 }
-

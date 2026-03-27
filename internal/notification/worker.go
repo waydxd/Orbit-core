@@ -67,6 +67,16 @@ func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) erro
 		return fmt.Errorf("HandleSendNotification: unmarshal payload: %w", err)
 	}
 
+	sub, err := w.repo.GetSubscriptionByID(ctx, p.SubID)
+	if err != nil {
+		return fmt.Errorf("HandleSendNotification: get subscription %s: %w", p.SubID, err)
+	}
+	if sub.Status != StatusPending {
+		w.logger.Info("HandleSendNotification: subscription no longer pending, skipping send",
+			"sub_id", p.SubID, "status", sub.Status)
+		return nil
+	}
+
 	tokens, err := w.repo.GetDeviceTokensByUserID(ctx, p.UserID)
 	if err != nil {
 		return fmt.Errorf("HandleSendNotification: get device tokens for user %s: %w", p.UserID, err)
@@ -79,10 +89,13 @@ func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) erro
 	}
 
 	var sendErr error
+	var successCount int
 	for _, dt := range tokens {
 		if err := w.sendToToken(ctx, dt.Token, p.EventID, p.UserID, data); err != nil {
 			sendErr = err
+			continue
 		}
+		successCount++
 	}
 
 	// Determine final status based on whether any send succeeded.
@@ -98,17 +111,20 @@ func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) erro
 		return nil
 	}
 
-	status := StatusSent
-	if sendErr != nil {
-		// At least one token failed; mark as failed so the task can be retried.
+	if successCount == 0 {
 		if err := w.repo.MarkSubscriptionStatus(ctx, p.SubID, StatusFailed); err != nil {
 			w.logger.Error("HandleSendNotification: failed to mark subscription failed",
 				"sub_id", p.SubID, "error", err)
 		}
-		return fmt.Errorf("HandleSendNotification: one or more FCM sends failed: %w", sendErr)
+		return fmt.Errorf("HandleSendNotification: all FCM sends failed: %w", sendErr)
 	}
 
-	if err := w.repo.MarkSubscriptionStatus(ctx, p.SubID, status); err != nil {
+	if sendErr != nil {
+		w.logger.Warn("HandleSendNotification: some device tokens failed, but at least one send succeeded",
+			"sub_id", p.SubID, "user_id", p.UserID, "error", sendErr)
+	}
+
+	if err := w.repo.MarkSubscriptionStatus(ctx, p.SubID, StatusSent); err != nil {
 		w.logger.Error("HandleSendNotification: failed to mark subscription sent",
 			"sub_id", p.SubID, "error", err)
 	}
@@ -161,4 +177,3 @@ func (w *Worker) sendToToken(ctx context.Context, token, eventID, userID string,
 
 	return err
 }
-

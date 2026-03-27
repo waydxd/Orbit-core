@@ -21,6 +21,8 @@ type Repository interface {
 	CreateSubscription(ctx context.Context, sub *models.EventSubscription) error
 	DeleteSubscription(ctx context.Context, userID, eventID string) error
 	SubscriptionExists(ctx context.Context, userID, eventID string) (bool, error)
+	// GetSubscriptionByID fetches a subscription by primary key.
+	GetSubscriptionByID(ctx context.Context, id string) (*models.EventSubscription, error)
 	// GetSubscriptionByUserAndEvent fetches an active (non-cancelled) subscription so its
 	// Asynq job_id can be retrieved for task cancellation.
 	GetSubscriptionByUserAndEvent(ctx context.Context, userID, eventID string) (*models.EventSubscription, error)
@@ -90,10 +92,11 @@ func (r *SQLRepository) GetDeviceTokensByUserID(ctx context.Context, userID stri
 
 // CreateSubscription inserts a new event subscription with status 'pending'.
 func (r *SQLRepository) CreateSubscription(ctx context.Context, sub *models.EventSubscription) error {
-	_, err := r.pool.Pool.Exec(ctx, `
+	err := r.pool.Pool.QueryRow(ctx, `
 		INSERT INTO event_subscriptions (user_id, event_id, trigger_time, is_sent, status)
 		VALUES ($1, $2, $3, false, 'pending')
-	`, sub.UserID, sub.EventID, sub.TriggerTime.UTC())
+		RETURNING id
+	`, sub.UserID, sub.EventID, sub.TriggerTime.UTC()).Scan(&sub.ID)
 	return err
 }
 
@@ -118,6 +121,23 @@ func (r *SQLRepository) SubscriptionExists(ctx context.Context, userID, eventID 
 	return exists, err
 }
 
+// GetSubscriptionByID fetches a subscription by primary key.
+func (r *SQLRepository) GetSubscriptionByID(ctx context.Context, id string) (*models.EventSubscription, error) {
+	sub := &models.EventSubscription{}
+	err := r.pool.Pool.QueryRow(ctx, `
+		SELECT id, user_id, event_id, trigger_time, is_sent, job_id, status, created_at
+		FROM event_subscriptions
+		WHERE id = $1
+	`, id).Scan(
+		&sub.ID, &sub.UserID, &sub.EventID, &sub.TriggerTime,
+		&sub.IsSent, &sub.JobID, &sub.Status, &sub.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return sub, nil
+}
+
 // GetSubscriptionByUserAndEvent fetches the active subscription for a user + event pair.
 func (r *SQLRepository) GetSubscriptionByUserAndEvent(ctx context.Context, userID, eventID string) (*models.EventSubscription, error) {
 	sub := &models.EventSubscription{}
@@ -125,6 +145,7 @@ func (r *SQLRepository) GetSubscriptionByUserAndEvent(ctx context.Context, userI
 		SELECT id, user_id, event_id, trigger_time, is_sent, job_id, status, created_at
 		FROM event_subscriptions
 		WHERE user_id = $1 AND event_id = $2 AND status NOT IN ('cancelled', 'sent')
+		ORDER BY created_at DESC
 		LIMIT 1
 	`, userID, eventID).Scan(
 		&sub.ID, &sub.UserID, &sub.EventID, &sub.TriggerTime,
@@ -166,7 +187,9 @@ func (r *SQLRepository) GetSubscriptionsByEventID(ctx context.Context, eventID s
 func (r *SQLRepository) MarkSubscriptionStatus(ctx context.Context, id, status string) error {
 	isSent := status == StatusSent
 	_, err := r.pool.Pool.Exec(ctx, `
-		UPDATE event_subscriptions SET status = $2, is_sent = $3 WHERE id = $1
+		UPDATE event_subscriptions
+		SET status = $2, is_sent = $3
+		WHERE id = $1 AND status = 'pending'
 	`, id, status, isSent)
 	return err
 }
@@ -178,5 +201,3 @@ func (r *SQLRepository) UpdateSubscriptionJobID(ctx context.Context, id, jobID s
 	`, id, jobID)
 	return err
 }
-
-

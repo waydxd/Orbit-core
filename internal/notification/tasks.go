@@ -41,3 +41,6 @@ func newSendNotificationTask(p SendNotificationPayload) (*asynq.Task, error) {
 	}
 	return asynq.NewTask(TaskTypeSendNotification, payload), nil
 }
+
+// makeSendNotificationTask is overridden in tests to exercise task-construction failures.
+var makeSendNotificationTask = newSendNotificationTask
