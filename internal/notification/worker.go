@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/hibiken/asynq"
 	"github.com/waydxd/Orbit-core/pkg/fcm"
@@ -21,7 +22,9 @@ type Worker struct {
 	sendFn func(ctx context.Context, token, eventID, userID string, data map[string]string) error
 }
 
-// NewWorker creates a new Asynq-based notification worker.
+const invalidTokenDeleteTimeout = 2 * time.Second
+
+// NewWorker creates a new notification worker.
 // fcmClient may be nil when Firebase is not configured; sends will be skipped.
 // server must be a configured *asynq.Server; it is started by calling Start().
 func NewWorker(repo Repository, fcmClient *fcm.Client, log *logger.Logger, server *asynq.Server) *Worker {
@@ -136,7 +139,7 @@ func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) erro
 }
 
 // sendToToken sends an FCM message to a single device token.
-// If the token is invalid it is deleted from the database asynchronously.
+// If the token is invalid it is deleted from the database with a short timeout.
 func (w *Worker) sendToToken(ctx context.Context, token, eventID, userID string, data map[string]string) error {
 	var err error
 
@@ -169,14 +172,14 @@ func (w *Worker) sendToToken(ctx context.Context, token, eventID, userID string,
 	)
 
 	if fcm.IsInvalidToken(err) {
-		// Clean up invalid token asynchronously to unblock the main loop.
-		go func(t string) {
-			if delErr := w.repo.DeleteDeviceToken(context.Background(), t); delErr != nil {
-				w.logger.Error("notification worker: failed to delete invalid token", "error", delErr)
-			} else {
-				w.logger.Info("notification worker: removed invalid token", "user_id", userID)
-			}
-		}(token)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), invalidTokenDeleteTimeout)
+		defer cancel()
+
+		if delErr := w.repo.DeleteDeviceToken(cleanupCtx, token); delErr != nil {
+			w.logger.Error("notification worker: failed to delete invalid token", "error", delErr)
+		} else {
+			w.logger.Info("notification worker: removed invalid token", "user_id", userID)
+		}
 	}
 
 	return err
