@@ -470,11 +470,22 @@ func TestWorker_HandleSendNotification_InvalidToken(t *testing.T) {
 		t.Fatal("expected error when FCM send fails, got nil")
 	}
 
-	// Give the async goroutine a moment to run
-	time.Sleep(20 * time.Millisecond)
+	// Wait (with timeout) for the async goroutine to delete the token
+	timeout := time.After(1 * time.Second)
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
 
-	if !repo.DeleteTokenCalled {
-		t.Fatal("expected DeleteDeviceToken to be called for invalid token")
+	for {
+		if repo.DeleteTokenCalled {
+			break
+		}
+
+		select {
+		case <-ticker.C:
+			// continue waiting
+		case <-timeout:
+			t.Fatal("expected DeleteDeviceToken to be called for invalid token")
+		}
 	}
 }
 
