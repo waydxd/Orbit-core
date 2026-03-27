@@ -11,6 +11,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/hibiken/asynq"
 	"github.com/waydxd/Orbit-core/internal/auth"
 	"github.com/waydxd/Orbit-core/internal/calendar"
 	"github.com/waydxd/Orbit-core/internal/chat"
@@ -106,10 +107,41 @@ func main() {
 		log.Error("FCM client initialization failed; push notifications will be disabled", "error", fcmErr)
 	}
 
+	// Initialize Asynq client and inspector for task enqueueing and cancellation.
+	redisOpt := asynq.RedisClientOpt{
+		Addr:     cfg.Redis.RedisAddr(),
+		Password: cfg.Redis.Pass,
+		DB:       cfg.Redis.DB,
+	}
+	asynqClient := asynq.NewClient(redisOpt)
+	defer func() {
+		if err := asynqClient.Close(); err != nil {
+			log.Error("Failed to close Asynq client", "error", err)
+		}
+	}()
+	asynqInspector := asynq.NewInspector(redisOpt)
+	defer func() {
+		if err := asynqInspector.Close(); err != nil {
+			log.Error("Failed to close Asynq inspector", "error", err)
+		}
+	}()
+
+	// Initialize Asynq server for processing notification tasks.
+	asynqServer := asynq.NewServer(redisOpt, asynq.Config{
+		Concurrency: 10,
+		Queues: map[string]int{
+			notification.QueueDefault:  10,
+			notification.QueueCritical: 50,
+		},
+		ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
+			log.Error("Asynq task failed", "type", task.Type(), "error", err)
+		}),
+	})
+
 	// Initialize notification service and background worker
 	notificationRepo := notification.NewSQLRepository(db)
-	notificationService := notification.NewService(cfg, log, notificationRepo, fcmClient)
-	notificationWorker := notification.NewWorker(notificationRepo, fcmClient, log)
+	notificationService := notification.NewService(cfg, log, notificationRepo, fcmClient, asynqClient, asynqInspector)
+	notificationWorker := notification.NewWorker(notificationRepo, fcmClient, log, asynqServer)
 	notificationWorker.Start()
 	defer notificationWorker.Stop()
 

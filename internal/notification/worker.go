@@ -2,107 +2,133 @@ package notification
 
 import (
 	"context"
-	"time"
+	"encoding/json"
+	"fmt"
 
-	"github.com/robfig/cron/v3"
-	"github.com/waydxd/Orbit-core/internal/shared/models"
+	"github.com/hibiken/asynq"
 	"github.com/waydxd/Orbit-core/pkg/fcm"
 	"github.com/waydxd/Orbit-core/pkg/logger"
 )
 
-// Worker polls the database every minute and dispatches pending FCM notifications.
+// Worker wraps an Asynq server that processes send_notification tasks.
 type Worker struct {
 	repo   Repository
 	fcm    *fcm.Client
 	logger *logger.Logger
-	c      *cron.Cron
+	server *asynq.Server
 	// sendFn is used in tests to mock the FCM send call.
 	// If nil, the real fcm.Client is used (or a no-op when fcm is nil).
 	sendFn func(ctx context.Context, token, eventID, userID string, data map[string]string) error
 }
 
-// NewWorker creates a new notification worker.
+// NewWorker creates a new Asynq-based notification worker.
 // fcmClient may be nil when Firebase is not configured; sends will be skipped.
-func NewWorker(repo Repository, fcmClient *fcm.Client, log *logger.Logger) *Worker {
+// server must be a configured *asynq.Server; it is started by calling Start().
+func NewWorker(repo Repository, fcmClient *fcm.Client, log *logger.Logger, server *asynq.Server) *Worker {
 	return &Worker{
 		repo:   repo,
 		fcm:    fcmClient,
 		logger: log,
+		server: server,
 	}
 }
 
-// Start launches the cron scheduler in the background.
+// Start registers the task handler and launches the Asynq server in the background.
 // It returns immediately; use Stop to shut it down gracefully.
 func (w *Worker) Start() {
-	w.c = cron.New()
-	_, err := w.c.AddFunc("* * * * *", func() { // every minute
-		w.run(context.Background())
-	})
-	if err != nil {
-		w.logger.Error("notification worker: failed to add cron job", "error", err)
+	if w.server == nil {
+		w.logger.Warn("notification worker: Asynq server is nil, worker will not start")
 		return
 	}
-	w.c.Start()
+	mux := asynq.NewServeMux()
+	mux.HandleFunc(TaskTypeSendNotification, w.HandleSendNotification)
+
+	go func() {
+		if err := w.server.Run(mux); err != nil {
+			w.logger.Error("notification worker: Asynq server exited with error", "error", err)
+		}
+	}()
 	w.logger.Info("notification worker started")
 }
 
-// Stop gracefully stops the cron scheduler and waits for any in-progress run to finish.
+// Stop gracefully shuts down the Asynq server, waiting for in-progress tasks to finish.
 func (w *Worker) Stop() {
-	if w.c != nil {
-		ctx := w.c.Stop()
-		<-ctx.Done()
+	if w.server != nil {
+		w.server.Shutdown()
 		w.logger.Info("notification worker stopped")
 	}
 }
 
-// run is the body of the cron job: fetches pending subscriptions, sends FCM messages,
-// and marks them as sent.
-func (w *Worker) run(ctx context.Context) {
-	now := time.Now().UTC()
-
-	subs, err := w.repo.GetPendingSubscriptions(ctx, now)
-	if err != nil {
-		w.logger.Error("notification worker: failed to fetch pending subscriptions", "error", err)
-		return
+// HandleSendNotification is the Asynq task handler for TaskTypeSendNotification.
+// It reads the payload, fetches device tokens, sends FCM messages, and updates the DB.
+func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) error {
+	var p SendNotificationPayload
+	if err := json.Unmarshal(t.Payload(), &p); err != nil {
+		return fmt.Errorf("HandleSendNotification: unmarshal payload: %w", err)
 	}
 
-	for _, sub := range subs {
-		w.process(ctx, sub)
-	}
-}
-
-// process sends notifications for a single subscription and updates the database.
-func (w *Worker) process(ctx context.Context, sub *models.EventSubscription) {
-	// Fetch device tokens for the user
-	tokens, err := w.repo.GetDeviceTokensByUserID(ctx, sub.UserID)
+	sub, err := w.repo.GetSubscriptionByID(ctx, p.SubID)
 	if err != nil {
-		w.logger.Error("notification worker: failed to get device tokens",
-			"user_id", sub.UserID,
-			"subscription_id", sub.ID,
-			"error", err,
-		)
-		return
+		return fmt.Errorf("HandleSendNotification: get subscription %s: %w", p.SubID, err)
+	}
+	if sub.Status != StatusPending {
+		w.logger.Info("HandleSendNotification: subscription no longer pending, skipping send",
+			"sub_id", p.SubID, "status", sub.Status)
+		return nil
+	}
+
+	tokens, err := w.repo.GetDeviceTokensByUserID(ctx, p.UserID)
+	if err != nil {
+		return fmt.Errorf("HandleSendNotification: get device tokens for user %s: %w", p.UserID, err)
 	}
 
 	data := map[string]string{
-		"event_id": sub.EventID,
+		"event_id": p.EventID,
 		"type":     "calendar_reminder",
 		"action":   "open_event",
 	}
 
+	var sendErr error
+	var successCount int
 	for _, dt := range tokens {
-		w.sendToToken(ctx, dt.Token, sub.EventID, sub.UserID, data)
+		if err := w.sendToToken(ctx, dt.Token, p.EventID, p.UserID, data); err != nil {
+			sendErr = err
+			continue
+		}
+		successCount++
 	}
 
-	// Always mark the subscription as sent after processing all tokens.
-	// This ensures idempotency: the worker won't retry indefinitely if all sends
-	// fail (e.g. transient errors). Failed sends are logged for observability.
-	if err := w.repo.MarkSubscriptionSent(ctx, sub.ID); err != nil {
-		w.logger.Error("notification worker: failed to mark subscription sent",
-			"subscription_id", sub.ID,
-			"error", err,
-		)
+	// Determine final status based on whether any send succeeded.
+	if len(tokens) == 0 {
+		// User has no registered device tokens; nothing to send. Log a warning but
+		// still mark as sent so the task is not retried endlessly.
+		w.logger.Warn("HandleSendNotification: no device tokens found for user, skipping send",
+			"user_id", p.UserID, "sub_id", p.SubID)
+		if err := w.repo.MarkSubscriptionStatus(ctx, p.SubID, StatusSent); err != nil {
+			w.logger.Error("HandleSendNotification: failed to mark subscription sent (no tokens)",
+				"sub_id", p.SubID, "error", err)
+		}
+		return nil
 	}
+
+	if successCount == 0 {
+		if err := w.repo.MarkSubscriptionStatus(ctx, p.SubID, StatusFailed); err != nil {
+			w.logger.Error("HandleSendNotification: failed to mark subscription failed",
+				"sub_id", p.SubID, "error", err)
+		}
+		return fmt.Errorf("HandleSendNotification: all FCM sends failed: %w", sendErr)
+	}
+
+	if sendErr != nil {
+		w.logger.Warn("HandleSendNotification: some device tokens failed, but at least one send succeeded",
+			"sub_id", p.SubID, "user_id", p.UserID, "error", sendErr)
+	}
+
+	if err := w.repo.MarkSubscriptionStatus(ctx, p.SubID, StatusSent); err != nil {
+		w.logger.Error("HandleSendNotification: failed to mark subscription sent",
+			"sub_id", p.SubID, "error", err)
+	}
+	return nil
 }
 
 // sendToToken sends an FCM message to a single device token.

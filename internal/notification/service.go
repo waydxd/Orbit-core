@@ -1,11 +1,15 @@
 package notification
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/hibiken/asynq"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/fcm"
@@ -18,22 +22,38 @@ const (
 	NotifyOffsetMinutes = 15
 )
 
+// TaskEnqueuer is satisfied by *asynq.Client and can be mocked in tests.
+type TaskEnqueuer interface {
+	EnqueueContext(ctx context.Context, task *asynq.Task, opts ...asynq.Option) (*asynq.TaskInfo, error)
+}
+
+// TaskCanceller is satisfied by *asynq.Inspector and can be mocked in tests.
+type TaskCanceller interface {
+	// DeleteTask removes a scheduled task from the named queue.
+	DeleteTask(queue, taskID string) error
+}
+
 // Service handles push-notification HTTP endpoints.
 type Service struct {
-	config *config.Config
-	logger *logger.Logger
-	repo   Repository
-	fcm    *fcm.Client
+	config    *config.Config
+	logger    *logger.Logger
+	repo      Repository
+	fcm       *fcm.Client
+	enqueuer  TaskEnqueuer
+	canceller TaskCanceller
 }
 
 // NewService creates a new notification Service.
 // fcmClient may be nil when Firebase credentials are not configured (notifications will be skipped).
-func NewService(cfg *config.Config, log *logger.Logger, repo Repository, fcmClient *fcm.Client) *Service {
+// enqueuer and canceller may be nil when Redis is not available (Asynq operations will be skipped).
+func NewService(cfg *config.Config, log *logger.Logger, repo Repository, fcmClient *fcm.Client, enqueuer TaskEnqueuer, canceller TaskCanceller) *Service {
 	return &Service{
-		config: cfg,
-		logger: log,
-		repo:   repo,
-		fcm:    fcmClient,
+		config:    cfg,
+		logger:    log,
+		repo:      repo,
+		fcm:       fcmClient,
+		enqueuer:  enqueuer,
+		canceller: canceller,
 	}
 }
 
@@ -130,7 +150,7 @@ func (s *Service) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleSubscribe creates an event notification subscription for the authenticated user.
+// handleSubscribe creates an event notification subscription and enqueues an Asynq task.
 //
 //	POST /api/v1/events/{id}/notify
 //	Body (optional): { "offset_minutes": -15 }   — defaults to -15 minutes before event start
@@ -196,6 +216,41 @@ func (s *Service) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enqueue the Asynq task to fire at triggerTime.
+	if s.enqueuer != nil {
+		task, taskErr := makeSendNotificationTask(SendNotificationPayload{
+			UserID:  userID,
+			EventID: eventID,
+			SubID:   sub.ID,
+		})
+		if taskErr != nil {
+			s.logger.Error("failed to construct notification task",
+				"user_id", userID, "event_id", eventID, "sub_id", sub.ID, "error", taskErr)
+			if delErr := s.repo.DeleteSubscription(r.Context(), userID, eventID); delErr != nil {
+				s.logger.Error("failed to roll back subscription after task construction error",
+					"user_id", userID, "event_id", eventID, "sub_id", sub.ID, "error", delErr)
+			}
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+
+		info, enqErr := s.enqueuer.EnqueueContext(
+			r.Context(),
+			task,
+			asynq.Queue(QueueDefault),
+			asynq.ProcessAt(triggerTime),
+			asynq.MaxRetry(3),
+		)
+		if enqErr != nil {
+			s.logger.Error("failed to enqueue notification task",
+				"user_id", userID, "event_id", eventID, "error", enqErr)
+			// Non-fatal: subscription is saved; worker can be re-implemented to poll if needed.
+		} else if updErr := s.repo.UpdateSubscriptionJobID(r.Context(), sub.ID, info.ID); updErr != nil {
+			s.logger.Error("failed to persist Asynq job_id",
+				"sub_id", sub.ID, "job_id", info.ID, "error", updErr)
+		}
+	}
+
 	s.logger.Info("event subscription created",
 		"user_id", userID,
 		"event_id", eventID,
@@ -204,7 +259,7 @@ func (s *Service) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
-// handleUnsubscribe removes the notification subscription for an event.
+// handleUnsubscribe cancels the Asynq task and removes the notification subscription.
 //
 //	DELETE /api/v1/events/{id}/notify
 func (s *Service) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
@@ -222,13 +277,39 @@ func (s *Service) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.repo.DeleteSubscription(r.Context(), userID, eventID); err != nil {
-		s.logger.Error("failed to delete subscription", "user_id", userID, "event_id", eventID, "error", err)
+	// Fetch the subscription so we can cancel the Asynq task.
+	sub, err := s.repo.GetSubscriptionByUserAndEvent(r.Context(), userID, eventID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		s.logger.Error("failed to fetch subscription for cancellation",
+			"user_id", userID, "event_id", eventID, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
-	s.logger.Info("event subscription deleted", "user_id", userID, "event_id", eventID)
+	// Cancel the scheduled Asynq task if we have a job ID and a canceller.
+	if sub != nil && sub.JobID != nil && s.canceller != nil {
+		if cancelErr := s.canceller.DeleteTask(QueueDefault, *sub.JobID); cancelErr != nil {
+			s.logger.Warn("failed to cancel Asynq task",
+				"sub_id", sub.ID, "job_id", *sub.JobID, "error", cancelErr)
+			// Non-fatal: the task may have already fired or the queue might be empty.
+		}
+	}
+
+	// Mark as cancelled in the database (keep row for audit).
+	if sub != nil {
+		if markErr := s.repo.MarkSubscriptionStatus(r.Context(), sub.ID, StatusCancelled); markErr != nil {
+			s.logger.Error("failed to mark subscription cancelled",
+				"sub_id", sub.ID, "error", markErr)
+			writeError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+	}
+
+	s.logger.Info("event subscription cancelled", "user_id", userID, "event_id", eventID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
