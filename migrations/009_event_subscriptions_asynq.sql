@@ -36,4 +36,4 @@ CREATE INDEX IF NOT EXISTS idx_event_subscriptions_job_id ON event_subscriptions
 -- Keep one active subscription per user/event pair so lookup and cancellation remain deterministic.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_event_subscriptions_user_event_active
     ON event_subscriptions(user_id, event_id)
-    WHERE status NOT IN ('cancelled', 'sent');
+    WHERE status NOT IN ('cancelled', 'sent', 'failed');

@@ -17,17 +17,22 @@ type Querier interface {
 	CreateLocation(ctx context.Context, arg CreateLocationParams) error
 	CreateRecurringEvent(ctx context.Context, arg CreateRecurringEventParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) (pgtype.UUID, error)
+	CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (pgtype.UUID, error)
 	CreateTask(ctx context.Context, arg CreateTaskParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
 	DeactivateRecurringEvent(ctx context.Context, arg DeactivateRecurringEventParams) error
+	DeleteDeviceToken(ctx context.Context, token string) error
+	DeleteDeviceTokenByUser(ctx context.Context, arg DeleteDeviceTokenByUserParams) error
 	DeleteEvent(ctx context.Context, id pgtype.UUID) error
 	DeleteIntegration(ctx context.Context, id pgtype.UUID) error
 	DeleteSession(ctx context.Context, id pgtype.UUID) error
+	DeleteSubscription(ctx context.Context, arg DeleteSubscriptionParams) error
 	DeleteTask(ctx context.Context, id pgtype.UUID) error
 	DeleteUser(ctx context.Context, id pgtype.UUID) error
 	FindNearby(ctx context.Context, arg FindNearbyParams) ([]Location, error)
 	GetActiveRecurringEvents(ctx context.Context, userID pgtype.UUID) ([]GetActiveRecurringEventsRow, error)
 	GetCurrentLocation(ctx context.Context, userID pgtype.UUID) (Location, error)
+	GetDeviceTokensByUserID(ctx context.Context, userID pgtype.UUID) ([]DeviceToken, error)
 	GetEventByID(ctx context.Context, id pgtype.UUID) (GetEventByIDRow, error)
 	GetEventFrequenciesAboveThreshold(ctx context.Context, arg GetEventFrequenciesAboveThresholdParams) ([]EventFrequency, error)
 	GetEventFrequencyByPattern(ctx context.Context, arg GetEventFrequencyByPatternParams) (EventFrequency, error)
@@ -38,6 +43,9 @@ type Querier interface {
 	GetLocationHistory(ctx context.Context, arg GetLocationHistoryParams) ([]Location, error)
 	GetPendingHabitSuggestions(ctx context.Context, userID pgtype.UUID) ([]HabitSuggestion, error)
 	GetSessionByToken(ctx context.Context, tokenHash string) (Session, error)
+	GetSubscriptionByID(ctx context.Context, id pgtype.UUID) (GetSubscriptionByIDRow, error)
+	GetSubscriptionByUserAndEvent(ctx context.Context, arg GetSubscriptionByUserAndEventParams) (GetSubscriptionByUserAndEventRow, error)
+	GetSubscriptionsByEventID(ctx context.Context, eventID pgtype.UUID) ([]GetSubscriptionsByEventIDRow, error)
 	GetTaskByID(ctx context.Context, id pgtype.UUID) (GetTaskByIDRow, error)
 	GetUserByEmail(ctx context.Context, email string) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
@@ -46,13 +54,17 @@ type Querier interface {
 	ListEventsByUserAndTime(ctx context.Context, arg ListEventsByUserAndTimeParams) ([]ListEventsByUserAndTimeRow, error)
 	ListIntegrations(ctx context.Context, userID pgtype.UUID) ([]Integration, error)
 	ListTasks(ctx context.Context, arg ListTasksParams) ([]ListTasksRow, error)
+	MarkSubscriptionStatus(ctx context.Context, arg MarkSubscriptionStatusParams) error
+	SubscriptionExists(ctx context.Context, arg SubscriptionExistsParams) (bool, error)
 	UpdateEvent(ctx context.Context, arg UpdateEventParams) error
 	UpdateEventFrequency(ctx context.Context, arg UpdateEventFrequencyParams) error
 	UpdateHabitSuggestionStatus(ctx context.Context, arg UpdateHabitSuggestionStatusParams) error
 	UpdateIntegration(ctx context.Context, arg UpdateIntegrationParams) error
 	UpdateLastSync(ctx context.Context, id pgtype.UUID) error
+	UpdateSubscriptionJobID(ctx context.Context, arg UpdateSubscriptionJobIDParams) error
 	UpdateTask(ctx context.Context, arg UpdateTaskParams) error
 	UpdateUser(ctx context.Context, arg UpdateUserParams) error
+	UpsertDeviceToken(ctx context.Context, arg UpsertDeviceTokenParams) error
 	UpsertEventFrequency(ctx context.Context, arg UpsertEventFrequencyParams) (UpsertEventFrequencyRow, error)
 }
 

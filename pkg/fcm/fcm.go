@@ -26,7 +26,7 @@ var (
 	initErr  error
 )
 
-// Init initialises the Firebase App singleton using raw service-account JSON.
+// Init initializes the Firebase App singleton using raw service-account JSON.
 // Subsequent calls are no-ops; the same instance is always returned.
 func Init(ctx context.Context, credentialsJSON string) (*Client, error) {
 	once.Do(func() {
@@ -35,6 +35,7 @@ func Init(ctx context.Context, credentialsJSON string) (*Client, error) {
 			return
 		}
 
+		//nolint:staticcheck // SA1019: Using WithCredentialsJSON for raw service account JSON initialization
 		app, err := firebase.NewApp(ctx, nil, option.WithCredentialsJSON([]byte(credentialsJSON)))
 		if err != nil {
 			initErr = fmt.Errorf("firebase.NewApp: %w", err)
@@ -90,5 +91,5 @@ func IsInvalidToken(err error) bool {
 	if errors.Is(err, ErrInvalidToken) {
 		return true
 	}
-	return messaging.IsRegistrationTokenNotRegistered(err)
+	return messaging.IsUnregistered(err)
 }

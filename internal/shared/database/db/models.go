@@ -8,6 +8,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type DeviceToken struct {
+	ID        pgtype.UUID        `json:"id"`
+	UserID    pgtype.UUID        `json:"user_id"`
+	Token     string             `json:"token"`
+	Platform  string             `json:"platform"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Event struct {
 	ID                  pgtype.UUID        `json:"id"`
 	UserID              pgtype.UUID        `json:"user_id"`
@@ -40,6 +48,17 @@ type EventFrequency struct {
 	OccurrenceTimestamps []byte             `json:"occurrence_timestamps"`
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+type EventSubscription struct {
+	ID          pgtype.UUID        `json:"id"`
+	UserID      pgtype.UUID        `json:"user_id"`
+	EventID     pgtype.UUID        `json:"event_id"`
+	TriggerTime pgtype.Timestamptz `json:"trigger_time"`
+	IsSent      bool               `json:"is_sent"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	JobID       pgtype.Text        `json:"job_id"`
+	Status      string             `json:"status"`
 }
 
 type HabitSuggestion struct {

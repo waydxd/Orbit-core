@@ -102,18 +102,20 @@ type FirebaseConfig struct {
 // When a secret is present, we'll prefer reading the corresponding secret from
 // /run/secrets/<name> (container) or ./secrets/<name>.txt (local dev). If no secret
 // is available we fall back to the environment variable, then to the default value.
+//
+//nolint:gosec // G101: False positive - this is a mapping of variable names, not credentials
 var secretEnvMap = map[string]string{
-	"DB_USER":                    "db_user",
-	"DB_PASSWORD":                "db_password",
-	"DB_NAME":                    "db_name",
-	"JWT_SECRET":                 "jwt_secret",
-	"RESEND_API_KEY":             "resend_api_key",
-	"MONGO_USER":                 "mongo_user",
-	"MONGO_PASSWORD":             "mongo_password",
-	"REDIS_PASSWORD":             "redis_password",
-	"GOOGLE_CLIENT_ID":           "google_client_id",
-	"GOOGLE_CLIENT_SECRET":       "google_client_secret",
-	"FIREBASE_CREDENTIALS_JSON":  "firebase_credentials_json",
+	"DB_USER":                   "db_user",
+	"DB_PASSWORD":               "db_password",
+	"DB_NAME":                   "db_name",
+	"JWT_SECRET":                "jwt_secret",
+	"RESEND_API_KEY":            "resend_api_key",
+	"MONGO_USER":                "mongo_user",
+	"MONGO_PASSWORD":            "mongo_password",
+	"REDIS_PASSWORD":            "redis_password",
+	"GOOGLE_CLIENT_ID":          "google_client_id",
+	"GOOGLE_CLIENT_SECRET":      "google_client_secret",
+	"FIREBASE_CREDENTIALS_JSON": "firebase_credentials_json",
 }
 
 // Load loads configuration from environment variables and docker secrets

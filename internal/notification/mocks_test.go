@@ -62,6 +62,13 @@ func (m *mockRepo) DeleteDeviceToken(_ context.Context, _ string) error {
 	return m.deleteTokenErr
 }
 
+func (m *mockRepo) DeleteDeviceTokenByUser(_ context.Context, _, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.DeleteTokenCalled = true
+	return m.deleteTokenErr
+}
+
 func (m *mockRepo) GetDeviceTokensByUserID(_ context.Context, _ string) ([]*models.DeviceToken, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

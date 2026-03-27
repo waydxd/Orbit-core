@@ -289,10 +289,10 @@ func TestHandleUnsubscribe_Success(t *testing.T) {
 		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
 	}
 	if !canceller.DeleteCalled {
-		t.Fatal("expected Asynq task to be cancelled")
+		t.Fatal("expected Asynq task to be canceled")
 	}
 	if canceller.DeletedTaskID != jobID {
-		t.Errorf("cancelled wrong task ID: got %q, want %q", canceller.DeletedTaskID, jobID)
+		t.Errorf("canceled wrong task ID: got %q, want %q", canceller.DeletedTaskID, jobID)
 	}
 	if !mock.MarkStatusCalled || mock.MarkStatusValue != StatusCancelled {
 		t.Fatalf("expected MarkSubscriptionStatus('cancelled'), got called=%v value=%q",
@@ -301,7 +301,7 @@ func TestHandleUnsubscribe_Success(t *testing.T) {
 }
 
 func TestHandleUnsubscribe_NoCanceller(t *testing.T) {
-	// When canceller is nil, unsubscribe should still mark the subscription as cancelled.
+	// When canceller is nil, unsubscribe should still mark the subscription as canceled.
 	jobID := "task-xyz"
 	mock := &mockRepo{
 		getSubResp: &models.EventSubscription{
@@ -353,6 +353,7 @@ func TestWorker_HandleSendNotification_Success(t *testing.T) {
 		EventID: "evt-1",
 		Status:  StatusPending,
 	}
+	//nolint:gosec // G101: False positive - this is test fixture data
 	token := &models.DeviceToken{
 		ID:       "dt-1",
 		UserID:   "user-1",
@@ -405,10 +406,10 @@ func TestWorker_HandleSendNotification_SkipsCancelledSubscription(t *testing.T) 
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if mockFCM.callCount != 0 {
-		t.Fatalf("expected no sends for cancelled subscription, got %d", mockFCM.callCount)
+		t.Fatalf("expected no sends for canceled subscription, got %d", mockFCM.callCount)
 	}
 	if repo.MarkStatusCalled {
-		t.Fatal("did not expect status update for cancelled subscription")
+		t.Fatal("did not expect status update for canceled subscription")
 	}
 }
 
@@ -475,11 +476,7 @@ func TestWorker_HandleSendNotification_InvalidToken(t *testing.T) {
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
 
-	for {
-		if repo.DeleteTokenCalled {
-			break
-		}
-
+	for !repo.DeleteTokenCalled {
 		select {
 		case <-ticker.C:
 			// continue waiting

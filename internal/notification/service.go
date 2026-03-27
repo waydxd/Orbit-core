@@ -140,7 +140,7 @@ func (s *Service) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.repo.DeleteDeviceToken(r.Context(), userID, req.Token); err != nil {
+	if err := s.repo.DeleteDeviceTokenByUser(r.Context(), userID, req.Token); err != nil {
 		s.logger.Error("failed to delete device token", "user_id", userID, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
@@ -169,51 +169,80 @@ func (s *Service) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	triggerTime, errCode, errMsg := s.validateSubscribeRequest(r.Context(), r, userID, eventID)
+	if errMsg != "" {
+		writeError(w, errCode, errMsg)
+		return
+	}
+
+	_, errCode, errMsg = s.createAndEnqueueSubscription(r.Context(), userID, eventID, triggerTime)
+	if errMsg != "" {
+		writeError(w, errCode, errMsg)
+		return
+	}
+
+	s.logger.Info("event subscription created",
+		"user_id", userID,
+		"event_id", eventID,
+		"trigger_time", triggerTime.Format(time.RFC3339),
+	)
+	w.WriteHeader(http.StatusCreated)
+}
+
+// validateSubscribeRequest validates the subscription request and returns the trigger time.
+// Returns (triggerTime, statusCode, errorMessage) where errorMessage is empty on success.
+func (s *Service) validateSubscribeRequest(ctx context.Context, r *http.Request, userID, eventID string) (time.Time, int, string) {
 	var req struct {
 		OffsetMinutes *int       `json:"offset_minutes"`
 		EventStartAt  *time.Time `json:"event_start_at"`
 	}
-	// Body is optional; ignore decode error
-	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return time.Time{}, http.StatusBadRequest, "invalid request body"
+	}
 
 	offsetMinutes := -NotifyOffsetMinutes
 	if req.OffsetMinutes != nil {
 		offsetMinutes = *req.OffsetMinutes
 	}
 
-	// event_start_at must be provided so we can compute trigger_time.
 	if req.EventStartAt == nil {
-		writeError(w, http.StatusBadRequest, "event_start_at is required")
-		return
+		return time.Time{}, http.StatusBadRequest, "event_start_at is required"
 	}
 
 	triggerTime := req.EventStartAt.UTC().Add(time.Duration(offsetMinutes) * time.Minute)
 	if !triggerTime.After(time.Now().UTC()) {
-		writeError(w, http.StatusBadRequest, "computed trigger_time is not in the future")
-		return
+		return time.Time{}, http.StatusBadRequest, "computed trigger_time is not in the future"
 	}
 
 	// Prevent duplicate subscriptions.
-	exists, err := s.repo.SubscriptionExists(r.Context(), userID, eventID)
+	exists, err := s.repo.SubscriptionExists(ctx, userID, eventID)
 	if err != nil {
 		s.logger.Error("failed to check subscription existence", "user_id", userID, "event_id", eventID, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal server error")
-		return
+		return time.Time{}, http.StatusInternalServerError, "internal server error"
 	}
 	if exists {
-		writeError(w, http.StatusConflict, "subscription already exists")
-		return
+		return time.Time{}, http.StatusConflict, "subscription already exists"
 	}
 
+	return triggerTime, http.StatusOK, ""
+}
+
+// createAndEnqueueSubscription creates a subscription and enqueues the notification task.
+// Returns (subscription, statusCode, errorMessage) where errorMessage is empty on success.
+func (s *Service) createAndEnqueueSubscription(ctx context.Context, userID, eventID string, triggerTime time.Time) (*models.EventSubscription, int, string) {
 	sub := &models.EventSubscription{
 		UserID:      userID,
 		EventID:     eventID,
 		TriggerTime: triggerTime,
 	}
-	if err := s.repo.CreateSubscription(r.Context(), sub); err != nil {
+
+	if err := s.repo.CreateSubscription(ctx, sub); err != nil {
+		if errors.Is(err, ErrSubscriptionAlreadyExists) {
+			return nil, http.StatusConflict, "subscription already exists"
+		}
 		s.logger.Error("failed to create subscription", "user_id", userID, "event_id", eventID, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal server error")
-		return
+		return nil, http.StatusInternalServerError, "internal server error"
 	}
 
 	// Enqueue the Asynq task to fire at triggerTime.
@@ -226,16 +255,15 @@ func (s *Service) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 		if taskErr != nil {
 			s.logger.Error("failed to construct notification task",
 				"user_id", userID, "event_id", eventID, "sub_id", sub.ID, "error", taskErr)
-			if delErr := s.repo.DeleteSubscription(r.Context(), userID, eventID); delErr != nil {
+			if delErr := s.repo.DeleteSubscription(ctx, userID, eventID); delErr != nil {
 				s.logger.Error("failed to roll back subscription after task construction error",
 					"user_id", userID, "event_id", eventID, "sub_id", sub.ID, "error", delErr)
 			}
-			writeError(w, http.StatusInternalServerError, "internal server error")
-			return
+			return nil, http.StatusInternalServerError, "internal server error"
 		}
 
 		info, enqErr := s.enqueuer.EnqueueContext(
-			r.Context(),
+			ctx,
 			task,
 			asynq.Queue(QueueDefault),
 			asynq.ProcessAt(triggerTime),
@@ -245,18 +273,13 @@ func (s *Service) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("failed to enqueue notification task",
 				"user_id", userID, "event_id", eventID, "error", enqErr)
 			// Non-fatal: subscription is saved; worker can be re-implemented to poll if needed.
-		} else if updErr := s.repo.UpdateSubscriptionJobID(r.Context(), sub.ID, info.ID); updErr != nil {
+		} else if updErr := s.repo.UpdateSubscriptionJobID(ctx, sub.ID, info.ID); updErr != nil {
 			s.logger.Error("failed to persist Asynq job_id",
 				"sub_id", sub.ID, "job_id", info.ID, "error", updErr)
 		}
 	}
 
-	s.logger.Info("event subscription created",
-		"user_id", userID,
-		"event_id", eventID,
-		"trigger_time", triggerTime.Format(time.RFC3339),
-	)
-	w.WriteHeader(http.StatusCreated)
+	return sub, http.StatusOK, ""
 }
 
 // handleUnsubscribe cancels the Asynq task and removes the notification subscription.
@@ -299,17 +322,17 @@ func (s *Service) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Mark as cancelled in the database (keep row for audit).
+	// Mark as canceled in the database (keep row for audit).
 	if sub != nil {
 		if markErr := s.repo.MarkSubscriptionStatus(r.Context(), sub.ID, StatusCancelled); markErr != nil {
-			s.logger.Error("failed to mark subscription cancelled",
+			s.logger.Error("failed to mark subscription canceled",
 				"sub_id", sub.ID, "error", markErr)
 			writeError(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 	}
 
-	s.logger.Info("event subscription cancelled", "user_id", userID, "event_id", eventID)
+	s.logger.Info("event subscription canceled", "user_id", userID, "event_id", eventID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

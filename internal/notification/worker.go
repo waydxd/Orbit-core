@@ -143,11 +143,12 @@ func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) erro
 func (w *Worker) sendToToken(ctx context.Context, token, eventID, userID string, data map[string]string) error {
 	var err error
 
-	if w.sendFn != nil {
+	switch {
+	case w.sendFn != nil:
 		err = w.sendFn(ctx, token, eventID, userID, data)
-	} else if w.fcm != nil {
+	case w.fcm != nil:
 		err = w.fcm.SendNotification(ctx, token, "Event Reminder", "Your event is starting soon", data)
-	} else {
+	default:
 		w.logger.Info("notification worker: FCM client not configured, skipping send",
 			"user_id", userID,
 			"event_id", eventID,
