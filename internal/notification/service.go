@@ -140,7 +140,7 @@ func (s *Service) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.repo.DeleteDeviceToken(r.Context(), req.Token); err != nil {
+	if err := s.repo.DeleteDeviceToken(r.Context(), userID, req.Token); err != nil {
 		s.logger.Error("failed to delete device token", "user_id", userID, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
