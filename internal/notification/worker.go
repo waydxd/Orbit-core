@@ -116,7 +116,11 @@ func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) erro
 			w.logger.Error("HandleSendNotification: failed to mark subscription failed",
 				"sub_id", p.SubID, "error", err)
 		}
-		return fmt.Errorf("HandleSendNotification: all FCM sends failed: %w", sendErr)
+		// All sends failed; subscription is marked as failed. Return nil so Asynq does not
+		// retry this task, since subsequent attempts would see a non-pending status and no-op.
+		w.logger.Error("HandleSendNotification: all FCM sends failed; subscription marked as failed, not retrying",
+			"sub_id", p.SubID, "user_id", p.UserID, "error", sendErr)
+		return nil
 	}
 
 	if sendErr != nil {
