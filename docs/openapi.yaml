@@ -1657,6 +1657,167 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/fcm/token:
+    post:
+      summary: Register device FCM token
+      tags:
+      - Notification
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - token
+              - platform
+              properties:
+                token:
+                  type: string
+                  description: Firebase Cloud Messaging token
+                  example: fcm-device-token-abc123
+                platform:
+                  type: string
+                  enum:
+                  - ios
+                  - android
+                  description: Mobile platform
+                  example: ios
+      responses:
+        '204':
+          description: Token registered successfully
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete device FCM token
+      tags:
+      - Notification
+      security:
+      - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - token
+              properties:
+                token:
+                  type: string
+                  description: Firebase Cloud Messaging token to delete
+                  example: fcm-device-token-abc123
+      responses:
+        '204':
+          description: Token deleted successfully
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/events/{id}/notify:
+    post:
+      summary: Subscribe to event notifications
+      tags:
+      - Notification
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Event ID to subscribe to
+        example: event-uuid-123
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - event_start_at
+              properties:
+                event_start_at:
+                  type: string
+                  format: date-time
+                  description: Event start time (ISO 8601)
+                  example: '2024-12-25T14:00:00Z'
+                offset_minutes:
+                  type: integer
+                  description: Minutes before event start to send notification (negative)
+                  default: -15
+                  example: -15
+      responses:
+        '201':
+          description: Subscription created successfully
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Subscription already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Unsubscribe from event notifications
+      tags:
+      - Notification
+      security:
+      - BearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Event ID to unsubscribe from
+        example: event-uuid-123
+      responses:
+        '204':
+          description: Unsubscribed successfully
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/profile:
     get:
       summary: Get user profile
