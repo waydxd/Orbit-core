@@ -195,26 +195,10 @@ func Load() (*Config, error) {
 				}
 				// 2) Environment variable pointing to a file containing the JSON
 				if fp := os.Getenv("FIREBASE_CREDENTIALS_FILE"); fp != "" {
-					// Try reading the file as provided (CWD). If that fails and the path is
-					// relative, attempt to resolve it relative to the running executable's
-					// directory. This helps when the binary is started from a different CWD
-					// (common in containers).
 					if b, err := os.ReadFile(fp); err == nil { //nolint:gosec
 						s := strings.TrimSpace(string(b))
 						if s != "" {
 							return s
-						}
-					}
-					if !filepath.IsAbs(fp) {
-						if exe, err := os.Executable(); err == nil {
-							exeDir := filepath.Dir(exe)
-							alt := filepath.Join(exeDir, fp)
-							if b, err := os.ReadFile(alt); err == nil { //nolint:gosec
-								s := strings.TrimSpace(string(b))
-								if s != "" {
-									return s
-								}
-							}
 						}
 					}
 				}
