@@ -195,7 +195,7 @@ func Load() (*Config, error) {
 				}
 				// 2) Environment variable pointing to a file containing the JSON
 				if fp := os.Getenv("FIREBASE_CREDENTIALS_FILE"); fp != "" {
-					if b, err := os.ReadFile(fp); err == nil {
+					if b, err := os.ReadFile(fp); err == nil { //nolint:gosec
 						s := strings.TrimSpace(string(b))
 						if s != "" {
 							return s

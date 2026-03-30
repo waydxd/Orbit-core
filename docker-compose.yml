@@ -30,6 +30,7 @@ services:
   mongo:
     image: mongo:latest
     # Removed port mapping - mongo should only be accessible within Docker network
+    command: ["mongod", "--quiet", "--setParameter", "logComponentVerbosity={storage: {verbosity: -1}, network: {verbosity: 0}}"]
     volumes:
       - mongo_data:/data/db
     healthcheck:
