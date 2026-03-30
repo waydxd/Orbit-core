@@ -12,11 +12,17 @@ import (
 )
 
 const createSubscription = `-- name: CreateSubscription :one
-INSERT INTO event_subscriptions (user_id, event_id, trigger_time, is_sent, status)
-VALUES ($1, $2, $3, false, 'pending')
-ON CONFLICT ON CONSTRAINT idx_event_subscriptions_user_event_active
-DO NOTHING
-RETURNING id
+WITH ins AS (
+  INSERT INTO event_subscriptions (user_id, event_id, trigger_time, is_sent, status)
+  VALUES ($1, $2, $3, false, 'pending')
+  ON CONFLICT DO NOTHING
+  RETURNING id
+)
+SELECT id FROM ins
+UNION ALL
+SELECT id FROM event_subscriptions
+WHERE user_id = $1 AND event_id = $2 AND status NOT IN ('cancelled', 'sent', 'failed')
+LIMIT 1
 `
 
 type CreateSubscriptionParams struct {
