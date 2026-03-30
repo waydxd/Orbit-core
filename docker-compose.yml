@@ -65,10 +65,12 @@ services:
     image: arigaio/atlas:latest
     volumes:
       - ./migrations:/migrations
-    command: migrate apply --url "postgres://postgres@postgres:5432/orbit?sslmode=disable" --dir "file:///migrations"
+      - ./atlas.hcl:/atlas.hcl:ro
+    command: ["migrate", "apply", "--env", "docker", "-c", "file:///atlas.hcl"]
     depends_on:
       postgres:
         condition: service_healthy
+    restart: "no"
 
   orbit-core:
     build:
@@ -103,6 +105,7 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-"Orbit <onboarding@orbitly.qzz.io>"}
     volumes:
       - ./migrations:/root/migrations
+      - ./firebase.json:/root/firebase.json:ro
     depends_on:
       postgres:
         condition: service_healthy
