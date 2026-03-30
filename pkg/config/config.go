@@ -21,6 +21,7 @@ type Config struct {
 	Orbi           OrbiConfig
 	GRPCServer     GRPCServerConfig
 	GoogleCalendar GoogleCalendarConfig
+	Firebase       FirebaseConfig
 }
 
 // ServerConfig holds server configuration
@@ -90,21 +91,33 @@ type GoogleCalendarConfig struct {
 	WebhookURL string
 }
 
+// FirebaseConfig holds Firebase Cloud Messaging configuration
+type FirebaseConfig struct {
+	// CredentialsJSON is the content of the Firebase service account JSON key.
+	// Prefer providing via a Docker secret named `firebase_credentials_json` or
+	// set `FIREBASE_CREDENTIALS_FILE` to the path of the JSON file. The
+	// raw `FIREBASE_CREDENTIALS_JSON` environment variable is no longer used.
+	CredentialsJSON string
+}
+
 // secretEnvMap maps environment variable names to docker secret filenames (base names).
 // When a secret is present, we'll prefer reading the corresponding secret from
 // /run/secrets/<name> (container) or ./secrets/<name>.txt (local dev). If no secret
 // is available we fall back to the environment variable, then to the default value.
+//
+//nolint:gosec // G101: False positive - this is a mapping of variable names, not credentials
 var secretEnvMap = map[string]string{
-	"DB_USER":              "db_user",
-	"DB_PASSWORD":          "db_password",
-	"DB_NAME":              "db_name",
-	"JWT_SECRET":           "jwt_secret",
-	"RESEND_API_KEY":       "resend_api_key",
-	"MONGO_USER":           "mongo_user",
-	"MONGO_PASSWORD":       "mongo_password",
-	"REDIS_PASSWORD":       "redis_password",
-	"GOOGLE_CLIENT_ID":     "google_client_id",
-	"GOOGLE_CLIENT_SECRET": "google_client_secret",
+	"DB_USER":                   "db_user",
+	"DB_PASSWORD":               "db_password",
+	"DB_NAME":                   "db_name",
+	"JWT_SECRET":                "jwt_secret",
+	"RESEND_API_KEY":            "resend_api_key",
+	"MONGO_USER":                "mongo_user",
+	"MONGO_PASSWORD":            "mongo_password",
+	"REDIS_PASSWORD":            "redis_password",
+	"GOOGLE_CLIENT_ID":          "google_client_id",
+	"GOOGLE_CLIENT_SECRET":      "google_client_secret",
+	"FIREBASE_CREDENTIALS_FILE": "firebase_credentials_json",
 }
 
 // Load loads configuration from environment variables and docker secrets
@@ -169,6 +182,29 @@ func Load() (*Config, error) {
 			ClientKey:   getEnv("GOOGLE_CLIENT_SECRET", ""),
 			RedirectURL: getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/v1/integration/google/callback"),
 			WebhookURL:  getEnv("GOOGLE_WEBHOOK_URL", ""),
+		},
+		Firebase: FirebaseConfig{
+			// Prefer reading Firebase credentials from a secret file (docker secret or ./secrets/).
+			// Fall back to the environment variable only if the secret isn't found.
+			CredentialsJSON: func() string {
+				// 1) Docker secret (or ./secrets/) named by secretEnvMap
+				if secretName, ok := secretEnvMap["FIREBASE_CREDENTIALS_FILE"]; ok {
+					if s, err := readSecret(secretName); err == nil && s != "" {
+						return s
+					}
+				}
+				// 2) Environment variable pointing to a file containing the JSON
+				if fp := os.Getenv("FIREBASE_CREDENTIALS_FILE"); fp != "" {
+					if b, err := os.ReadFile(fp); err == nil { //nolint:gosec
+						s := strings.TrimSpace(string(b))
+						if s != "" {
+							return s
+						}
+					}
+				}
+				// 3) No fallback to raw JSON environment variable — return empty if not provided
+				return ""
+			}(),
 		},
 	}
 

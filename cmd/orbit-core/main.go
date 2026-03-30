@@ -11,6 +11,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/hibiken/asynq"
 	"github.com/waydxd/Orbit-core/internal/auth"
 	"github.com/waydxd/Orbit-core/internal/calendar"
 	"github.com/waydxd/Orbit-core/internal/chat"
@@ -18,8 +19,10 @@ import (
 	"github.com/waydxd/Orbit-core/internal/habit"
 	"github.com/waydxd/Orbit-core/internal/integration"
 	"github.com/waydxd/Orbit-core/internal/location"
+	"github.com/waydxd/Orbit-core/internal/notification"
 	"github.com/waydxd/Orbit-core/internal/shared/database"
 	"github.com/waydxd/Orbit-core/pkg/config"
+	"github.com/waydxd/Orbit-core/pkg/fcm"
 	"github.com/waydxd/Orbit-core/pkg/grpc"
 	"github.com/waydxd/Orbit-core/pkg/logger"
 	pb "github.com/waydxd/Orbit-core/proto/calendar"
@@ -98,6 +101,50 @@ func main() {
 	// Initialize chat service for chatbot functionality
 	chatService := chat.NewService(cfg, log, chatRepo, grpcClient)
 
+	// Initialize FCM client for push notifications (non-fatal if credentials are missing)
+	fcmClient, fcmErr := fcm.Init(context.Background(), cfg.Firebase.CredentialsJSON)
+	if fcmErr != nil {
+		log.Error("FCM client initialization failed; push notifications will be disabled", "error", fcmErr)
+	}
+
+	// Initialize Asynq client and inspector for task enqueueing and cancellation.
+	redisOpt := asynq.RedisClientOpt{
+		Addr:     cfg.Redis.RedisAddr(),
+		Password: cfg.Redis.Pass,
+		DB:       cfg.Redis.DB,
+	}
+	asynqClient := asynq.NewClient(redisOpt)
+	defer func() {
+		if err := asynqClient.Close(); err != nil {
+			log.Error("Failed to close Asynq client", "error", err)
+		}
+	}()
+	asynqInspector := asynq.NewInspector(redisOpt)
+	defer func() {
+		if err := asynqInspector.Close(); err != nil {
+			log.Error("Failed to close Asynq inspector", "error", err)
+		}
+	}()
+
+	// Initialize Asynq server for processing notification tasks.
+	asynqServer := asynq.NewServer(redisOpt, asynq.Config{
+		Concurrency: 10,
+		Queues: map[string]int{
+			notification.QueueDefault:  10,
+			notification.QueueCritical: 50,
+		},
+		ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
+			log.Error("Asynq task failed", "type", task.Type(), "error", err)
+		}),
+	})
+
+	// Initialize notification service and background worker
+	notificationRepo := notification.NewSQLRepository(db)
+	notificationService := notification.NewService(cfg, log, notificationRepo, fcmClient, asynqClient, asynqInspector)
+	notificationWorker := notification.NewWorker(notificationRepo, fcmClient, log, asynqServer)
+	notificationWorker.Start()
+	defer notificationWorker.Stop()
+
 	// Create action interceptor for capturing mutating operations
 	actionInterceptor := grpc.NewActionInterceptor(log, chatRepo)
 
@@ -128,12 +175,13 @@ func main() {
 
 	// Initialize gateway (API Gateway/Router)
 	gatewayService := gateway.NewService(cfg, log, gateway.ServiceConfig{
-		AuthService:        authService,
-		CalendarService:    calendarService,
-		LocationService:    locationService,
-		IntegrationService: integrationService,
-		ChatService:        chatService,
-		HabitService:       habitService,
+		AuthService:         authService,
+		CalendarService:     calendarService,
+		LocationService:     locationService,
+		IntegrationService:  integrationService,
+		ChatService:         chatService,
+		HabitService:        habitService,
+		NotificationService: notificationService,
 	})
 
 	// Start HTTP server

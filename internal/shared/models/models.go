@@ -141,6 +141,30 @@ type AgentToolLog struct {
 	CreatedAt       time.Time       `json:"created_at" db:"created_at" bson:"created_at"`
 }
 
+// DeviceToken represents a user's FCM device token for push notifications
+type DeviceToken struct {
+	ID        string    `json:"id" db:"id"`
+	UserID    string    `json:"user_id" db:"user_id"`
+	Token     string    `json:"token" db:"token"`
+	Platform  string    `json:"platform" db:"platform"` // ios or android
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// EventSubscription represents a user's subscription to receive a notification for an event
+type EventSubscription struct {
+	ID          string    `json:"id" db:"id"`
+	UserID      string    `json:"user_id" db:"user_id"`
+	EventID     string    `json:"event_id" db:"event_id"`
+	TriggerTime time.Time `json:"trigger_time" db:"trigger_time"`
+	IsSent      bool      `json:"is_sent" db:"is_sent"`
+	// JobID is the Asynq task ID returned when the notification task is enqueued.
+	// It is used to cancel the task when the user unsubscribes or the event is rescheduled.
+	JobID *string `json:"job_id,omitempty" db:"job_id"`
+	// Status is the lifecycle state of the subscription: pending, sent, canceled, or failed.
+	Status    string    `json:"status" db:"status"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
 // EventFrequency tracks the frequency of similar events for habit detection
 type EventFrequency struct {
 	ID                   string      `json:"id" db:"id"`
