@@ -66,6 +66,7 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	authRouter.HandleFunc("/password-reset-request", s.passwordResetRequest).Methods("POST")
 	authRouter.HandleFunc("/password-reset-confirm", s.passwordResetConfirm).Methods("POST")
 	authRouter.HandleFunc("/verify-email", s.verifyEmail).Methods("GET")
+	authRouter.HandleFunc("/reset-password", s.resetPasswordPage).Methods("GET")
 }
 
 // RegisterProtectedRoutes registers protected authentication routes (requires authentication)
@@ -432,8 +433,13 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send reset email
-	resetLink := fmt.Sprintf("%s/reset-password?token=%s", s.config.Auth.AppBaseURL, token)
+	// Build the reset link. Use the configured page URL when provided; otherwise
+	// fall back to the built-in HTML form served at /api/v1/auth/reset-password.
+	resetPageURL := strings.TrimRight(s.config.Auth.PasswordResetPageURL, "/")
+	if resetPageURL == "" {
+		resetPageURL = strings.TrimRight(s.config.Auth.AppBaseURL, "/") + "/api/v1/auth/reset-password"
+	}
+	resetLink := fmt.Sprintf("%s?token=%s", resetPageURL, token)
 	if err := s.sendEmail(user.Email, "Password Reset Request", "password-reset", map[string]interface{}{
 		"reset_link":         resetLink,
 		"first_name":         user.FirstName,
@@ -587,6 +593,30 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
 	// Redirect to frontend success page after successful verification
 	redirectURL := strings.TrimRight(s.config.Auth.AppBaseURL, "/") + "/email-verified"
 	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+}
+
+// resetPasswordPage serves the HTML form that lets a user choose a new password.
+// It is linked from the password-reset email (GET /auth/reset-password?token=…).
+func (s *Service) resetPasswordPage(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("<html><body><p>Missing or invalid reset token.</p></body></html>"))
+		return
+	}
+
+	rendered, err := s.renderHTMLTemplate("templates/passwordResetForm.html", map[string]interface{}{
+		"token": token,
+	})
+	if err != nil {
+		s.logger.Error("failed to render password reset form", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(rendered))
 }
 
 // Helper functions (password hashing, token helpers, email rendering/sending,
