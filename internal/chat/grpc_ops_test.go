@@ -67,10 +67,50 @@ func (m *mockCalendarServiceClient) GetAvailableSlots(_ context.Context, _ *pb.G
 	return m.slotsResp, m.slotsErr
 }
 
+// ===== Mock CalendarServiceServer =====
+
+type mockCalendarServiceServer struct {
+	pb.UnimplementedCalendarServiceServer
+	createResp *pb.CreateEventResponse
+	createErr  error
+	updateResp *pb.UpdateEventResponse
+	updateErr  error
+	deleteResp *pb.DeleteEventResponse
+	deleteErr  error
+}
+
+func (m *mockCalendarServiceServer) CreateEvent(_ context.Context, _ *pb.CreateEventRequest) (*pb.CreateEventResponse, error) {
+	return m.createResp, m.createErr
+}
+
+func (m *mockCalendarServiceServer) UpdateEvent(_ context.Context, _ *pb.UpdateEventRequest) (*pb.UpdateEventResponse, error) {
+	return m.updateResp, m.updateErr
+}
+
+func (m *mockCalendarServiceServer) DeleteEvent(_ context.Context, _ *pb.DeleteEventRequest) (*pb.DeleteEventResponse, error) {
+	return m.deleteResp, m.deleteErr
+}
+
 // ===== Helper =====
 
 func newServiceWithGRPC(grpcClient GRPCClient, repo Repository) *Service {
-	return NewService(&config.Config{}, logger.New(), repo, grpcClient)
+	// If the provided grpcClient has a mockCalendarServiceClient, we can use it, or just rely on a new server mock
+	var calendarServer pb.CalendarServiceServer
+	if mockClient, ok := grpcClient.(*mockGRPCClient); ok {
+		if mockClient.calendarClient != nil {
+			if m, ok := mockClient.calendarClient.(*mockCalendarServiceClient); ok {
+				calendarServer = &mockCalendarServiceServer{
+					createResp: m.createResp,
+					createErr:  m.createErr,
+					updateResp: m.updateResp,
+					updateErr:  m.updateErr,
+					deleteResp: m.deleteResp,
+					deleteErr:  m.deleteErr,
+				}
+			}
+		}
+	}
+	return NewService(&config.Config{}, logger.New(), repo, grpcClient, calendarServer)
 }
 
 func withUserIDGRPC(r *http.Request, userID string) *http.Request {

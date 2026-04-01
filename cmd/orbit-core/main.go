@@ -99,7 +99,7 @@ func main() {
 	}(grpcClient)
 
 	// Initialize chat service for chatbot functionality
-	chatService := chat.NewService(cfg, log, chatRepo, grpcClient)
+	chatService := chat.NewService(cfg, log, chatRepo, grpcClient, calendarService)
 
 	// Initialize FCM client for push notifications (non-fatal if credentials are missing)
 	fcmClient, fcmErr := fcm.Init(context.Background(), cfg.Firebase.CredentialsJSON)
