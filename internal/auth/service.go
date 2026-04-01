@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -435,11 +436,21 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Build the reset link. Use the configured page URL when provided; otherwise
 	// fall back to the built-in HTML form served at /api/v1/auth/reset-password.
-	resetPageURL := strings.TrimRight(s.config.Auth.PasswordResetPageURL, "/")
+	resetPageURL := strings.TrimSpace(s.config.Auth.PasswordResetPageURL)
 	if resetPageURL == "" {
 		resetPageURL = strings.TrimRight(s.config.Auth.AppBaseURL, "/") + "/api/v1/auth/reset-password"
 	}
-	resetLink := fmt.Sprintf("%s?token=%s", resetPageURL, token)
+
+	parsedResetURL, err := url.Parse(resetPageURL)
+	if err != nil {
+		s.logger.Error("failed to parse password reset page url", "url", resetPageURL, "err", err)
+		return
+	}
+
+	query := parsedResetURL.Query()
+	query.Set("token", token)
+	parsedResetURL.RawQuery = query.Encode()
+	resetLink := parsedResetURL.String()
 	if err := s.sendEmail(user.Email, "Password Reset Request", "password-reset", map[string]interface{}{
 		"reset_link":         resetLink,
 		"first_name":         user.FirstName,
