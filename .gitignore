@@ -42,3 +42,6 @@ bin/
 orbit-core
 
 .DS_Store
+
+# Firebase credentials
+firebase.json
