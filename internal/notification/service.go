@@ -18,9 +18,21 @@ import (
 )
 
 const (
-	// NotifyOffsetMinutes is how many minutes before an event's start time a reminder is sent.
+	// NotifyOffsetMinutes is the default offset before an entity's start/due time.
 	NotifyOffsetMinutes = 15
 )
+
+// ETAProvider computes travel time (seconds) from the user's current location
+// to a destination address. Implementations may call the Google Distance Matrix
+// API or return an error to signal a fallback.
+type ETAProvider interface {
+	GetETA(ctx context.Context, originLat, originLng float64, destinationAddress string) (int, error)
+}
+
+// LocationProvider returns the user's latest known location.
+type LocationProvider interface {
+	GetCurrentLocation(ctx context.Context, userID string) (lat, lng float64, err error)
+}
 
 // TaskEnqueuer is satisfied by *asynq.Client and can be mocked in tests.
 type TaskEnqueuer interface {
@@ -29,7 +41,6 @@ type TaskEnqueuer interface {
 
 // TaskCanceller is satisfied by *asynq.Inspector and can be mocked in tests.
 type TaskCanceller interface {
-	// DeleteTask removes a scheduled task from the named queue.
 	DeleteTask(queue, taskID string) error
 }
 
@@ -41,11 +52,11 @@ type Service struct {
 	fcm       *fcm.Client
 	enqueuer  TaskEnqueuer
 	canceller TaskCanceller
+	eta       ETAProvider
+	location  LocationProvider
 }
 
 // NewService creates a new notification Service.
-// fcmClient may be nil when Firebase credentials are not configured (notifications will be skipped).
-// enqueuer and canceller may be nil when Redis is not available (Asynq operations will be skipped).
 func NewService(cfg *config.Config, log *logger.Logger, repo Repository, fcmClient *fcm.Client, enqueuer TaskEnqueuer, canceller TaskCanceller) *Service {
 	return &Service{
 		config:    cfg,
@@ -57,23 +68,26 @@ func NewService(cfg *config.Config, log *logger.Logger, repo Repository, fcmClie
 	}
 }
 
+// SetETAProvider sets the ETA provider used for location-aware event reminders.
+func (s *Service) SetETAProvider(eta ETAProvider) { s.eta = eta }
+
+// SetLocationProvider sets the location provider used to find the user's origin.
+func (s *Service) SetLocationProvider(loc LocationProvider) { s.location = loc }
+
 // RegisterRoutes registers notification routes on the given (protected) router.
 func (s *Service) RegisterRoutes(router *mux.Router) {
-	// Register / unregister device token
 	router.HandleFunc("/fcm/token", s.handleRegisterToken).Methods("POST")
 	router.HandleFunc("/fcm/token", s.handleDeleteToken).Methods("DELETE")
 
-	// Subscribe / unsubscribe from event notifications
-	router.HandleFunc("/events/{id}/notify", s.handleSubscribe).Methods("POST")
-	router.HandleFunc("/events/{id}/notify", s.handleUnsubscribe).Methods("DELETE")
+	router.HandleFunc("/events/{id}/notify", s.handleSubscribeEvent).Methods("POST")
+	router.HandleFunc("/events/{id}/notify", s.handleUnsubscribeEvent).Methods("DELETE")
+
+	router.HandleFunc("/tasks/{id}/notify", s.handleSubscribeTask).Methods("POST")
+	router.HandleFunc("/tasks/{id}/notify", s.handleUnsubscribeTask).Methods("DELETE")
 }
 
 // ===== HTTP Handlers =====
 
-// handleRegisterToken registers (or refreshes) a device FCM token for the authenticated user.
-//
-//	POST /api/v1/fcm/token
-//	Body: { "token": "<fcm_token>", "platform": "ios|android" }
 func (s *Service) handleRegisterToken(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -115,10 +129,6 @@ func (s *Service) handleRegisterToken(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleDeleteToken removes a device FCM token for the authenticated user.
-//
-//	DELETE /api/v1/fcm/token
-//	Body: { "token": "<fcm_token>" }
 func (s *Service) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -150,11 +160,29 @@ func (s *Service) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleSubscribe creates an event notification subscription and enqueues an Asynq task.
-//
-//	POST /api/v1/events/{id}/notify
-//	Body (optional): { "offset_minutes": -15 }   — defaults to -15 minutes before event start
-func (s *Service) handleSubscribe(w http.ResponseWriter, r *http.Request) {
+// ===== Event subscribe / unsubscribe =====
+
+func (s *Service) handleSubscribeEvent(w http.ResponseWriter, r *http.Request) {
+	s.handleSubscribe(w, r, EntityTypeEvent)
+}
+
+func (s *Service) handleUnsubscribeEvent(w http.ResponseWriter, r *http.Request) {
+	s.handleUnsubscribe(w, r, EntityTypeEvent)
+}
+
+// ===== Task subscribe / unsubscribe =====
+
+func (s *Service) handleSubscribeTask(w http.ResponseWriter, r *http.Request) {
+	s.handleSubscribe(w, r, EntityTypeTask)
+}
+
+func (s *Service) handleUnsubscribeTask(w http.ResponseWriter, r *http.Request) {
+	s.handleUnsubscribe(w, r, EntityTypeTask)
+}
+
+// ===== Generic subscribe/unsubscribe logic =====
+
+func (s *Service) handleSubscribe(w http.ResponseWriter, r *http.Request, entityType string) {
 	w.Header().Set("Content-Type", "application/json")
 
 	userID := middleware.GetUserIDFromContext(r.Context())
@@ -163,62 +191,69 @@ func (s *Service) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eventID := mux.Vars(r)["id"]
-	if eventID == "" {
-		writeError(w, http.StatusBadRequest, "event id is required")
+	entityID := mux.Vars(r)["id"]
+	if entityID == "" {
+		writeError(w, http.StatusBadRequest, "entity id is required")
 		return
 	}
 
-	triggerTime, errCode, errMsg := s.validateSubscribeRequest(r.Context(), r, userID, eventID)
+	triggerTime, errCode, errMsg := s.validateSubscribeRequest(r.Context(), r, userID, entityID, entityType)
 	if errMsg != "" {
 		writeError(w, errCode, errMsg)
 		return
 	}
 
-	_, errCode, errMsg = s.createAndEnqueueSubscription(r.Context(), userID, eventID, triggerTime)
+	_, errCode, errMsg = s.createAndEnqueueSubscription(r.Context(), userID, entityID, entityType, triggerTime)
 	if errMsg != "" {
 		writeError(w, errCode, errMsg)
 		return
 	}
 
-	s.logger.Info("event subscription created",
+	s.logger.Info("subscription created",
 		"user_id", userID,
-		"event_id", eventID,
+		"entity_id", entityID,
+		"entity_type", entityType,
 		"trigger_time", triggerTime.Format(time.RFC3339),
 	)
 	w.WriteHeader(http.StatusCreated)
 }
 
-// validateSubscribeRequest validates the subscription request and returns the trigger time.
-// Returns (triggerTime, statusCode, errorMessage) where errorMessage is empty on success.
-func (s *Service) validateSubscribeRequest(ctx context.Context, r *http.Request, userID, eventID string) (time.Time, int, string) {
+func (s *Service) validateSubscribeRequest(ctx context.Context, r *http.Request, userID, entityID, entityType string) (time.Time, int, string) {
 	var req struct {
 		OffsetMinutes *int       `json:"offset_minutes"`
 		EventStartAt  *time.Time `json:"event_start_at"`
+		TaskDueAt     *time.Time `json:"task_due_at"`
+		Location      string     `json:"location"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return time.Time{}, http.StatusBadRequest, "invalid request body"
 	}
 
-	offsetMinutes := -NotifyOffsetMinutes
-	if req.OffsetMinutes != nil {
-		offsetMinutes = *req.OffsetMinutes
+	var baseTime *time.Time
+	switch entityType {
+	case EntityTypeEvent:
+		baseTime = req.EventStartAt
+	case EntityTypeTask:
+		baseTime = req.TaskDueAt
+	}
+	if baseTime == nil {
+		label := "event_start_at"
+		if entityType == EntityTypeTask {
+			label = "task_due_at"
+		}
+		return time.Time{}, http.StatusBadRequest, label + " is required"
 	}
 
-	if req.EventStartAt == nil {
-		return time.Time{}, http.StatusBadRequest, "event_start_at is required"
-	}
+	triggerTime := s.computeTriggerTime(ctx, userID, *baseTime, entityType, req.OffsetMinutes, req.Location)
 
-	triggerTime := req.EventStartAt.UTC().Add(time.Duration(offsetMinutes) * time.Minute)
 	if !triggerTime.After(time.Now().UTC()) {
 		return time.Time{}, http.StatusBadRequest, "computed trigger_time is not in the future"
 	}
 
-	// Prevent duplicate subscriptions.
-	exists, err := s.repo.SubscriptionExists(ctx, userID, eventID)
+	exists, err := s.repo.SubscriptionExists(ctx, userID, entityID, entityType)
 	if err != nil {
-		s.logger.Error("failed to check subscription existence", "user_id", userID, "event_id", eventID, "error", err)
+		s.logger.Error("failed to check subscription existence", "user_id", userID, "entity_id", entityID, "error", err)
 		return time.Time{}, http.StatusInternalServerError, "internal server error"
 	}
 	if exists {
@@ -228,12 +263,35 @@ func (s *Service) validateSubscribeRequest(ctx context.Context, r *http.Request,
 	return triggerTime, http.StatusOK, ""
 }
 
-// createAndEnqueueSubscription creates a subscription and enqueues the notification task.
-// Returns (subscription, statusCode, errorMessage) where errorMessage is empty on success.
-func (s *Service) createAndEnqueueSubscription(ctx context.Context, userID, eventID string, triggerTime time.Time) (*models.EventSubscription, int, string) {
+// computeTriggerTime determines the notification fire time.
+// For events: tries ETA-based scheduling (ETA + 10min buffer), falls back to fixed offset.
+// For tasks: always uses fixed offset.
+func (s *Service) computeTriggerTime(ctx context.Context, userID string, baseTime time.Time, entityType string, offsetMinutes *int, locationHint string) time.Time {
+	if entityType == EntityTypeEvent && locationHint != "" && s.eta != nil && s.location != nil {
+		lat, lng, err := s.location.GetCurrentLocation(ctx, userID)
+		if err == nil {
+			etaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			etaSeconds, etaErr := s.eta.GetETA(etaCtx, lat, lng, locationHint)
+			if etaErr == nil && etaSeconds > 0 {
+				etaDuration := time.Duration(etaSeconds)*time.Second + 10*time.Minute
+				return baseTime.UTC().Add(-etaDuration)
+			}
+		}
+	}
+
+	offset := -NotifyOffsetMinutes
+	if offsetMinutes != nil {
+		offset = *offsetMinutes
+	}
+	return baseTime.UTC().Add(time.Duration(offset) * time.Minute)
+}
+
+func (s *Service) createAndEnqueueSubscription(ctx context.Context, userID, entityID, entityType string, triggerTime time.Time) (*models.EventSubscription, int, string) {
 	sub := &models.EventSubscription{
 		UserID:      userID,
-		EventID:     eventID,
+		EntityID:    entityID,
+		EntityType:  entityType,
 		TriggerTime: triggerTime,
 	}
 
@@ -241,23 +299,23 @@ func (s *Service) createAndEnqueueSubscription(ctx context.Context, userID, even
 		if errors.Is(err, ErrSubscriptionAlreadyExists) {
 			return nil, http.StatusConflict, "subscription already exists"
 		}
-		s.logger.Error("failed to create subscription", "user_id", userID, "event_id", eventID, "error", err)
+		s.logger.Error("failed to create subscription", "user_id", userID, "entity_id", entityID, "error", err)
 		return nil, http.StatusInternalServerError, "internal server error"
 	}
 
-	// Enqueue the Asynq task to fire at triggerTime.
 	if s.enqueuer != nil {
 		task, taskErr := makeSendNotificationTask(SendNotificationPayload{
-			UserID:  userID,
-			EventID: eventID,
-			SubID:   sub.ID,
+			UserID:     userID,
+			EntityID:   entityID,
+			EntityType: entityType,
+			SubID:      sub.ID,
 		})
 		if taskErr != nil {
 			s.logger.Error("failed to construct notification task",
-				"user_id", userID, "event_id", eventID, "sub_id", sub.ID, "error", taskErr)
-			if delErr := s.repo.DeleteSubscription(ctx, userID, eventID); delErr != nil {
+				"user_id", userID, "entity_id", entityID, "sub_id", sub.ID, "error", taskErr)
+			if delErr := s.repo.DeleteSubscription(ctx, userID, entityID, entityType); delErr != nil {
 				s.logger.Error("failed to roll back subscription after task construction error",
-					"user_id", userID, "event_id", eventID, "sub_id", sub.ID, "error", delErr)
+					"user_id", userID, "entity_id", entityID, "sub_id", sub.ID, "error", delErr)
 			}
 			return nil, http.StatusInternalServerError, "internal server error"
 		}
@@ -271,8 +329,7 @@ func (s *Service) createAndEnqueueSubscription(ctx context.Context, userID, even
 		)
 		if enqErr != nil {
 			s.logger.Error("failed to enqueue notification task",
-				"user_id", userID, "event_id", eventID, "error", enqErr)
-			// Non-fatal: subscription is saved; worker can be re-implemented to poll if needed.
+				"user_id", userID, "entity_id", entityID, "error", enqErr)
 		} else if updErr := s.repo.UpdateSubscriptionJobID(ctx, sub.ID, info.ID); updErr != nil {
 			s.logger.Error("failed to persist Asynq job_id",
 				"sub_id", sub.ID, "job_id", info.ID, "error", updErr)
@@ -282,10 +339,7 @@ func (s *Service) createAndEnqueueSubscription(ctx context.Context, userID, even
 	return sub, http.StatusOK, ""
 }
 
-// handleUnsubscribe cancels the Asynq task and removes the notification subscription.
-//
-//	DELETE /api/v1/events/{id}/notify
-func (s *Service) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
+func (s *Service) handleUnsubscribe(w http.ResponseWriter, r *http.Request, entityType string) {
 	w.Header().Set("Content-Type", "application/json")
 
 	userID := middleware.GetUserIDFromContext(r.Context())
@@ -294,35 +348,31 @@ func (s *Service) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eventID := mux.Vars(r)["id"]
-	if eventID == "" {
-		writeError(w, http.StatusBadRequest, "event id is required")
+	entityID := mux.Vars(r)["id"]
+	if entityID == "" {
+		writeError(w, http.StatusBadRequest, "entity id is required")
 		return
 	}
 
-	// Fetch the subscription so we can cancel the Asynq task.
-	sub, err := s.repo.GetSubscriptionByUserAndEvent(r.Context(), userID, eventID)
+	sub, err := s.repo.GetSubscriptionByUserAndEntity(r.Context(), userID, entityID, entityType)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		s.logger.Error("failed to fetch subscription for cancellation",
-			"user_id", userID, "event_id", eventID, "error", err)
+			"user_id", userID, "entity_id", entityID, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
-	// Cancel the scheduled Asynq task if we have a job ID and a canceller.
 	if sub != nil && sub.JobID != nil && s.canceller != nil {
 		if cancelErr := s.canceller.DeleteTask(QueueDefault, *sub.JobID); cancelErr != nil {
 			s.logger.Warn("failed to cancel Asynq task",
 				"sub_id", sub.ID, "job_id", *sub.JobID, "error", cancelErr)
-			// Non-fatal: the task may have already fired or the queue might be empty.
 		}
 	}
 
-	// Mark as canceled in the database (keep row for audit).
 	if sub != nil {
 		if markErr := s.repo.MarkSubscriptionStatus(r.Context(), sub.ID, StatusCancelled); markErr != nil {
 			s.logger.Error("failed to mark subscription canceled",
@@ -332,15 +382,13 @@ func (s *Service) handleUnsubscribe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.logger.Info("event subscription canceled", "user_id", userID, "event_id", eventID)
+	s.logger.Info("subscription canceled", "user_id", userID, "entity_id", entityID, "entity_type", entityType)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// writeError writes a JSON error response.
 func writeError(w http.ResponseWriter, code int, message string) {
 	w.WriteHeader(code)
 	if err := json.NewEncoder(w).Encode(map[string]string{"error": message}); err != nil {
-		// Best-effort; headers already sent.
 		_ = err
 	}
 }

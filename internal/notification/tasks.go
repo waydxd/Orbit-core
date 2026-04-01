@@ -26,11 +26,30 @@ const (
 	StatusFailed    = "failed"
 )
 
+// Entity types for notification subscriptions.
+const (
+	EntityTypeEvent = "event"
+	EntityTypeTask  = "task"
+)
+
 // SendNotificationPayload is the JSON payload stored inside an Asynq task.
 type SendNotificationPayload struct {
-	UserID  string `json:"user_id"`
-	EventID string `json:"event_id"`
-	SubID   string `json:"sub_id"`
+	UserID     string `json:"user_id"`
+	EntityID   string `json:"entity_id"`
+	EntityType string `json:"entity_type"`
+	SubID      string `json:"sub_id"`
+	// Deprecated: kept for backward compatibility with in-flight tasks enqueued
+	// before the entity_type migration.
+	EventID string `json:"event_id,omitempty"`
+}
+
+// Backfill sets EntityID/EntityType from the deprecated EventID field when
+// the payload was produced by the previous code version.
+func (p *SendNotificationPayload) Backfill() {
+	if p.EntityID == "" && p.EventID != "" {
+		p.EntityID = p.EventID
+		p.EntityType = EntityTypeEvent
+	}
 }
 
 // newSendNotificationTask constructs an Asynq task for the given subscription.

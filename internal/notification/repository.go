@@ -24,25 +24,17 @@ type Repository interface {
 	// Device token operations
 	UpsertDeviceToken(ctx context.Context, dt *models.DeviceToken) error
 	DeleteDeviceToken(ctx context.Context, token string) error
-	// DeleteDeviceTokenByUser removes a device token for a specific user.
 	DeleteDeviceTokenByUser(ctx context.Context, userID, token string) error
 	GetDeviceTokensByUserID(ctx context.Context, userID string) ([]*models.DeviceToken, error)
 
-	// Event subscription operations
+	// Subscription operations (entity_type distinguishes events from tasks)
 	CreateSubscription(ctx context.Context, sub *models.EventSubscription) error
-	DeleteSubscription(ctx context.Context, userID, eventID string) error
-	SubscriptionExists(ctx context.Context, userID, eventID string) (bool, error)
-	// GetSubscriptionByID fetches a subscription by primary key.
+	DeleteSubscription(ctx context.Context, userID, entityID, entityType string) error
+	SubscriptionExists(ctx context.Context, userID, entityID, entityType string) (bool, error)
 	GetSubscriptionByID(ctx context.Context, id string) (*models.EventSubscription, error)
-	// GetSubscriptionByUserAndEvent fetches an active (non-canceled) subscription so its
-	// Asynq job_id can be retrieved for task cancellation.
-	GetSubscriptionByUserAndEvent(ctx context.Context, userID, eventID string) (*models.EventSubscription, error)
-	// GetSubscriptionsByEventID returns all non-canceled subscriptions for an event,
-	// used when an event is rescheduled and existing tasks must be replaced.
-	GetSubscriptionsByEventID(ctx context.Context, eventID string) ([]*models.EventSubscription, error)
-	// MarkSubscriptionStatus updates the status field of a subscription.
+	GetSubscriptionByUserAndEntity(ctx context.Context, userID, entityID, entityType string) (*models.EventSubscription, error)
+	GetSubscriptionsByEntityID(ctx context.Context, entityID, entityType string) ([]*models.EventSubscription, error)
 	MarkSubscriptionStatus(ctx context.Context, id, status string) error
-	// UpdateSubscriptionJobID stores the Asynq task ID after successful enqueue.
 	UpdateSubscriptionJobID(ctx context.Context, id, jobID string) error
 }
 
@@ -95,11 +87,12 @@ func (r *SQLRepository) GetDeviceTokensByUserID(ctx context.Context, userID stri
 	return tokens, nil
 }
 
-// CreateSubscription inserts a new event subscription with status 'pending'.
+// CreateSubscription inserts a new subscription with status 'pending'.
 func (r *SQLRepository) CreateSubscription(ctx context.Context, sub *models.EventSubscription) error {
 	params := db.CreateSubscriptionParams{
 		UserID:      database.StringToUUID(sub.UserID),
-		EventID:     database.StringToUUID(sub.EventID),
+		EntityID:    database.StringToUUID(sub.EntityID),
+		EntityType:  sub.EntityType,
 		TriggerTime: database.TimeToTimestamptz(sub.TriggerTime),
 	}
 	id, err := r.queries.CreateSubscription(ctx, params)
@@ -113,9 +106,13 @@ func (r *SQLRepository) CreateSubscription(ctx context.Context, sub *models.Even
 	return nil
 }
 
-// DeleteSubscription removes all pending subscriptions for a user + event pair.
-func (r *SQLRepository) DeleteSubscription(ctx context.Context, userID, eventID string) error {
-	params := db.DeleteSubscriptionParams{UserID: database.StringToUUID(userID), EventID: database.StringToUUID(eventID)}
+// DeleteSubscription removes all pending subscriptions for a user + entity pair.
+func (r *SQLRepository) DeleteSubscription(ctx context.Context, userID, entityID, entityType string) error {
+	params := db.DeleteSubscriptionParams{
+		UserID:     database.StringToUUID(userID),
+		EntityID:   database.StringToUUID(entityID),
+		EntityType: entityType,
+	}
 	return r.queries.DeleteSubscription(ctx, params)
 }
 
@@ -126,8 +123,12 @@ func (r *SQLRepository) DeleteDeviceTokenByUser(ctx context.Context, userID, tok
 }
 
 // SubscriptionExists checks whether a not-yet-sent subscription already exists.
-func (r *SQLRepository) SubscriptionExists(ctx context.Context, userID, eventID string) (bool, error) {
-	params := db.SubscriptionExistsParams{UserID: database.StringToUUID(userID), EventID: database.StringToUUID(eventID)}
+func (r *SQLRepository) SubscriptionExists(ctx context.Context, userID, entityID, entityType string) (bool, error) {
+	params := db.SubscriptionExistsParams{
+		UserID:     database.StringToUUID(userID),
+		EntityID:   database.StringToUUID(entityID),
+		EntityType: entityType,
+	}
 	return r.queries.SubscriptionExists(ctx, params)
 }
 
@@ -143,7 +144,8 @@ func (r *SQLRepository) GetSubscriptionByID(ctx context.Context, id string) (*mo
 	sub := &models.EventSubscription{
 		ID:          database.UUIDToString(row.ID),
 		UserID:      database.UUIDToString(row.UserID),
-		EventID:     database.UUIDToString(row.EventID),
+		EntityID:    database.UUIDToString(row.EntityID),
+		EntityType:  row.EntityType,
 		TriggerTime: database.TimestamptzToTime(row.TriggerTime),
 		IsSent:      row.IsSent,
 		Status:      row.Status,
@@ -156,10 +158,14 @@ func (r *SQLRepository) GetSubscriptionByID(ctx context.Context, id string) (*mo
 	return sub, nil
 }
 
-// GetSubscriptionByUserAndEvent fetches the active subscription for a user + event pair.
-func (r *SQLRepository) GetSubscriptionByUserAndEvent(ctx context.Context, userID, eventID string) (*models.EventSubscription, error) {
-	params := db.GetSubscriptionByUserAndEventParams{UserID: database.StringToUUID(userID), EventID: database.StringToUUID(eventID)}
-	row, err := r.queries.GetSubscriptionByUserAndEvent(ctx, params)
+// GetSubscriptionByUserAndEntity fetches the active subscription for a user + entity pair.
+func (r *SQLRepository) GetSubscriptionByUserAndEntity(ctx context.Context, userID, entityID, entityType string) (*models.EventSubscription, error) {
+	params := db.GetSubscriptionByUserAndEntityParams{
+		UserID:     database.StringToUUID(userID),
+		EntityID:   database.StringToUUID(entityID),
+		EntityType: entityType,
+	}
+	row, err := r.queries.GetSubscriptionByUserAndEntity(ctx, params)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, sql.ErrNoRows
@@ -169,7 +175,8 @@ func (r *SQLRepository) GetSubscriptionByUserAndEvent(ctx context.Context, userI
 	sub := &models.EventSubscription{
 		ID:          database.UUIDToString(row.ID),
 		UserID:      database.UUIDToString(row.UserID),
-		EventID:     database.UUIDToString(row.EventID),
+		EntityID:    database.UUIDToString(row.EntityID),
+		EntityType:  row.EntityType,
 		TriggerTime: database.TimestamptzToTime(row.TriggerTime),
 		IsSent:      row.IsSent,
 		Status:      row.Status,
@@ -182,9 +189,13 @@ func (r *SQLRepository) GetSubscriptionByUserAndEvent(ctx context.Context, userI
 	return sub, nil
 }
 
-// GetSubscriptionsByEventID returns all active subscriptions for an event.
-func (r *SQLRepository) GetSubscriptionsByEventID(ctx context.Context, eventID string) ([]*models.EventSubscription, error) {
-	rows, err := r.queries.GetSubscriptionsByEventID(ctx, database.StringToUUID(eventID))
+// GetSubscriptionsByEntityID returns all active subscriptions for an entity.
+func (r *SQLRepository) GetSubscriptionsByEntityID(ctx context.Context, entityID, entityType string) ([]*models.EventSubscription, error) {
+	params := db.GetSubscriptionsByEntityIDParams{
+		EntityID:   database.StringToUUID(entityID),
+		EntityType: entityType,
+	}
+	rows, err := r.queries.GetSubscriptionsByEntityID(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +204,8 @@ func (r *SQLRepository) GetSubscriptionsByEventID(ctx context.Context, eventID s
 		s := &models.EventSubscription{
 			ID:          database.UUIDToString(row.ID),
 			UserID:      database.UUIDToString(row.UserID),
-			EventID:     database.UUIDToString(row.EventID),
+			EntityID:    database.UUIDToString(row.EntityID),
+			EntityType:  row.EntityType,
 			TriggerTime: database.TimestamptzToTime(row.TriggerTime),
 			IsSent:      row.IsSent,
 			Status:      row.Status,

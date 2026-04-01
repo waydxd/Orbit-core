@@ -17,16 +17,12 @@ type Worker struct {
 	fcm    *fcm.Client
 	logger *logger.Logger
 	server *asynq.Server
-	// sendFn is used in tests to mock the FCM send call.
-	// If nil, the real fcm.Client is used (or a no-op when fcm is nil).
-	sendFn func(ctx context.Context, token, eventID, userID string, data map[string]string) error
+	sendFn func(ctx context.Context, token, entityID, userID string, data map[string]string) error
 }
 
 const invalidTokenDeleteTimeout = 2 * time.Second
 
 // NewWorker creates a new notification worker.
-// fcmClient may be nil when Firebase is not configured; sends will be skipped.
-// server must be a configured *asynq.Server; it is started by calling Start().
 func NewWorker(repo Repository, fcmClient *fcm.Client, log *logger.Logger, server *asynq.Server) *Worker {
 	return &Worker{
 		repo:   repo,
@@ -37,7 +33,6 @@ func NewWorker(repo Repository, fcmClient *fcm.Client, log *logger.Logger, serve
 }
 
 // Start registers the task handler and launches the Asynq server in the background.
-// It returns immediately; use Stop to shut it down gracefully.
 func (w *Worker) Start() {
 	if w.server == nil {
 		w.logger.Warn("notification worker: Asynq server is nil, worker will not start")
@@ -54,7 +49,7 @@ func (w *Worker) Start() {
 	w.logger.Info("notification worker started")
 }
 
-// Stop gracefully shuts down the Asynq server, waiting for in-progress tasks to finish.
+// Stop gracefully shuts down the Asynq server.
 func (w *Worker) Stop() {
 	if w.server != nil {
 		w.server.Shutdown()
@@ -63,12 +58,12 @@ func (w *Worker) Stop() {
 }
 
 // HandleSendNotification is the Asynq task handler for TaskTypeSendNotification.
-// It reads the payload, fetches device tokens, sends FCM messages, and updates the DB.
 func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) error {
 	var p SendNotificationPayload
 	if err := json.Unmarshal(t.Payload(), &p); err != nil {
 		return fmt.Errorf("HandleSendNotification: unmarshal payload: %w", err)
 	}
+	p.Backfill()
 
 	sub, err := w.repo.GetSubscriptionByID(ctx, p.SubID)
 	if err != nil {
@@ -85,26 +80,19 @@ func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) erro
 		return fmt.Errorf("HandleSendNotification: get device tokens for user %s: %w", p.UserID, err)
 	}
 
-	data := map[string]string{
-		"event_id": p.EventID,
-		"type":     "calendar_reminder",
-		"action":   "open_event",
-	}
+	title, body, data := w.buildMessage(p)
 
 	var sendErr error
 	var successCount int
 	for _, dt := range tokens {
-		if err := w.sendToToken(ctx, dt.Token, p.EventID, p.UserID, data); err != nil {
+		if err := w.sendToToken(ctx, dt.Token, p.EntityID, p.UserID, data); err != nil {
 			sendErr = err
 			continue
 		}
 		successCount++
 	}
 
-	// Determine final status based on whether any send succeeded.
 	if len(tokens) == 0 {
-		// User has no registered device tokens; nothing to send. Log a warning but
-		// still mark as sent so the task is not retried endlessly.
 		w.logger.Warn("HandleSendNotification: no device tokens found for user, skipping send",
 			"user_id", p.UserID, "sub_id", p.SubID)
 		if err := w.repo.MarkSubscriptionStatus(ctx, p.SubID, StatusSent); err != nil {
@@ -114,13 +102,14 @@ func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) erro
 		return nil
 	}
 
+	_ = title
+	_ = body
+
 	if successCount == 0 {
 		if err := w.repo.MarkSubscriptionStatus(ctx, p.SubID, StatusFailed); err != nil {
 			w.logger.Error("HandleSendNotification: failed to mark subscription failed",
 				"sub_id", p.SubID, "error", err)
 		}
-		// All sends failed; subscription is marked as failed. Return the error so Asynq can
-		// retry. Subsequent retries will see a non-pending status and no-op.
 		w.logger.Error("HandleSendNotification: all FCM sends failed; subscription marked as failed, retrying",
 			"sub_id", p.SubID, "user_id", p.UserID, "error", sendErr)
 		return sendErr
@@ -138,20 +127,45 @@ func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) erro
 	return nil
 }
 
-// sendToToken sends an FCM message to a single device token.
-// If the token is invalid it is deleted from the database with a short timeout.
-func (w *Worker) sendToToken(ctx context.Context, token, eventID, userID string, data map[string]string) error {
-	var err error
+// buildMessage produces notification title, body and FCM data payload based on entity type.
+func (w *Worker) buildMessage(p SendNotificationPayload) (string, string, map[string]string) {
+	switch p.EntityType {
+	case EntityTypeTask:
+		return "Task Reminder", "Your task is due soon", map[string]string{
+			"task_id": p.EntityID,
+			"type":    "task_reminder",
+			"action":  "open_task",
+		}
+	default:
+		return "Event Reminder", "Your event is starting soon", map[string]string{
+			"event_id": p.EntityID,
+			"type":     "calendar_reminder",
+			"action":   "open_event",
+		}
+	}
+}
 
+func (w *Worker) sendToToken(ctx context.Context, token, entityID, userID string, data map[string]string) error {
+	title, body := "Reminder", "You have an upcoming reminder"
+	if v, ok := data["type"]; ok {
+		switch v {
+		case "task_reminder":
+			title, body = "Task Reminder", "Your task is due soon"
+		case "calendar_reminder":
+			title, body = "Event Reminder", "Your event is starting soon"
+		}
+	}
+
+	var err error
 	switch {
 	case w.sendFn != nil:
-		err = w.sendFn(ctx, token, eventID, userID, data)
+		err = w.sendFn(ctx, token, entityID, userID, data)
 	case w.fcm != nil:
-		err = w.fcm.SendNotification(ctx, token, "Event Reminder", "Your event is starting soon", data)
+		err = w.fcm.SendNotification(ctx, token, title, body, data)
 	default:
 		w.logger.Info("notification worker: FCM client not configured, skipping send",
 			"user_id", userID,
-			"event_id", eventID,
+			"entity_id", entityID,
 		)
 		return nil
 	}
@@ -159,7 +173,7 @@ func (w *Worker) sendToToken(ctx context.Context, token, eventID, userID string,
 	if err == nil {
 		w.logger.Info("notification worker: sent notification",
 			"user_id", userID,
-			"event_id", eventID,
+			"entity_id", entityID,
 			"status", "success",
 		)
 		return nil
@@ -167,7 +181,7 @@ func (w *Worker) sendToToken(ctx context.Context, token, eventID, userID string,
 
 	w.logger.Error("notification worker: failed to send notification",
 		"user_id", userID,
-		"event_id", eventID,
+		"entity_id", entityID,
 		"status", "failure",
 		"error", err,
 	)

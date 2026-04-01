@@ -134,7 +134,9 @@ func TestHandleRegisterToken_InvalidPlatform(t *testing.T) {
 	}
 }
 
-func TestHandleSubscribe_Success(t *testing.T) {
+// ===== Event subscribe tests =====
+
+func TestHandleSubscribeEvent_Success(t *testing.T) {
 	mock := &mockRepo{
 		createSubID: "sub-1",
 	}
@@ -150,7 +152,7 @@ func TestHandleSubscribe_Success(t *testing.T) {
 	req = mux.SetURLVars(req, map[string]string{"id": "evt-1"})
 	rr := httptest.NewRecorder()
 
-	svc.handleSubscribe(rr, req)
+	svc.handleSubscribeEvent(rr, req)
 
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
@@ -169,7 +171,7 @@ func TestHandleSubscribe_Success(t *testing.T) {
 	}
 }
 
-func TestHandleSubscribe_PastEvent(t *testing.T) {
+func TestHandleSubscribeEvent_PastEvent(t *testing.T) {
 	mock := &mockRepo{}
 	svc := newTestService(mock)
 
@@ -182,14 +184,14 @@ func TestHandleSubscribe_PastEvent(t *testing.T) {
 	req = mux.SetURLVars(req, map[string]string{"id": "evt-1"})
 	rr := httptest.NewRecorder()
 
-	svc.handleSubscribe(rr, req)
+	svc.handleSubscribeEvent(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for past event, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
-func TestHandleSubscribe_Duplicate(t *testing.T) {
+func TestHandleSubscribeEvent_Duplicate(t *testing.T) {
 	mock := &mockRepo{existsResp: true}
 	svc := newTestService(mock)
 
@@ -202,19 +204,18 @@ func TestHandleSubscribe_Duplicate(t *testing.T) {
 	req = mux.SetURLVars(req, map[string]string{"id": "evt-1"})
 	rr := httptest.NewRecorder()
 
-	svc.handleSubscribe(rr, req)
+	svc.handleSubscribeEvent(rr, req)
 
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
-func TestHandleSubscribe_NoEnqueuerStillSucceeds(t *testing.T) {
-	// When enqueuer is nil (Redis unavailable), the subscription should still be saved.
+func TestHandleSubscribeEvent_NoEnqueuerStillSucceeds(t *testing.T) {
 	mock := &mockRepo{
 		createSubID: "sub-no-redis",
 	}
-	svc := newTestService(mock) // no enqueuer
+	svc := newTestService(mock)
 
 	future := time.Now().UTC().Add(2 * time.Hour)
 	body, _ := json.Marshal(map[string]interface{}{
@@ -225,7 +226,7 @@ func TestHandleSubscribe_NoEnqueuerStillSucceeds(t *testing.T) {
 	req = mux.SetURLVars(req, map[string]string{"id": "evt-1"})
 	rr := httptest.NewRecorder()
 
-	svc.handleSubscribe(rr, req)
+	svc.handleSubscribeEvent(rr, req)
 
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("expected 201 even without enqueuer, got %d: %s", rr.Code, rr.Body.String())
@@ -235,7 +236,7 @@ func TestHandleSubscribe_NoEnqueuerStillSucceeds(t *testing.T) {
 	}
 }
 
-func TestHandleSubscribe_TaskConstructionErrorRollsBack(t *testing.T) {
+func TestHandleSubscribeEvent_TaskConstructionErrorRollsBack(t *testing.T) {
 	oldFactory := makeSendNotificationTask
 	defer func() { makeSendNotificationTask = oldFactory }()
 	makeSendNotificationTask = func(_ SendNotificationPayload) (*asynq.Task, error) {
@@ -255,7 +256,7 @@ func TestHandleSubscribe_TaskConstructionErrorRollsBack(t *testing.T) {
 	req = mux.SetURLVars(req, map[string]string{"id": "evt-1"})
 	rr := httptest.NewRecorder()
 
-	svc.handleSubscribe(rr, req)
+	svc.handleSubscribeEvent(rr, req)
 
 	if rr.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500, got %d: %s", rr.Code, rr.Body.String())
@@ -268,11 +269,14 @@ func TestHandleSubscribe_TaskConstructionErrorRollsBack(t *testing.T) {
 	}
 }
 
-func TestHandleUnsubscribe_Success(t *testing.T) {
+// ===== Event unsubscribe tests =====
+
+func TestHandleUnsubscribeEvent_Success(t *testing.T) {
 	jobID := "task-abc"
 	mock := &mockRepo{
 		getSubResp: &models.EventSubscription{
-			ID: "sub-1", UserID: "user-1", EventID: "evt-1", JobID: &jobID, Status: StatusPending,
+			ID: "sub-1", UserID: "user-1", EntityID: "evt-1", EntityType: EntityTypeEvent,
+			JobID: &jobID, Status: StatusPending,
 		},
 	}
 	canceller := &mockCanceller{}
@@ -283,7 +287,7 @@ func TestHandleUnsubscribe_Success(t *testing.T) {
 	req = mux.SetURLVars(req, map[string]string{"id": "evt-1"})
 	rr := httptest.NewRecorder()
 
-	svc.handleUnsubscribe(rr, req)
+	svc.handleUnsubscribeEvent(rr, req)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
@@ -300,22 +304,22 @@ func TestHandleUnsubscribe_Success(t *testing.T) {
 	}
 }
 
-func TestHandleUnsubscribe_NoCanceller(t *testing.T) {
-	// When canceller is nil, unsubscribe should still mark the subscription as canceled.
+func TestHandleUnsubscribeEvent_NoCanceller(t *testing.T) {
 	jobID := "task-xyz"
 	mock := &mockRepo{
 		getSubResp: &models.EventSubscription{
-			ID: "sub-2", JobID: &jobID, Status: StatusPending,
+			ID: "sub-2", EntityID: "evt-1", EntityType: EntityTypeEvent,
+			JobID: &jobID, Status: StatusPending,
 		},
 	}
-	svc := newTestService(mock) // no canceller
+	svc := newTestService(mock)
 
 	req := httptest.NewRequest(http.MethodDelete, "/events/evt-1/notify", nil)
 	req = withUserID(req, "user-1")
 	req = mux.SetURLVars(req, map[string]string{"id": "evt-1"})
 	rr := httptest.NewRecorder()
 
-	svc.handleUnsubscribe(rr, req)
+	svc.handleUnsubscribeEvent(rr, req)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
@@ -325,7 +329,7 @@ func TestHandleUnsubscribe_NoCanceller(t *testing.T) {
 	}
 }
 
-func TestHandleUnsubscribe_NotFoundIsNoOp(t *testing.T) {
+func TestHandleUnsubscribeEvent_NotFoundIsNoOp(t *testing.T) {
 	mock := &mockRepo{getSubErr: sql.ErrNoRows}
 	svc := newTestService(mock)
 
@@ -334,7 +338,7 @@ func TestHandleUnsubscribe_NotFoundIsNoOp(t *testing.T) {
 	req = mux.SetURLVars(req, map[string]string{"id": "evt-1"})
 	rr := httptest.NewRecorder()
 
-	svc.handleUnsubscribe(rr, req)
+	svc.handleUnsubscribeEvent(rr, req)
 
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
@@ -344,14 +348,91 @@ func TestHandleUnsubscribe_NotFoundIsNoOp(t *testing.T) {
 	}
 }
 
+// ===== Task subscribe tests =====
+
+func TestHandleSubscribeTask_Success(t *testing.T) {
+	mock := &mockRepo{createSubID: "sub-t1"}
+	enq := &mockEnqueuer{}
+	svc := newTestServiceWithEnqueuer(mock, enq, nil)
+
+	future := time.Now().UTC().Add(2 * time.Hour)
+	body, _ := json.Marshal(map[string]interface{}{
+		"task_due_at": future.Format(time.RFC3339),
+	})
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task-1/notify", bytes.NewReader(body))
+	req = withUserID(req, "user-1")
+	req = mux.SetURLVars(req, map[string]string{"id": "task-1"})
+	rr := httptest.NewRecorder()
+
+	svc.handleSubscribeTask(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !mock.CreateSubCalled {
+		t.Fatal("expected CreateSubscription to be called")
+	}
+	if !enq.EnqueueCalled {
+		t.Fatal("expected Asynq task to be enqueued")
+	}
+}
+
+func TestHandleSubscribeTask_MissingDueAt(t *testing.T) {
+	mock := &mockRepo{}
+	svc := newTestService(mock)
+
+	body, _ := json.Marshal(map[string]interface{}{})
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task-1/notify", bytes.NewReader(body))
+	req = withUserID(req, "user-1")
+	req = mux.SetURLVars(req, map[string]string{"id": "task-1"})
+	rr := httptest.NewRecorder()
+
+	svc.handleSubscribeTask(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleUnsubscribeTask_Success(t *testing.T) {
+	jobID := "task-job-1"
+	mock := &mockRepo{
+		getSubResp: &models.EventSubscription{
+			ID: "sub-t1", UserID: "user-1", EntityID: "task-1", EntityType: EntityTypeTask,
+			JobID: &jobID, Status: StatusPending,
+		},
+	}
+	canceller := &mockCanceller{}
+	svc := newTestServiceWithEnqueuer(mock, nil, canceller)
+
+	req := httptest.NewRequest(http.MethodDelete, "/tasks/task-1/notify", nil)
+	req = withUserID(req, "user-1")
+	req = mux.SetURLVars(req, map[string]string{"id": "task-1"})
+	rr := httptest.NewRecorder()
+
+	svc.handleUnsubscribeTask(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !canceller.DeleteCalled {
+		t.Fatal("expected Asynq task to be canceled")
+	}
+	if !mock.MarkStatusCalled || mock.MarkStatusValue != StatusCancelled {
+		t.Fatalf("expected MarkSubscriptionStatus('cancelled'), got called=%v value=%q",
+			mock.MarkStatusCalled, mock.MarkStatusValue)
+	}
+}
+
 // ===== Worker (Asynq handler) tests using mock FCM sender =====
 
-func TestWorker_HandleSendNotification_Success(t *testing.T) {
+func TestWorker_HandleSendNotification_EventSuccess(t *testing.T) {
 	sub := &models.EventSubscription{
-		ID:      "sub-1",
-		UserID:  "user-1",
-		EventID: "evt-1",
-		Status:  StatusPending,
+		ID:         "sub-1",
+		UserID:     "user-1",
+		EntityID:   "evt-1",
+		EntityType: EntityTypeEvent,
+		Status:     StatusPending,
 	}
 	//nolint:gosec // G101: False positive - this is test fixture data
 	token := &models.DeviceToken{
@@ -371,9 +452,10 @@ func TestWorker_HandleSendNotification_Success(t *testing.T) {
 	w.sendFn = mockFCM.send
 
 	payload, _ := json.Marshal(SendNotificationPayload{
-		UserID:  sub.UserID,
-		EventID: sub.EventID,
-		SubID:   sub.ID,
+		UserID:     sub.UserID,
+		EntityID:   sub.EntityID,
+		EntityType: sub.EntityType,
+		SubID:      sub.ID,
 	})
 	task := newAsynqTaskForTest(TaskTypeSendNotification, payload)
 
@@ -390,15 +472,93 @@ func TestWorker_HandleSendNotification_Success(t *testing.T) {
 	}
 }
 
+func TestWorker_HandleSendNotification_TaskSuccess(t *testing.T) {
+	sub := &models.EventSubscription{
+		ID:         "sub-t1",
+		UserID:     "user-1",
+		EntityID:   "task-1",
+		EntityType: EntityTypeTask,
+		Status:     StatusPending,
+	}
+	token := &models.DeviceToken{
+		ID: "dt-1", UserID: "user-1", Token: "fcm-token-abc", Platform: "android",
+	}
+
+	mockFCM := &mockFCMClient{}
+	repo := &mockRepo{
+		getSubByIDResp: sub,
+		tokensResp:     []*models.DeviceToken{token},
+	}
+
+	w := &Worker{repo: repo, fcm: nil, logger: logger.New()}
+	w.sendFn = mockFCM.send
+
+	payload, _ := json.Marshal(SendNotificationPayload{
+		UserID:     sub.UserID,
+		EntityID:   sub.EntityID,
+		EntityType: sub.EntityType,
+		SubID:      sub.ID,
+	})
+	task := newAsynqTaskForTest(TaskTypeSendNotification, payload)
+
+	err := w.HandleSendNotification(context.Background(), task)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if !repo.MarkStatusCalled || repo.MarkStatusValue != StatusSent {
+		t.Fatalf("expected MarkSubscriptionStatus('sent'), got called=%v value=%q",
+			repo.MarkStatusCalled, repo.MarkStatusValue)
+	}
+}
+
+func TestWorker_HandleSendNotification_BackwardCompatPayload(t *testing.T) {
+	sub := &models.EventSubscription{
+		ID:         "sub-old",
+		UserID:     "user-1",
+		EntityID:   "evt-old",
+		EntityType: EntityTypeEvent,
+		Status:     StatusPending,
+	}
+	token := &models.DeviceToken{
+		ID: "dt-1", UserID: "user-1", Token: "tok", Platform: "ios",
+	}
+
+	mockFCM := &mockFCMClient{}
+	repo := &mockRepo{
+		getSubByIDResp: sub,
+		tokensResp:     []*models.DeviceToken{token},
+	}
+
+	w := &Worker{repo: repo, fcm: nil, logger: logger.New()}
+	w.sendFn = mockFCM.send
+
+	payload, _ := json.Marshal(map[string]string{
+		"user_id":  "user-1",
+		"event_id": "evt-old",
+		"sub_id":   "sub-old",
+	})
+	task := newAsynqTaskForTest(TaskTypeSendNotification, payload)
+
+	err := w.HandleSendNotification(context.Background(), task)
+	if err != nil {
+		t.Fatalf("expected no error from backward-compat payload, got: %v", err)
+	}
+	if mockFCM.callCount != 1 {
+		t.Fatalf("expected 1 FCM send, got %d", mockFCM.callCount)
+	}
+}
+
 func TestWorker_HandleSendNotification_SkipsCancelledSubscription(t *testing.T) {
 	repo := &mockRepo{
-		getSubByIDResp: &models.EventSubscription{ID: "sub-1", Status: StatusCancelled},
+		getSubByIDResp: &models.EventSubscription{ID: "sub-1", EntityType: EntityTypeEvent, Status: StatusCancelled},
 	}
 	mockFCM := &mockFCMClient{}
 	w := &Worker{repo: repo, fcm: nil, logger: logger.New()}
 	w.sendFn = mockFCM.send
 
-	payload, _ := json.Marshal(SendNotificationPayload{UserID: "user-1", EventID: "evt-1", SubID: "sub-1"})
+	payload, _ := json.Marshal(SendNotificationPayload{
+		UserID: "user-1", EntityID: "evt-1", EntityType: EntityTypeEvent, SubID: "sub-1",
+	})
 	task := newAsynqTaskForTest(TaskTypeSendNotification, payload)
 
 	err := w.HandleSendNotification(context.Background(), task)
@@ -415,7 +575,7 @@ func TestWorker_HandleSendNotification_SkipsCancelledSubscription(t *testing.T) 
 
 func TestWorker_HandleSendNotification_PartialFailureDoesNotRetry(t *testing.T) {
 	repo := &mockRepo{
-		getSubByIDResp: &models.EventSubscription{ID: "sub-3", Status: StatusPending},
+		getSubByIDResp: &models.EventSubscription{ID: "sub-3", EntityType: EntityTypeEvent, Status: StatusPending},
 		tokensResp: []*models.DeviceToken{
 			{ID: "dt-1", UserID: "user-3", Token: "ok-token", Platform: "android"},
 			{ID: "dt-2", UserID: "user-3", Token: "bad-token", Platform: "ios"},
@@ -429,7 +589,9 @@ func TestWorker_HandleSendNotification_PartialFailureDoesNotRetry(t *testing.T) 
 		return nil
 	}
 
-	payload, _ := json.Marshal(SendNotificationPayload{UserID: "user-3", EventID: "evt-3", SubID: "sub-3"})
+	payload, _ := json.Marshal(SendNotificationPayload{
+		UserID: "user-3", EntityID: "evt-3", EntityType: EntityTypeEvent, SubID: "sub-3",
+	})
 	task := newAsynqTaskForTest(TaskTypeSendNotification, payload)
 
 	err := w.HandleSendNotification(context.Background(), task)
@@ -451,7 +613,7 @@ func TestWorker_HandleSendNotification_InvalidToken(t *testing.T) {
 
 	mockFCM := &mockFCMClient{returnErr: errInvalidToken}
 	repo := &mockRepo{
-		getSubByIDResp: &models.EventSubscription{ID: "sub-2", Status: StatusPending},
+		getSubByIDResp: &models.EventSubscription{ID: "sub-2", EntityType: EntityTypeEvent, Status: StatusPending},
 		tokensResp:     []*models.DeviceToken{token},
 	}
 
@@ -459,19 +621,18 @@ func TestWorker_HandleSendNotification_InvalidToken(t *testing.T) {
 	w.sendFn = mockFCM.send
 
 	payload, _ := json.Marshal(SendNotificationPayload{
-		UserID:  "user-2",
-		EventID: "evt-2",
-		SubID:   "sub-2",
+		UserID:     "user-2",
+		EntityID:   "evt-2",
+		EntityType: EntityTypeEvent,
+		SubID:      "sub-2",
 	})
 	task := newAsynqTaskForTest(TaskTypeSendNotification, payload)
 
-	// Handler should return an error so Asynq can retry
 	err := w.HandleSendNotification(context.Background(), task)
 	if err == nil {
 		t.Fatal("expected error when FCM send fails, got nil")
 	}
 
-	// Wait (with timeout) for the async goroutine to delete the token
 	timeout := time.After(1 * time.Second)
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
@@ -479,10 +640,149 @@ func TestWorker_HandleSendNotification_InvalidToken(t *testing.T) {
 	for !repo.DeleteTokenCalled {
 		select {
 		case <-ticker.C:
-			// continue waiting
 		case <-timeout:
 			t.Fatal("expected DeleteDeviceToken to be called for invalid token")
 		}
+	}
+}
+
+// ===== ETA-based trigger time tests =====
+
+func TestComputeTriggerTime_WithETA(t *testing.T) {
+	mock := &mockRepo{}
+	svc := newTestService(mock)
+	svc.SetETAProvider(&mockETAProvider{etaSeconds: 1800}) // 30 min travel
+	svc.SetLocationProvider(&mockLocationProvider{lat: 22.3, lng: 114.2})
+
+	baseTime := time.Now().UTC().Add(3 * time.Hour)
+	got := svc.computeTriggerTime(context.Background(), "user-1", baseTime, EntityTypeEvent, nil, "HKUST")
+
+	expected := baseTime.Add(-(30*time.Minute + 10*time.Minute))
+	diff := got.Sub(expected)
+	if diff < -time.Second || diff > time.Second {
+		t.Fatalf("expected trigger ~%v, got %v (diff %v)", expected, got, diff)
+	}
+}
+
+func TestComputeTriggerTime_ETAFallbackOnError(t *testing.T) {
+	mock := &mockRepo{}
+	svc := newTestService(mock)
+	svc.SetETAProvider(&mockETAProvider{err: errors.New("maps error")})
+	svc.SetLocationProvider(&mockLocationProvider{lat: 22.3, lng: 114.2})
+
+	baseTime := time.Now().UTC().Add(3 * time.Hour)
+	got := svc.computeTriggerTime(context.Background(), "user-1", baseTime, EntityTypeEvent, nil, "HKUST")
+
+	expected := baseTime.Add(-15 * time.Minute)
+	diff := got.Sub(expected)
+	if diff < -time.Second || diff > time.Second {
+		t.Fatalf("expected fallback trigger ~%v, got %v", expected, got)
+	}
+}
+
+func TestComputeTriggerTime_NoLocationNoETA(t *testing.T) {
+	mock := &mockRepo{}
+	svc := newTestService(mock)
+
+	baseTime := time.Now().UTC().Add(3 * time.Hour)
+	got := svc.computeTriggerTime(context.Background(), "user-1", baseTime, EntityTypeEvent, nil, "HKUST")
+
+	expected := baseTime.Add(-15 * time.Minute)
+	diff := got.Sub(expected)
+	if diff < -time.Second || diff > time.Second {
+		t.Fatalf("expected fallback trigger ~%v, got %v", expected, got)
+	}
+}
+
+func TestComputeTriggerTime_TaskAlwaysFixedOffset(t *testing.T) {
+	mock := &mockRepo{}
+	svc := newTestService(mock)
+	svc.SetETAProvider(&mockETAProvider{etaSeconds: 1800})
+	svc.SetLocationProvider(&mockLocationProvider{lat: 22.3, lng: 114.2})
+
+	baseTime := time.Now().UTC().Add(3 * time.Hour)
+	got := svc.computeTriggerTime(context.Background(), "user-1", baseTime, EntityTypeTask, nil, "HKUST")
+
+	expected := baseTime.Add(-15 * time.Minute)
+	diff := got.Sub(expected)
+	if diff < -time.Second || diff > time.Second {
+		t.Fatalf("task should use fixed offset: expected ~%v, got %v", expected, got)
+	}
+}
+
+// ===== Payload tests =====
+
+func TestSendNotificationPayload_Backfill(t *testing.T) {
+	p := SendNotificationPayload{
+		UserID:  "u1",
+		EventID: "evt-legacy",
+		SubID:   "sub-legacy",
+	}
+	p.Backfill()
+
+	if p.EntityID != "evt-legacy" {
+		t.Fatalf("expected EntityID = evt-legacy, got %q", p.EntityID)
+	}
+	if p.EntityType != EntityTypeEvent {
+		t.Fatalf("expected EntityType = event, got %q", p.EntityType)
+	}
+}
+
+func TestSendNotificationPayload_BackfillNoOp(t *testing.T) {
+	p := SendNotificationPayload{
+		UserID:     "u1",
+		EntityID:   "task-1",
+		EntityType: EntityTypeTask,
+		SubID:      "sub-1",
+		EventID:    "should-be-ignored",
+	}
+	p.Backfill()
+
+	if p.EntityID != "task-1" {
+		t.Fatalf("expected EntityID unchanged, got %q", p.EntityID)
+	}
+	if p.EntityType != EntityTypeTask {
+		t.Fatalf("expected EntityType unchanged, got %q", p.EntityType)
+	}
+}
+
+func TestBuildMessage_Event(t *testing.T) {
+	w := &Worker{logger: logger.New()}
+	title, body, data := w.buildMessage(SendNotificationPayload{
+		EntityID:   "evt-1",
+		EntityType: EntityTypeEvent,
+	})
+	if title != "Event Reminder" {
+		t.Fatalf("expected event title, got %q", title)
+	}
+	if body != "Your event is starting soon" {
+		t.Fatalf("expected event body, got %q", body)
+	}
+	if data["type"] != "calendar_reminder" {
+		t.Fatalf("expected calendar_reminder type, got %q", data["type"])
+	}
+	if data["event_id"] != "evt-1" {
+		t.Fatalf("expected event_id in data, got %q", data["event_id"])
+	}
+}
+
+func TestBuildMessage_Task(t *testing.T) {
+	w := &Worker{logger: logger.New()}
+	title, body, data := w.buildMessage(SendNotificationPayload{
+		EntityID:   "task-1",
+		EntityType: EntityTypeTask,
+	})
+	if title != "Task Reminder" {
+		t.Fatalf("expected task title, got %q", title)
+	}
+	if body != "Your task is due soon" {
+		t.Fatalf("expected task body, got %q", body)
+	}
+	if data["type"] != "task_reminder" {
+		t.Fatalf("expected task_reminder type, got %q", data["type"])
+	}
+	if data["task_id"] != "task-1" {
+		t.Fatalf("expected task_id in data, got %q", data["task_id"])
 	}
 }
 

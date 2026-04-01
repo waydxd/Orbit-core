@@ -13,26 +13,27 @@ import (
 
 const createSubscription = `-- name: CreateSubscription :one
 WITH ins AS (
-  INSERT INTO event_subscriptions (user_id, event_id, trigger_time, is_sent, status)
-  VALUES ($1, $2, $3, false, 'pending')
+  INSERT INTO event_subscriptions (user_id, entity_id, entity_type, trigger_time, is_sent, status)
+  VALUES ($1, $2, $3, $4, false, 'pending')
   ON CONFLICT DO NOTHING
   RETURNING id
 )
 SELECT id FROM ins
 UNION ALL
 SELECT id FROM event_subscriptions
-WHERE user_id = $1 AND event_id = $2 AND status NOT IN ('cancelled', 'sent', 'failed')
+WHERE user_id = $1 AND entity_id = $2 AND entity_type = $3 AND status NOT IN ('cancelled', 'sent', 'failed')
 LIMIT 1
 `
 
 type CreateSubscriptionParams struct {
 	UserID      pgtype.UUID        `json:"user_id"`
-	EventID     pgtype.UUID        `json:"event_id"`
+	EntityID    pgtype.UUID        `json:"entity_id"`
+	EntityType  string             `json:"entity_type"`
 	TriggerTime pgtype.Timestamptz `json:"trigger_time"`
 }
 
 func (q *Queries) CreateSubscription(ctx context.Context, arg CreateSubscriptionParams) (pgtype.UUID, error) {
-	row := q.db.QueryRow(ctx, createSubscription, arg.UserID, arg.EventID, arg.TriggerTime)
+	row := q.db.QueryRow(ctx, createSubscription, arg.UserID, arg.EntityID, arg.EntityType, arg.TriggerTime)
 	var id pgtype.UUID
 	err := row.Scan(&id)
 	return id, err
@@ -63,16 +64,17 @@ func (q *Queries) DeleteDeviceTokenByUser(ctx context.Context, arg DeleteDeviceT
 
 const deleteSubscription = `-- name: DeleteSubscription :exec
 DELETE FROM event_subscriptions
-WHERE user_id = $1 AND event_id = $2 AND is_sent = false
+WHERE user_id = $1 AND entity_id = $2 AND entity_type = $3 AND is_sent = false
 `
 
 type DeleteSubscriptionParams struct {
-	UserID  pgtype.UUID `json:"user_id"`
-	EventID pgtype.UUID `json:"event_id"`
+	UserID     pgtype.UUID `json:"user_id"`
+	EntityID   pgtype.UUID `json:"entity_id"`
+	EntityType string      `json:"entity_type"`
 }
 
 func (q *Queries) DeleteSubscription(ctx context.Context, arg DeleteSubscriptionParams) error {
-	_, err := q.db.Exec(ctx, deleteSubscription, arg.UserID, arg.EventID)
+	_, err := q.db.Exec(ctx, deleteSubscription, arg.UserID, arg.EntityID, arg.EntityType)
 	return err
 }
 
@@ -109,7 +111,7 @@ func (q *Queries) GetDeviceTokensByUserID(ctx context.Context, userID pgtype.UUI
 }
 
 const getSubscriptionByID = `-- name: GetSubscriptionByID :one
-SELECT id, user_id, event_id, trigger_time, is_sent, job_id, status, created_at
+SELECT id, user_id, entity_id, entity_type, trigger_time, is_sent, job_id, status, created_at
 FROM event_subscriptions
 WHERE id = $1
 `
@@ -117,7 +119,8 @@ WHERE id = $1
 type GetSubscriptionByIDRow struct {
 	ID          pgtype.UUID        `json:"id"`
 	UserID      pgtype.UUID        `json:"user_id"`
-	EventID     pgtype.UUID        `json:"event_id"`
+	EntityID    pgtype.UUID        `json:"entity_id"`
+	EntityType  string             `json:"entity_type"`
 	TriggerTime pgtype.Timestamptz `json:"trigger_time"`
 	IsSent      bool               `json:"is_sent"`
 	JobID       pgtype.Text        `json:"job_id"`
@@ -131,7 +134,8 @@ func (q *Queries) GetSubscriptionByID(ctx context.Context, id pgtype.UUID) (GetS
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
-		&i.EventID,
+		&i.EntityID,
+		&i.EntityType,
 		&i.TriggerTime,
 		&i.IsSent,
 		&i.JobID,
@@ -141,23 +145,25 @@ func (q *Queries) GetSubscriptionByID(ctx context.Context, id pgtype.UUID) (GetS
 	return i, err
 }
 
-const getSubscriptionByUserAndEvent = `-- name: GetSubscriptionByUserAndEvent :one
-SELECT id, user_id, event_id, trigger_time, is_sent, job_id, status, created_at
+const getSubscriptionByUserAndEntity = `-- name: GetSubscriptionByUserAndEntity :one
+SELECT id, user_id, entity_id, entity_type, trigger_time, is_sent, job_id, status, created_at
 FROM event_subscriptions
-WHERE user_id = $1 AND event_id = $2 AND status NOT IN ('cancelled', 'sent')
+WHERE user_id = $1 AND entity_id = $2 AND entity_type = $3 AND status NOT IN ('cancelled', 'sent')
 ORDER BY created_at DESC
 LIMIT 1
 `
 
-type GetSubscriptionByUserAndEventParams struct {
-	UserID  pgtype.UUID `json:"user_id"`
-	EventID pgtype.UUID `json:"event_id"`
+type GetSubscriptionByUserAndEntityParams struct {
+	UserID     pgtype.UUID `json:"user_id"`
+	EntityID   pgtype.UUID `json:"entity_id"`
+	EntityType string      `json:"entity_type"`
 }
 
-type GetSubscriptionByUserAndEventRow struct {
+type GetSubscriptionByUserAndEntityRow struct {
 	ID          pgtype.UUID        `json:"id"`
 	UserID      pgtype.UUID        `json:"user_id"`
-	EventID     pgtype.UUID        `json:"event_id"`
+	EntityID    pgtype.UUID        `json:"entity_id"`
+	EntityType  string             `json:"entity_type"`
 	TriggerTime pgtype.Timestamptz `json:"trigger_time"`
 	IsSent      bool               `json:"is_sent"`
 	JobID       pgtype.Text        `json:"job_id"`
@@ -165,13 +171,14 @@ type GetSubscriptionByUserAndEventRow struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
-func (q *Queries) GetSubscriptionByUserAndEvent(ctx context.Context, arg GetSubscriptionByUserAndEventParams) (GetSubscriptionByUserAndEventRow, error) {
-	row := q.db.QueryRow(ctx, getSubscriptionByUserAndEvent, arg.UserID, arg.EventID)
-	var i GetSubscriptionByUserAndEventRow
+func (q *Queries) GetSubscriptionByUserAndEntity(ctx context.Context, arg GetSubscriptionByUserAndEntityParams) (GetSubscriptionByUserAndEntityRow, error) {
+	row := q.db.QueryRow(ctx, getSubscriptionByUserAndEntity, arg.UserID, arg.EntityID, arg.EntityType)
+	var i GetSubscriptionByUserAndEntityRow
 	err := row.Scan(
 		&i.ID,
 		&i.UserID,
-		&i.EventID,
+		&i.EntityID,
+		&i.EntityType,
 		&i.TriggerTime,
 		&i.IsSent,
 		&i.JobID,
@@ -181,16 +188,22 @@ func (q *Queries) GetSubscriptionByUserAndEvent(ctx context.Context, arg GetSubs
 	return i, err
 }
 
-const getSubscriptionsByEventID = `-- name: GetSubscriptionsByEventID :many
-SELECT id, user_id, event_id, trigger_time, is_sent, job_id, status, created_at
+const getSubscriptionsByEntityID = `-- name: GetSubscriptionsByEntityID :many
+SELECT id, user_id, entity_id, entity_type, trigger_time, is_sent, job_id, status, created_at
 FROM event_subscriptions
-WHERE event_id = $1 AND status NOT IN ('cancelled', 'sent')
+WHERE entity_id = $1 AND entity_type = $2 AND status NOT IN ('cancelled', 'sent')
 `
 
-type GetSubscriptionsByEventIDRow struct {
+type GetSubscriptionsByEntityIDParams struct {
+	EntityID   pgtype.UUID `json:"entity_id"`
+	EntityType string      `json:"entity_type"`
+}
+
+type GetSubscriptionsByEntityIDRow struct {
 	ID          pgtype.UUID        `json:"id"`
 	UserID      pgtype.UUID        `json:"user_id"`
-	EventID     pgtype.UUID        `json:"event_id"`
+	EntityID    pgtype.UUID        `json:"entity_id"`
+	EntityType  string             `json:"entity_type"`
 	TriggerTime pgtype.Timestamptz `json:"trigger_time"`
 	IsSent      bool               `json:"is_sent"`
 	JobID       pgtype.Text        `json:"job_id"`
@@ -198,19 +211,20 @@ type GetSubscriptionsByEventIDRow struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
-func (q *Queries) GetSubscriptionsByEventID(ctx context.Context, eventID pgtype.UUID) ([]GetSubscriptionsByEventIDRow, error) {
-	rows, err := q.db.Query(ctx, getSubscriptionsByEventID, eventID)
+func (q *Queries) GetSubscriptionsByEntityID(ctx context.Context, arg GetSubscriptionsByEntityIDParams) ([]GetSubscriptionsByEntityIDRow, error) {
+	rows, err := q.db.Query(ctx, getSubscriptionsByEntityID, arg.EntityID, arg.EntityType)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetSubscriptionsByEventIDRow
+	var items []GetSubscriptionsByEntityIDRow
 	for rows.Next() {
-		var i GetSubscriptionsByEventIDRow
+		var i GetSubscriptionsByEntityIDRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
-			&i.EventID,
+			&i.EntityID,
+			&i.EntityType,
 			&i.TriggerTime,
 			&i.IsSent,
 			&i.JobID,
@@ -247,17 +261,18 @@ func (q *Queries) MarkSubscriptionStatus(ctx context.Context, arg MarkSubscripti
 const subscriptionExists = `-- name: SubscriptionExists :one
 SELECT EXISTS(
   SELECT 1 FROM event_subscriptions
-  WHERE user_id = $1 AND event_id = $2 AND status NOT IN ('cancelled', 'sent', 'failed')
+  WHERE user_id = $1 AND entity_id = $2 AND entity_type = $3 AND status NOT IN ('cancelled', 'sent', 'failed')
 )
 `
 
 type SubscriptionExistsParams struct {
-	UserID  pgtype.UUID `json:"user_id"`
-	EventID pgtype.UUID `json:"event_id"`
+	UserID     pgtype.UUID `json:"user_id"`
+	EntityID   pgtype.UUID `json:"entity_id"`
+	EntityType string      `json:"entity_type"`
 }
 
 func (q *Queries) SubscriptionExists(ctx context.Context, arg SubscriptionExistsParams) (bool, error) {
-	row := q.db.QueryRow(ctx, subscriptionExists, arg.UserID, arg.EventID)
+	row := q.db.QueryRow(ctx, subscriptionExists, arg.UserID, arg.EntityID, arg.EntityType)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

@@ -22,6 +22,12 @@ type Config struct {
 	GRPCServer     GRPCServerConfig
 	GoogleCalendar GoogleCalendarConfig
 	Firebase       FirebaseConfig
+	GoogleMaps     GoogleMapsConfig
+}
+
+// GoogleMapsConfig holds Google Maps API configuration for ETA computation.
+type GoogleMapsConfig struct {
+	APIKey string
 }
 
 // ServerConfig holds server configuration
@@ -205,6 +211,9 @@ func Load() (*Config, error) {
 				// 3) No fallback to raw JSON environment variable — return empty if not provided
 				return ""
 			}(),
+		},
+		GoogleMaps: GoogleMapsConfig{
+			APIKey: getEnv("GOOGLE_MAPS_API_KEY", ""),
 		},
 	}
 

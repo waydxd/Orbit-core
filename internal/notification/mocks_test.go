@@ -30,8 +30,8 @@ type mockRepo struct {
 	getSubByIDErr      error
 	getSubResp         *models.EventSubscription
 	getSubErr          error
-	getSubsByEventResp []*models.EventSubscription
-	getSubsByEventErr  error
+	getSubsByEntityResp []*models.EventSubscription
+	getSubsByEntityErr  error
 	markStatusErr      error
 	updateJobIDErr     error
 
@@ -88,14 +88,14 @@ func (m *mockRepo) CreateSubscription(_ context.Context, sub *models.EventSubscr
 	return m.createSubErr
 }
 
-func (m *mockRepo) DeleteSubscription(_ context.Context, _, _ string) error {
+func (m *mockRepo) DeleteSubscription(_ context.Context, _, _, _ string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.DeleteSubCalled = true
 	return m.deleteSubErr
 }
 
-func (m *mockRepo) SubscriptionExists(_ context.Context, _, _ string) (bool, error) {
+func (m *mockRepo) SubscriptionExists(_ context.Context, _, _, _ string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.existsResp, m.existsErr
@@ -108,17 +108,17 @@ func (m *mockRepo) GetSubscriptionByID(_ context.Context, _ string) (*models.Eve
 	return m.getSubByIDResp, m.getSubByIDErr
 }
 
-func (m *mockRepo) GetSubscriptionByUserAndEvent(_ context.Context, _, _ string) (*models.EventSubscription, error) {
+func (m *mockRepo) GetSubscriptionByUserAndEntity(_ context.Context, _, _, _ string) (*models.EventSubscription, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.GetSubCalled = true
 	return m.getSubResp, m.getSubErr
 }
 
-func (m *mockRepo) GetSubscriptionsByEventID(_ context.Context, _ string) ([]*models.EventSubscription, error) {
+func (m *mockRepo) GetSubscriptionsByEntityID(_ context.Context, _, _ string) ([]*models.EventSubscription, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.getSubsByEventResp, m.getSubsByEventErr
+	return m.getSubsByEntityResp, m.getSubsByEntityErr
 }
 
 func (m *mockRepo) MarkSubscriptionStatus(_ context.Context, _, status string) error {
@@ -183,4 +183,24 @@ func (m *mockCanceller) DeleteTask(_, taskID string) error {
 	m.DeleteCalled = true
 	m.DeletedTaskID = taskID
 	return m.returnErr
+}
+
+// mockETAProvider is a test-only implementation of ETAProvider.
+type mockETAProvider struct {
+	etaSeconds int
+	err        error
+}
+
+func (m *mockETAProvider) GetETA(_ context.Context, _, _ float64, _ string) (int, error) {
+	return m.etaSeconds, m.err
+}
+
+// mockLocationProvider is a test-only implementation of LocationProvider.
+type mockLocationProvider struct {
+	lat, lng float64
+	err      error
+}
+
+func (m *mockLocationProvider) GetCurrentLocation(_ context.Context, _ string) (float64, float64, error) {
+	return m.lat, m.lng, m.err
 }

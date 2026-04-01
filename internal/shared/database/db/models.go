@@ -53,7 +53,8 @@ type EventFrequency struct {
 type EventSubscription struct {
 	ID          pgtype.UUID        `json:"id"`
 	UserID      pgtype.UUID        `json:"user_id"`
-	EventID     pgtype.UUID        `json:"event_id"`
+	EntityID    pgtype.UUID        `json:"entity_id"`
+	EntityType  string             `json:"entity_type"`
 	TriggerTime pgtype.Timestamptz `json:"trigger_time"`
 	IsSent      bool               `json:"is_sent"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`

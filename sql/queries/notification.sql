@@ -19,43 +19,43 @@ WHERE user_id = $1;
 
 -- name: CreateSubscription :one
 WITH ins AS (
-  INSERT INTO event_subscriptions (user_id, event_id, trigger_time, is_sent, status)
-  VALUES ($1, $2, $3, false, 'pending')
+  INSERT INTO event_subscriptions (user_id, entity_id, entity_type, trigger_time, is_sent, status)
+  VALUES ($1, $2, $3, $4, false, 'pending')
   ON CONFLICT DO NOTHING
   RETURNING id
 )
 SELECT id FROM ins
 UNION ALL
 SELECT id FROM event_subscriptions
-WHERE user_id = $1 AND event_id = $2 AND status NOT IN ('cancelled', 'sent', 'failed')
+WHERE user_id = $1 AND entity_id = $2 AND entity_type = $3 AND status NOT IN ('cancelled', 'sent', 'failed')
 LIMIT 1;
 
 -- name: DeleteSubscription :exec
 DELETE FROM event_subscriptions
-WHERE user_id = $1 AND event_id = $2 AND is_sent = false;
+WHERE user_id = $1 AND entity_id = $2 AND entity_type = $3 AND is_sent = false;
 
 -- name: SubscriptionExists :one
 SELECT EXISTS(
   SELECT 1 FROM event_subscriptions
-  WHERE user_id = $1 AND event_id = $2 AND status NOT IN ('cancelled', 'sent', 'failed')
+  WHERE user_id = $1 AND entity_id = $2 AND entity_type = $3 AND status NOT IN ('cancelled', 'sent', 'failed')
 );
 
 -- name: GetSubscriptionByID :one
-SELECT id, user_id, event_id, trigger_time, is_sent, job_id, status, created_at
+SELECT id, user_id, entity_id, entity_type, trigger_time, is_sent, job_id, status, created_at
 FROM event_subscriptions
 WHERE id = $1;
 
--- name: GetSubscriptionByUserAndEvent :one
-SELECT id, user_id, event_id, trigger_time, is_sent, job_id, status, created_at
+-- name: GetSubscriptionByUserAndEntity :one
+SELECT id, user_id, entity_id, entity_type, trigger_time, is_sent, job_id, status, created_at
 FROM event_subscriptions
-WHERE user_id = $1 AND event_id = $2 AND status NOT IN ('cancelled', 'sent')
+WHERE user_id = $1 AND entity_id = $2 AND entity_type = $3 AND status NOT IN ('cancelled', 'sent')
 ORDER BY created_at DESC
 LIMIT 1;
 
--- name: GetSubscriptionsByEventID :many
-SELECT id, user_id, event_id, trigger_time, is_sent, job_id, status, created_at
+-- name: GetSubscriptionsByEntityID :many
+SELECT id, user_id, entity_id, entity_type, trigger_time, is_sent, job_id, status, created_at
 FROM event_subscriptions
-WHERE event_id = $1 AND status NOT IN ('cancelled', 'sent');
+WHERE entity_id = $1 AND entity_type = $2 AND status NOT IN ('cancelled', 'sent');
 
 -- name: MarkSubscriptionStatus :exec
 UPDATE event_subscriptions
