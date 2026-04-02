@@ -7,7 +7,6 @@ import (
 
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/middleware"
-	"google.golang.org/grpc/metadata"
 	pb "github.com/waydxd/Orbit-core/proto/calendar"
 )
 
@@ -62,7 +61,6 @@ func (s *Service) forwardToAgent(ctx context.Context, userID, message, correlati
 // executeAction dispatches a confirmed pending action to the appropriate gRPC call.
 func (s *Service) executeAction(ctx context.Context, action *models.PendingAction) (map[string]interface{}, string, error) {
 	s.logger.Info("Executing action", "action_id", action.ActionID, "action_type", action.ActionType)
-s.logger.Info("DEBUG: s.calendarService type", "type", fmt.Sprintf("%T", s.calendarService))
 
 	// Parse proposed action
 	var actionData map[string]interface{}
@@ -70,20 +68,14 @@ s.logger.Info("DEBUG: s.calendarService type", "type", fmt.Sprintf("%T", s.calen
 		return nil, "", fmt.Errorf("failed to parse action data: %w", err)
 	}
 
-	userID := action.UserID
-	if userID == "" {
-		userID = middleware.GetUserIDFromContext(ctx)
-	}
-	s.logger.Info("DEBUG: UserID in executeAction", "userID", userID)
-
 	// Execute based on action type
 	switch action.ActionType {
 	case "create_event":
-		return s.executeCreateEvent(ctx, actionData, userID)
+		return s.executeCreateEvent(ctx, actionData, action.UserID)
 	case "update_event":
-		return s.executeUpdateEvent(ctx, actionData, userID)
+		return s.executeUpdateEvent(ctx, actionData, action.UserID)
 	case "delete_event":
-		return s.executeDeleteEvent(ctx, actionData, userID)
+		return s.executeDeleteEvent(ctx, actionData, action.UserID)
 	default:
 		return nil, "", fmt.Errorf("unsupported action type: %s", action.ActionType)
 	}
@@ -91,11 +83,7 @@ s.logger.Info("DEBUG: s.calendarService type", "type", fmt.Sprintf("%T", s.calen
 
 func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]interface{}, userID string) (map[string]interface{}, string, error) {
 	// Propagate userID via metadata
-	if userID != "" {
-		ctx = metadata.AppendToOutgoingContext(ctx, "user_id", userID)
-	}
-
-	s.logger.Info("DEBUG: UserID in executeCreateEvent", "userID", userID)
+	ctx = middleware.PassUserIDToMetadata(ctx)
 
 	// Extract event data
 	title, _ := actionData["title"].(string)
@@ -111,8 +99,6 @@ func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]
 		EndTime:     endTime,
 		Location:    location,
 	}
-
-	s.logger.Info("DEBUG: CreateEventRequest", "req.UserId", req.UserId, "title", title)
 
 	rpcCtx, cancel := context.WithTimeout(ctx, actionRPCTimeout)
 	defer cancel()
@@ -135,9 +121,7 @@ func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]
 
 func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]interface{}, userID string) (map[string]interface{}, string, error) {
 	// Propagate userID via metadata
-	if userID != "" {
-		ctx = metadata.AppendToOutgoingContext(ctx, "user_id", userID)
-	}
+	ctx = middleware.PassUserIDToMetadata(ctx)
 
 	// Extract event data
 	eventID, _ := actionData["id"].(string)
@@ -147,8 +131,8 @@ func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]
 	startTime, endTime, _, _ := extractTimeFields(actionData)
 
 	req := &pb.UpdateEventRequest{
-		Id:          eventID,
 		UserId:      userID,
+		Id:          eventID,
 		Title:       title,
 		Description: description,
 		StartTime:   startTime,
@@ -177,16 +161,14 @@ func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]
 
 func (s *Service) executeDeleteEvent(ctx context.Context, actionData map[string]interface{}, userID string) (map[string]interface{}, string, error) {
 	// Propagate userID via metadata
-	if userID != "" {
-		ctx = metadata.AppendToOutgoingContext(ctx, "user_id", userID)
-	}
+	ctx = middleware.PassUserIDToMetadata(ctx)
 
 	// Extract event ID
 	eventID, _ := actionData["id"].(string)
 
 	req := &pb.DeleteEventRequest{
-		Id:     eventID,
 		UserId: userID,
+		Id:     eventID,
 	}
 
 	rpcCtx, cancel := context.WithTimeout(ctx, actionRPCTimeout)

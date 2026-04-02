@@ -233,7 +233,7 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("failed to create event", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		if err := json.NewEncoder(w).Encode(map[string]string{
-			"error": "failed to create event",
+			"error":   "failed to create event",
 			"details": err.Error(),
 		}); err != nil {
 			s.logger.Error("failed to write createEvent error response", "error", err)
