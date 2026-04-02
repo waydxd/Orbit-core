@@ -113,7 +113,9 @@ func (s *Service) uploadEventImage(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		s.logger.Error("Failed to update event image URL in PostgreSQL", "error", err)
 		// Attempt to clean up the uploaded image.
-		_ = s.repo.DeleteEventImage(ctx, imageID)
+		if cleanupErr := s.repo.DeleteEventImage(ctx, imageID); cleanupErr != nil {
+			s.logger.Warn("Failed to clean up uploaded event image after PostgreSQL error", "image_id", imageID, "error", cleanupErr)
+		}
 		s.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
