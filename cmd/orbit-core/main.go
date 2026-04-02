@@ -12,6 +12,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/hibiken/asynq"
+	"github.com/waydxd/Orbit-core/internal/asset"
 	"github.com/waydxd/Orbit-core/internal/auth"
 	"github.com/waydxd/Orbit-core/internal/calendar"
 	"github.com/waydxd/Orbit-core/internal/chat"
@@ -71,10 +72,18 @@ func main() {
 		log.Error("Failed to initialize chat repository", "error", err)
 		return
 	}
+	assetRepo, err := asset.NewMongoRepository(context.Background(), database.MongoClient, cfg.MongoDB.DBName)
+	if err != nil {
+		log.Error("Failed to initialize asset repository", "error", err)
+		return
+	}
 
 	// Initialize habit service for tracking recurring event patterns
 	habitService := habit.NewService(cfg, log, habitRepo)
 	log.Info("Habit tracking service initialized successfully")
+
+	// Initialize asset service for binary image storage
+	assetService := asset.NewService(cfg, log, assetRepo, db)
 
 	// Initialize services with repositories
 	authService := auth.NewService(cfg, log, authRepo)
@@ -182,6 +191,7 @@ func main() {
 		ChatService:         chatService,
 		HabitService:        habitService,
 		NotificationService: notificationService,
+		AssetService:        assetService,
 	})
 
 	// Start HTTP server

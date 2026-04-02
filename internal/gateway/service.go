@@ -30,6 +30,7 @@ type ServiceConfig struct {
 	ChatService         ChatServiceInterface
 	HabitService        HabitServiceInterface
 	NotificationService NotificationServiceInterface
+	AssetService        AssetServiceInterface
 }
 
 // AuthServiceInterface defines methods for auth service
@@ -69,6 +70,11 @@ type HabitServiceInterface interface {
 
 // NotificationServiceInterface defines methods for notification service
 type NotificationServiceInterface interface {
+	RegisterRoutes(router *mux.Router)
+}
+
+// AssetServiceInterface defines methods for asset service
+type AssetServiceInterface interface {
 	RegisterRoutes(router *mux.Router)
 }
 
@@ -132,6 +138,9 @@ func (s *Service) setupRoutes() {
 	s.services.HabitService.RegisterRoutes(protectedRouter)
 	if s.services.NotificationService != nil {
 		s.services.NotificationService.RegisterRoutes(protectedRouter)
+	}
+	if s.services.AssetService != nil {
+		s.services.AssetService.RegisterRoutes(protectedRouter)
 	}
 }
 

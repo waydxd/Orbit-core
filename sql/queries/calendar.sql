@@ -61,3 +61,18 @@ WHERE id = $8;
 -- name: DeleteTask :exec
 DELETE FROM tasks WHERE id = $1;
 
+-- name: AddEventImageURL :exec
+UPDATE events
+SET image_url = array_append(COALESCE(image_url, ARRAY[]::TEXT[]), sqlc.arg('url')::TEXT),
+    updated_at = sqlc.arg('updated_at')
+WHERE id = sqlc.arg('id');
+
+-- name: RemoveEventImageURL :exec
+UPDATE events
+SET image_url = array_remove(image_url, sqlc.arg('url')::TEXT),
+    updated_at = sqlc.arg('updated_at')
+WHERE id = sqlc.arg('id');
+
+-- name: GetEventImageURLs :one
+SELECT COALESCE(image_url, ARRAY[]::TEXT[]) AS image_url FROM events WHERE id = $1;
+
