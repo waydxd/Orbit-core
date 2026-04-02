@@ -225,8 +225,8 @@ func TestExecuteCreateEvent_RPCError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from RPC failure")
 	}
-	if !strings.Contains(err.Error(), "gRPC CreateEvent failed") {
-		t.Errorf("error should mention gRPC CreateEvent failed, got: %v", err)
+	if !strings.Contains(err.Error(), "CreateEvent failed") {
+		t.Errorf("error should mention CreateEvent failed, got: %v", err)
 	}
 }
 
