@@ -75,6 +75,10 @@ type AuthConfig struct {
 	EmailVerificationExpiryHours int
 	// EmailFrom is the From address for outgoing emails, e.g. "Orbit <onboarding@resend.dev>"
 	EmailFrom string
+	// PasswordResetPageURL is the URL of the password-reset form page that is
+	// embedded in the reset-password email. When empty the service falls back to
+	// AppBaseURL + "/api/v1/auth/reset-password" (the built-in HTML form route).
+	PasswordResetPageURL string
 }
 
 // OrbiConfig holds Orbi agent gRPC connection configuration
@@ -175,6 +179,7 @@ func Load() (*Config, error) {
 			PasswordResetExpiryMinutes:   getEnvAsInt("PASSWORD_RESET_EXPIRY_MINUTES", 30),
 			EmailVerificationExpiryHours: getEnvAsInt("EMAIL_VERIFICATION_EXPIRY_HOURS", 24),
 			EmailFrom:                    getEnv("EMAIL_FROM", "Orbit <onboarding@resend.dev>"),
+			PasswordResetPageURL:         getEnv("PASSWORD_RESET_PAGE_URL", ""),
 		},
 		Orbi: OrbiConfig{
 			Host: getEnv("ORBI_HOST", "localhost"),
