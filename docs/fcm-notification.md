@@ -15,7 +15,7 @@ Orbit Core provides a push notification system for calendar event reminders usin
                                          │ PostgreSQL  │     │   Worker    │
                                          │  (Tokens,   │◀────│  (Async)    │
                                          │ Subscripts) │     └─────────────┘
-                                         └─────────────┘            │
+                                         └─────────────┘               │
                                                                        ▼
                                                                 ┌─────────────┐
                                                                 │    FCM      │
