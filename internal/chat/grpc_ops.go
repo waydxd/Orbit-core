@@ -104,7 +104,7 @@ func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]
 	defer cancel()
 	res, err := s.calendarService.CreateEvent(rpcCtx, req)
 	if err != nil {
-		return nil, "", fmt.Errorf("gRPC CreateEvent failed: %w", err)
+		return nil, "", fmt.Errorf("CreateEvent failed: %w", err)
 	}
 
 	if !res.Success {
