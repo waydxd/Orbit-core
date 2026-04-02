@@ -202,7 +202,7 @@ func TestExecuteCreateEvent_Success(t *testing.T) {
 		"end_time":    float64(time.Date(2025, 1, 10, 10, 0, 0, 0, time.UTC).Unix()),
 	}
 
-	result, opID, err := svc.executeCreateEvent(context.Background(), actionData)
+	result, opID, err := svc.executeCreateEvent(context.Background(), actionData, "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestExecuteCreateEvent_RPCError(t *testing.T) {
 	grpcMock := &mockGRPCClient{calendarClient: calClient}
 	svc := newServiceWithGRPC(grpcMock, &mockRepo{})
 
-	_, _, err := svc.executeCreateEvent(context.Background(), map[string]interface{}{})
+	_, _, err := svc.executeCreateEvent(context.Background(), map[string]interface{}{}, "user-1")
 	if err == nil {
 		t.Fatal("expected error from RPC failure")
 	}
@@ -251,7 +251,7 @@ func TestExecuteUpdateEvent_Success(t *testing.T) {
 		"end_time":    float64(time.Date(2025, 2, 20, 15, 0, 0, 0, time.UTC).Unix()),
 	}
 
-	result, opID, err := svc.executeUpdateEvent(context.Background(), actionData)
+	result, opID, err := svc.executeUpdateEvent(context.Background(), actionData, "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestExecuteUpdateEvent_NonSuccessResponse(t *testing.T) {
 	grpcMock := &mockGRPCClient{calendarClient: calClient}
 	svc := newServiceWithGRPC(grpcMock, &mockRepo{})
 
-	_, _, err := svc.executeUpdateEvent(context.Background(), map[string]interface{}{"id": "evt-x"})
+	_, _, err := svc.executeUpdateEvent(context.Background(), map[string]interface{}{"id": "evt-x"}, "user-1")
 	if err == nil {
 		t.Fatal("expected error when update response indicates failure")
 	}
@@ -294,7 +294,7 @@ func TestExecuteDeleteEvent_Success(t *testing.T) {
 	grpcMock := &mockGRPCClient{calendarClient: calClient}
 	svc := newServiceWithGRPC(grpcMock, &mockRepo{})
 
-	result, opID, err := svc.executeDeleteEvent(context.Background(), map[string]interface{}{"id": "evt-42"})
+	result, opID, err := svc.executeDeleteEvent(context.Background(), map[string]interface{}{"id": "evt-42"}, "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
