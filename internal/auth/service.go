@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -66,6 +67,7 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	authRouter.HandleFunc("/password-reset-request", s.passwordResetRequest).Methods("POST")
 	authRouter.HandleFunc("/password-reset-confirm", s.passwordResetConfirm).Methods("POST")
 	authRouter.HandleFunc("/verify-email", s.verifyEmail).Methods("GET")
+	authRouter.HandleFunc("/reset-password", s.resetPasswordPage).Methods("GET")
 }
 
 // RegisterProtectedRoutes registers protected authentication routes (requires authentication)
@@ -382,31 +384,14 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "if the email exists, a reset link has been sent"})
 	}()
 
-	// Basic per-email rate limiting for password reset requests — do this before
-	// the DB lookup so attackers can't distinguish existing vs non-existing
-	// emails by timing whether the rate limiter was applied.
-	rateLimitKey := fmt.Sprintf("auth:rl:password_reset:%s", strings.ToLower(req.Email))
-	const maxPasswordResetRequests = int64(5)
-	const passwordResetRateWindow = time.Hour
-
-	reqCount, rlErr := s.redisClient.Incr(ctx, rateLimitKey).Result()
+	// Apply per-email rate limiting before DB lookup.
+	allowed, rlErr := s.applyPasswordResetRateLimit(ctx, req.Email)
 	if rlErr != nil {
-		// If we cannot reliably track rate limits, avoid sending emails to prevent abuse
 		s.logger.Error("failed to apply password reset rate limit", "err", rlErr)
 		return
 	}
-
-	if reqCount == 1 {
-		// Set the window only on first increment
-		if err := s.redisClient.Expire(ctx, rateLimitKey, passwordResetRateWindow).Err(); err != nil {
-			s.logger.Error("failed to set password reset rate limit expiry", "err", err)
-			return
-		}
-	}
-
-	if reqCount > maxPasswordResetRequests {
-		// Rate limit exceeded; do not generate a token or send another email
-		s.logger.Warn("password reset rate limit exceeded", "email", req.Email, "count", reqCount)
+	if !allowed {
+		s.logger.Warn("password reset rate limit exceeded", "email", req.Email)
 		return
 	}
 
@@ -416,24 +401,18 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate secure random token
-	token, err := s.generateSecureToken()
+	token, err := s.createAndStoreResetToken(ctx, user.ID)
 	if err != nil {
-		s.logger.Error("failed to generate reset token", "err", err)
+		s.logger.Error("failed to create or store reset token", "err", err)
 		return
 	}
 
-	tokenHash := s.hashToken(token)
-	redisKey := fmt.Sprintf("auth:token:password_reset:%s", tokenHash)
-	ttl := time.Duration(s.config.Auth.PasswordResetExpiryMinutes) * time.Minute
-
-	if err := s.redisClient.Set(ctx, redisKey, user.ID, ttl).Err(); err != nil {
-		s.logger.Error("failed to store reset token in redis", "err", err)
+	resetLink, err := s.buildResetLink(token)
+	if err != nil {
+		s.logger.Error("failed to build password reset link", "err", err)
 		return
 	}
 
-	// Send reset email
-	resetLink := fmt.Sprintf("%s/reset-password?token=%s", s.config.Auth.AppBaseURL, token)
 	if err := s.sendEmail(user.Email, "Password Reset Request", "password-reset", map[string]interface{}{
 		"reset_link":         resetLink,
 		"first_name":         user.FirstName,
@@ -441,6 +420,67 @@ func (s *Service) passwordResetRequest(w http.ResponseWriter, r *http.Request) {
 	}); err != nil {
 		s.logger.Error("failed to send password reset email", "err", err)
 	}
+}
+
+// applyPasswordResetRateLimit enforces per-email rate limiting for password resets.
+func (s *Service) applyPasswordResetRateLimit(ctx context.Context, email string) (bool, error) {
+	rateLimitKey := fmt.Sprintf("auth:rl:password_reset:%s", strings.ToLower(email))
+	const maxPasswordResetRequests = int64(5)
+	const passwordResetRateWindow = time.Hour
+
+	reqCount, err := s.redisClient.Incr(ctx, rateLimitKey).Result()
+	if err != nil {
+		return false, err
+	}
+
+	if reqCount == 1 {
+		if err := s.redisClient.Expire(ctx, rateLimitKey, passwordResetRateWindow).Err(); err != nil {
+			return false, err
+		}
+	}
+
+	if reqCount > maxPasswordResetRequests {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// createAndStoreResetToken generates a secure token and stores its hash in Redis.
+func (s *Service) createAndStoreResetToken(ctx context.Context, userID string) (string, error) {
+	token, err := s.generateSecureToken()
+	if err != nil {
+		return "", err
+	}
+
+	tokenHash := s.hashToken(token)
+	redisKey := fmt.Sprintf("auth:token:password_reset:%s", tokenHash)
+	ttl := time.Duration(s.config.Auth.PasswordResetExpiryMinutes) * time.Minute
+
+	if err := s.redisClient.Set(ctx, redisKey, userID, ttl).Err(); err != nil {
+		return "", err
+	}
+
+	return token, nil
+}
+
+// buildResetLink constructs the password reset URL and ensures the token is URL-encoded.
+func (s *Service) buildResetLink(token string) (string, error) {
+	resetPageURL := strings.TrimSpace(s.config.Auth.PasswordResetPageURL)
+	if resetPageURL == "" {
+		resetPageURL = strings.TrimRight(s.config.Auth.AppBaseURL, "/") + "/api/v1/auth/reset-password"
+	}
+
+	parsedResetURL, err := url.Parse(resetPageURL)
+	if err != nil {
+		return "", err
+	}
+
+	q := parsedResetURL.Query()
+	q.Set("token", token)
+	parsedResetURL.RawQuery = q.Encode()
+
+	return parsedResetURL.String(), nil
 }
 
 // passwordResetConfirm handles password reset confirmations
@@ -587,6 +627,30 @@ func (s *Service) verifyEmail(w http.ResponseWriter, r *http.Request) {
 	// Redirect to frontend success page after successful verification
 	redirectURL := strings.TrimRight(s.config.Auth.AppBaseURL, "/") + "/email-verified"
 	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
+}
+
+// resetPasswordPage serves the HTML form that lets a user choose a new password.
+// It is linked from the password-reset email (GET /auth/reset-password?token=…).
+func (s *Service) resetPasswordPage(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("<html><body><p>Missing or invalid reset token.</p></body></html>"))
+		return
+	}
+
+	rendered, err := s.renderHTMLTemplate("templates/passwordResetForm.html", map[string]interface{}{
+		"token": token,
+	})
+	if err != nil {
+		s.logger.Error("failed to render password reset form", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(rendered))
 }
 
 // Helper functions (password hashing, token helpers, email rendering/sending,

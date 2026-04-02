@@ -76,6 +76,9 @@ type NotificationServiceInterface interface {
 func NewService(cfg *config.Config, log *logger.Logger, svcConfig ServiceConfig) *Service {
 	router := mux.NewRouter()
 
+	// Enforce Referrer-Policy header for all responses
+	router.Use(middleware.ReferrerPolicyMiddleware("no-referrer"))
+
 	// Initialize rate limiter with Redis
 	rateLimiter := middleware.NewRateLimiter(
 		cfg.Redis.RedisAddr(),
