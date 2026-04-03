@@ -11,6 +11,215 @@ servers:
 - url: http://localhost:8080
   description: Development server
 paths:
+  /api/v1/events/{id}/images:
+    get:
+      summary: List image URLs for an event
+      tags:
+      - Assets
+      security:
+      - BearerAuth: []
+      description: Returns all image URLs currently associated with the specified
+        calendar event.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Calendar event ID
+      responses:
+        '200':
+          description: Event image URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+        '403':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+        '404':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+    post:
+      summary: Upload an image for an event
+      tags:
+      - Assets
+      security:
+      - BearerAuth: []
+      description: 'Uploads a binary image (JPEG, PNG, or WebP) for the specified
+        calendar event.
+
+        Maximum 5 images per event and 5 MB per file. File type is verified using
+        magic bytes.
+
+        '
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Calendar event ID
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Image file (JPEG, PNG, or WebP). Maximum 5 MB.
+      responses:
+        '201':
+          description: Image uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  image_id:
+                    type: string
+                    description: ID of the stored image
+                  url:
+                    type: string
+                    description: API path to serve the image
+        '400':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+        '401':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+        '403':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+        '404':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+        '422':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+  /api/v1/users/me/profile-pic:
+    post:
+      summary: Upload user profile picture
+      tags:
+      - Assets
+      security:
+      - BearerAuth: []
+      description: 'Uploads a new profile picture for the authenticated user (JPEG,
+        PNG, or WebP).
+
+        Overwrites any existing profile picture. Maximum file size is 5 MB.
+
+        File type is verified using magic bytes.
+
+        '
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: Image file (JPEG, PNG, or WebP). Maximum 5 MB.
+      responses:
+        '201':
+          description: Profile picture uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  image_id:
+                    type: string
+                    description: ID of the stored avatar
+                  url:
+                    type: string
+                    description: API path to serve the profile picture
+        '400':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+        '401':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+  /api/v1/assets/events/{image_id}:
+    get:
+      summary: Serve an event image
+      tags:
+      - Assets
+      security:
+      - BearerAuth: []
+      description: Retrieves the raw binary data of an event image by its ID.
+      parameters:
+      - name: image_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Event image ID returned by the upload endpoint
+      responses:
+        '200':
+          description: Image binary data
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+        '404':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+  /api/v1/assets/users/{image_id}:
+    get:
+      summary: Serve a user avatar
+      tags:
+      - Assets
+      security:
+      - BearerAuth: []
+      description: Retrieves the raw binary data of a user avatar by its ID.
+      parameters:
+      - name: image_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Avatar image ID returned by the upload endpoint
+      responses:
+        '200':
+          description: Avatar binary data
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+        '404':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
   /api/v1/auth/register:
     post:
       summary: Register a new user
@@ -240,6 +449,32 @@ paths:
                 $ref: '#/components/schemas/Error'
         '404':
           description: User not found for token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/auth/reset-password:
+    get:
+      summary: Get password reset page
+      tags:
+      - Authentication
+      security: []
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+        description: Password reset token
+      responses:
+        '200':
+          description: HTML password reset form
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid token
           content:
             application/json:
               schema:
@@ -1982,6 +2217,12 @@ components:
         recurrence_exception:
           type: string
           example: 20240120T100000Z
+        image_url:
+          type: array
+          items:
+            type: string
+          example:
+          - /api/v1/assets/events/img-1
         created_at:
           type: string
           format: date-time

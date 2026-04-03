@@ -40,6 +40,11 @@ components:
         recurrence_exception:
           type: string
           example: "20240120T100000Z"
+        image_url:
+          type: array
+          items:
+            type: string
+          example: ["/api/v1/assets/events/img-1"]
         created_at:
           type: string
           format: date-time
