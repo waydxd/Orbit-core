@@ -34,3 +34,9 @@ FROM sessions WHERE token_hash = $1 AND expires_at > CURRENT_TIMESTAMP;
 -- name: DeleteSession :exec
 DELETE FROM sessions WHERE id = $1;
 
+-- name: UpdateUserProfilePicURL :exec
+UPDATE users
+SET profile_pic_url = $1,
+    updated_at = $2
+WHERE id = $3;
+

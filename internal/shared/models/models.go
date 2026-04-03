@@ -36,6 +36,7 @@ type Event struct {
 	IsRecurring         bool      `json:"is_recurring" db:"is_recurring"`
 	RecurrenceRule      string    `json:"recurrence_rule" db:"recurrence_rule"`
 	RecurrenceException string    `json:"recurrence_exception" db:"recurrence_exception"`
+	ImageURLs           []string  `json:"image_url" db:"image_url"`
 	CreatedAt           time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -202,4 +203,34 @@ type HabitSuggestion struct {
 	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
 	ExpiresAt         time.Time  `json:"expires_at" db:"expires_at"`
+}
+
+// EventImage represents a binary image asset stored in MongoDB for a calendar event.
+type EventImage struct {
+	ID       string             `bson:"_id"`
+	BinData  []byte             `bson:"binary_data"`
+	Metadata EventImageMetadata `bson:"metadata"`
+}
+
+// EventImageMetadata holds descriptive information about an event image.
+type EventImageMetadata struct {
+	EventID     string    `bson:"event_id"`
+	ContentType string    `bson:"content_type"`
+	Size        int64     `bson:"size"`
+	CreatedAt   time.Time `bson:"created_at"`
+}
+
+// UserAvatar represents a binary image asset stored in MongoDB for a user profile picture.
+type UserAvatar struct {
+	ID       string             `bson:"_id"`
+	BinData  []byte             `bson:"binary_data"`
+	Metadata UserAvatarMetadata `bson:"metadata"`
+}
+
+// UserAvatarMetadata holds descriptive information about a user avatar.
+type UserAvatarMetadata struct {
+	UserID      string    `bson:"user_id"`
+	ContentType string    `bson:"content_type"`
+	Size        int64     `bson:"size"`
+	UpdatedAt   time.Time `bson:"updated_at"`
 }

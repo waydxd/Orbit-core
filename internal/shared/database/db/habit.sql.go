@@ -113,7 +113,7 @@ func (q *Queries) DeactivateRecurringEvent(ctx context.Context, arg DeactivateRe
 
 const getActiveRecurringEvents = `-- name: GetActiveRecurringEvents :many
 SELECT id, user_id, title, description, location, hashtags,
-       start_time, end_time, is_recurring, recurrence_rule, recurrence_exception,
+	start_time, end_time, is_recurring, recurrence_rule, recurrence_exception, image_url,
        created_at, updated_at
 FROM events
 WHERE user_id = $1 AND is_recurring = TRUE
@@ -132,6 +132,7 @@ type GetActiveRecurringEventsRow struct {
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
+	ImageUrl            []string           `json:"image_url"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
@@ -157,6 +158,7 @@ func (q *Queries) GetActiveRecurringEvents(ctx context.Context, userID pgtype.UU
 			&i.IsRecurring,
 			&i.RecurrenceRule,
 			&i.RecurrenceException,
+			&i.ImageUrl,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

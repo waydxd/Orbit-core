@@ -110,6 +110,7 @@ func (r *SQLEventRepository) GetEventByID(ctx context.Context, id string) (*mode
 		EndTime:     database.TimestamptzToTime(row.EndTime),
 		Location:    database.TextToString(row.Location),
 		Hashtags:    normalizeStringArray(row.Hashtags),
+		ImageURLs:   normalizeStringArray(row.ImageUrl),
 		CreatedAt:   database.TimestamptzToTime(row.CreatedAt),
 		UpdatedAt:   database.TimestamptzToTime(row.UpdatedAt),
 	}, nil
@@ -143,6 +144,7 @@ func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, star
 				IsRecurring:         row.IsRecurring.Bool,
 				RecurrenceRule:      database.TextToString(row.RecurrenceRule),
 				RecurrenceException: database.TextToString(row.RecurrenceException),
+				ImageURLs:           normalizeStringArray(row.ImageUrl),
 				CreatedAt:           database.TimestamptzToTime(row.CreatedAt),
 				UpdatedAt:           database.TimestamptzToTime(row.UpdatedAt),
 			})
@@ -170,6 +172,7 @@ func (r *SQLEventRepository) ListEvents(ctx context.Context, userID string, star
 				IsRecurring:         row.IsRecurring.Bool,
 				RecurrenceRule:      database.TextToString(row.RecurrenceRule),
 				RecurrenceException: database.TextToString(row.RecurrenceException),
+				ImageURLs:           normalizeStringArray(row.ImageUrl),
 				CreatedAt:           database.TimestamptzToTime(row.CreatedAt),
 				UpdatedAt:           database.TimestamptzToTime(row.UpdatedAt),
 			})
@@ -237,6 +240,7 @@ func (r *SQLEventRepository) GetActiveRecurringEvents(ctx context.Context, userI
 			IsRecurring:         row.IsRecurring.Bool,
 			RecurrenceRule:      database.TextToString(row.RecurrenceRule),
 			RecurrenceException: database.TextToString(row.RecurrenceException),
+			ImageURLs:           normalizeStringArray(row.ImageUrl),
 			CreatedAt:           database.TimestamptzToTime(row.CreatedAt),
 			UpdatedAt:           database.TimestamptzToTime(row.UpdatedAt),
 		})

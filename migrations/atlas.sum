@@ -1,4 +1,5 @@
 h1:JcNPftlo2zCZ4tEXhkLBl1zG+7SNPHXuOJmkIWvksv4=
+h1:eCthwgJt0aNZXb31yCTUZmuTOam1Lq8otttW8EUnWI8=
 001_initial_schema.sql h1:klCy9xBZBkcEMT+OwqM3ieZ/wLf4NC65OeNWWL9UgtI=
 002_add_email_verified_to_users.sql h1:75Dh9RZHHaBnuyiBUT6+RxwDXhUFGxKEN44VjedVE/0=
 003_add_recurrence_to_events.sql h1:sekV/q3lH7VPRjHlhM51cW/8jVNfdta+qLo+JBD/C84=
@@ -9,3 +10,4 @@ h1:JcNPftlo2zCZ4tEXhkLBl1zG+7SNPHXuOJmkIWvksv4=
 008_fcm_notifications.sql h1:Hm7qmB6wgat2c3CsrN6nIkRFCUy9NA0Y/YWpQUKImaQ=
 009_event_subscriptions_asynq.sql h1:uM7zdZF2b+XPHYPxZHBg1jIRMLXo90Z/5cyO0OJPWkA=
 010_generalize_notification_subscriptions.sql h1:GRbLdI7eQpBLgl60pVpiwLoSnCVBMEskGjN+Srbx9sg=
+010_add_asset_urls.sql h1:/AR8CDg8GAwBbrPec6QkBIan29oILmTvd8LukRnRfB4=
