@@ -164,27 +164,28 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Title               string   `json:"title"`
-		Description         string   `json:"description"`
-		StartTime           string   `json:"start_time"`
-		EndTime             string   `json:"end_time"`
-		Location            string   `json:"location"`
-		Hashtags            []string `json:"hashtags"`
-		IsRecurring         bool     `json:"is_recurring"`
-		RecurrenceRule      string   `json:"recurrence_rule"`
-		RecurrenceException string   `json:"recurrence_exception"`
+		ID                  string      `json:"id"`
+		Title               string      `json:"title"`
+		Description         string      `json:"description"`
+		StartTime           interface{} `json:"start_time"`
+		EndTime             interface{} `json:"end_time"`
+		Location            string      `json:"location"`
+		Hashtags            []string    `json:"hashtags"`
+		IsRecurring         bool        `json:"is_recurring"`
+		RecurrenceRule      string      `json:"recurrence_rule"`
+		RecurrenceException string      `json:"recurrence_exception"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request"}); err != nil {
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request", "details": err.Error()}); err != nil {
 			s.logger.Error("failed to write createEvent error response", "error", err)
 			return
 		}
 		return
 	}
 
-	startTime, err := time.Parse(time.RFC3339, req.StartTime)
+	startTime, err := parseTimeFromInterface(req.StartTime)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid start_time format"}); err != nil {
@@ -194,7 +195,7 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	endTime, err := time.Parse(time.RFC3339, req.EndTime)
+	endTime, err := parseTimeFromInterface(req.EndTime)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid end_time format"}); err != nil {
@@ -204,8 +205,13 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	eventID := req.ID
+	if eventID == "" {
+		eventID = uuid.New().String()
+	}
+
 	event := &models.Event{
-		ID:                  uuid.New().String(),
+		ID:                  eventID,
 		UserID:              userID,
 		Title:               req.Title,
 		Description:         req.Description,
@@ -226,7 +232,10 @@ func (s *Service) createEvent(w http.ResponseWriter, r *http.Request) {
 	if err := s.eventRepo.CreateEvent(ctx, event); err != nil {
 		s.logger.Error("failed to create event", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "failed to create event"}); err != nil {
+		if err := json.NewEncoder(w).Encode(map[string]string{
+			"error":   "failed to create event",
+			"details": err.Error(),
+		}); err != nil {
 			s.logger.Error("failed to write createEvent error response", "error", err)
 			return
 		}
@@ -700,13 +709,13 @@ func (s *Service) deleteTask(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateEventRequest struct {
-	Title               string   `json:"title,omitempty"`
-	Description         string   `json:"description,omitempty"`
-	StartTime           string   `json:"start_time,omitempty"`
-	EndTime             string   `json:"end_time,omitempty"`
-	Location            string   `json:"location,omitempty"`
-	Hashtags            []string `json:"hashtags,omitempty"`
-	IsRecurring         bool     `json:"is_recurring,omitempty"`
-	RecurrenceRule      string   `json:"recurrence_rule,omitempty"`
-	RecurrenceException string   `json:"recurrence_exception,omitempty"`
+	Title               string      `json:"title,omitempty"`
+	Description         string      `json:"description,omitempty"`
+	StartTime           interface{} `json:"start_time,omitempty"`
+	EndTime             interface{} `json:"end_time,omitempty"`
+	Location            string      `json:"location,omitempty"`
+	Hashtags            []string    `json:"hashtags,omitempty"`
+	IsRecurring         bool        `json:"is_recurring,omitempty"`
+	RecurrenceRule      string      `json:"recurrence_rule,omitempty"`
+	RecurrenceException string      `json:"recurrence_exception,omitempty"`
 }

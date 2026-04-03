@@ -584,13 +584,13 @@ func applyUpdateToEvent(event *models.Event, req *updateEventRequest) {
 	if req.RecurrenceException != "" {
 		event.RecurrenceException = req.RecurrenceException
 	}
-	if req.StartTime != "" {
-		if t, err := time.Parse(time.RFC3339, req.StartTime); err == nil {
+	if req.StartTime != nil {
+		if t, err := parseTimeFromInterface(req.StartTime); err == nil {
 			event.StartTime = t
 		}
 	}
-	if req.EndTime != "" {
-		if t, err := time.Parse(time.RFC3339, req.EndTime); err == nil {
+	if req.EndTime != nil {
+		if t, err := parseTimeFromInterface(req.EndTime); err == nil {
 			event.EndTime = t
 		}
 	}
