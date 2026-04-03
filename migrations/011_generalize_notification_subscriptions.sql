@@ -33,6 +33,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_event_subscriptions_user_entity_active
     ON event_subscriptions(user_id, entity_id, entity_type)
     WHERE status NOT IN ('cancelled', 'sent', 'failed');
 
--- 5. Rebuild the entity_id index.
+-- 5. Rebuild the entity lookup index as a composite (entity_id, entity_type) partial index.
 DROP INDEX IF EXISTS idx_event_subscriptions_event_id;
-CREATE INDEX IF NOT EXISTS idx_event_subscriptions_entity_id ON event_subscriptions(entity_id);
+CREATE INDEX IF NOT EXISTS idx_event_subscriptions_entity_id
+    ON event_subscriptions(entity_id, entity_type)
+    WHERE status NOT IN ('cancelled', 'sent', 'failed');

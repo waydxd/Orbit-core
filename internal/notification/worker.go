@@ -82,16 +82,6 @@ func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) erro
 
 	title, body, data := w.buildMessage(p)
 
-	var sendErr error
-	var successCount int
-	for _, dt := range tokens {
-		if err := w.sendToToken(ctx, dt.Token, p.EntityID, p.UserID, data); err != nil {
-			sendErr = err
-			continue
-		}
-		successCount++
-	}
-
 	if len(tokens) == 0 {
 		w.logger.Warn("HandleSendNotification: no device tokens found for user, skipping send",
 			"user_id", p.UserID, "sub_id", p.SubID)
@@ -102,8 +92,15 @@ func (w *Worker) HandleSendNotification(ctx context.Context, t *asynq.Task) erro
 		return nil
 	}
 
-	_ = title
-	_ = body
+	var sendErr error
+	var successCount int
+	for _, dt := range tokens {
+		if err := w.sendToToken(ctx, dt.Token, p.EntityID, p.UserID, title, body, data); err != nil {
+			sendErr = err
+			continue
+		}
+		successCount++
+	}
 
 	if successCount == 0 {
 		if err := w.repo.MarkSubscriptionStatus(ctx, p.SubID, StatusFailed); err != nil {
@@ -145,17 +142,7 @@ func (w *Worker) buildMessage(p SendNotificationPayload) (string, string, map[st
 	}
 }
 
-func (w *Worker) sendToToken(ctx context.Context, token, entityID, userID string, data map[string]string) error {
-	title, body := "Reminder", "You have an upcoming reminder"
-	if v, ok := data["type"]; ok {
-		switch v {
-		case "task_reminder":
-			title, body = "Task Reminder", "Your task is due soon"
-		case "calendar_reminder":
-			title, body = "Event Reminder", "Your event is starting soon"
-		}
-	}
-
+func (w *Worker) sendToToken(ctx context.Context, token, entityID, userID, title, body string, data map[string]string) error {
 	var err error
 	switch {
 	case w.sendFn != nil:

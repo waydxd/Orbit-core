@@ -49,7 +49,10 @@ type distanceMatrixResponse struct {
 // An error is returned on network failure or when no route is found.
 func (c *Client) GetETA(ctx context.Context, originLat, originLng float64, destinationAddress string) (int, error) {
 	origin := fmt.Sprintf("%f,%f", originLat, originLng)
-	u, _ := url.Parse(distanceMatrixEndpoint)
+	u, err := url.Parse(distanceMatrixEndpoint)
+	if err != nil {
+		return 0, fmt.Errorf("maps: parse endpoint URL: %w", err)
+	}
 	q := u.Query()
 	q.Set("origins", origin)
 	q.Set("destinations", destinationAddress)

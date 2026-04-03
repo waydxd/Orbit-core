@@ -32,5 +32,8 @@ func (a *LocationAdapter) GetCurrentLocation(ctx context.Context, userID string)
 	if err != nil {
 		return 0, 0, fmt.Errorf("location adapter: %w", err)
 	}
+	if loc == nil {
+		return 0, 0, fmt.Errorf("location adapter: no location found for user %s", userID)
+	}
 	return loc.Latitude, loc.Longitude, nil
 }

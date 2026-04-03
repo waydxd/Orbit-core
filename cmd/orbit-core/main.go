@@ -26,6 +26,7 @@ import (
 	"github.com/waydxd/Orbit-core/pkg/fcm"
 	"github.com/waydxd/Orbit-core/pkg/grpc"
 	"github.com/waydxd/Orbit-core/pkg/logger"
+	"github.com/waydxd/Orbit-core/pkg/maps"
 	pb "github.com/waydxd/Orbit-core/proto/calendar"
 )
 
@@ -67,6 +68,11 @@ func main() {
 
 	notificationRepo := notification.NewSQLRepository(db)
 	notificationService := notification.NewService(cfg, log, notificationRepo, fcmClient, asynqClient, asynqInspector)
+	if mapsClient := maps.NewClient(cfg.GoogleMaps.APIKey); mapsClient != nil {
+		notificationService.SetETAProvider(mapsClient)
+		notificationService.SetLocationProvider(maps.NewLocationAdapter(locationRepo))
+		log.Info("ETA-based scheduling enabled (Google Maps)")
+	}
 	asynqServer := initAsynqServer(cfg.Redis, log)
 	notificationWorker := notification.NewWorker(notificationRepo, fcmClient, log, asynqServer)
 	notificationWorker.Start()
