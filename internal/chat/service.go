@@ -46,17 +46,19 @@ type Service struct {
 	logger            *logger.Logger
 	repo              Repository
 	grpcClient        GRPCClient
+	calendarService   pb.CalendarServiceServer
 	policyValidator   *PolicyValidator
 	actionExpiryHours int
 }
 
 // NewService creates a new Chat Service
-func NewService(cfg *config.Config, log *logger.Logger, repo Repository, grpcClient GRPCClient) *Service {
+func NewService(cfg *config.Config, log *logger.Logger, repo Repository, grpcClient GRPCClient, calendar pb.CalendarServiceServer) *Service {
 	return &Service{
 		config:            cfg,
 		logger:            log,
 		repo:              repo,
 		grpcClient:        grpcClient,
+		calendarService:   calendar,
 		policyValidator:   NewPolicyValidator(),
 		actionExpiryHours: 24, // Default 24 hours, can be made configurable via cfg
 	}

@@ -92,7 +92,7 @@ func withUserID(r *http.Request, userID string) *http.Request {
 }
 
 func TestHandlePostMessage_RequiresConversationID(t *testing.T) {
-	svc := NewService(&config.Config{}, logger.New(), &mockRepo{}, nil)
+	svc := NewService(&config.Config{}, logger.New(), &mockRepo{}, nil, nil)
 	router := mux.NewRouter()
 	svc.RegisterRoutes(router)
 
@@ -115,7 +115,7 @@ func TestHandlePostMessage_RequiresConversationID(t *testing.T) {
 }
 
 func TestHandlePostMessage_UnknownConversationReturns404(t *testing.T) {
-	svc := NewService(&config.Config{}, logger.New(), &mockRepo{getConvErr: errors.New("not found")}, nil)
+	svc := NewService(&config.Config{}, logger.New(), &mockRepo{getConvErr: errors.New("not found")}, nil, nil)
 	router := mux.NewRouter()
 	svc.RegisterRoutes(router)
 
@@ -131,7 +131,7 @@ func TestHandlePostMessage_UnknownConversationReturns404(t *testing.T) {
 }
 
 func TestHandleCreateConversation_Created(t *testing.T) {
-	svc := NewService(&config.Config{}, logger.New(), &mockRepo{}, nil)
+	svc := NewService(&config.Config{}, logger.New(), &mockRepo{}, nil, nil)
 	router := mux.NewRouter()
 	svc.RegisterRoutes(router)
 
@@ -155,7 +155,7 @@ func TestHandleCreateConversation_Created(t *testing.T) {
 
 func TestValidateActionForConfirmation_ExpiredActionRejected(t *testing.T) {
 	repo := &mockRepo{}
-	svc := NewService(&config.Config{}, logger.New(), repo, nil)
+	svc := NewService(&config.Config{}, logger.New(), repo, nil, nil)
 	action := &models.PendingAction{
 		ActionID:       "11111111-1111-1111-1111-111111111111",
 		ActionType:     "create_event",

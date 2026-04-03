@@ -67,10 +67,50 @@ func (m *mockCalendarServiceClient) GetAvailableSlots(_ context.Context, _ *pb.G
 	return m.slotsResp, m.slotsErr
 }
 
+// ===== Mock CalendarServiceServer =====
+
+type mockCalendarServiceServer struct {
+	pb.UnimplementedCalendarServiceServer
+	createResp *pb.CreateEventResponse
+	createErr  error
+	updateResp *pb.UpdateEventResponse
+	updateErr  error
+	deleteResp *pb.DeleteEventResponse
+	deleteErr  error
+}
+
+func (m *mockCalendarServiceServer) CreateEvent(_ context.Context, _ *pb.CreateEventRequest) (*pb.CreateEventResponse, error) {
+	return m.createResp, m.createErr
+}
+
+func (m *mockCalendarServiceServer) UpdateEvent(_ context.Context, _ *pb.UpdateEventRequest) (*pb.UpdateEventResponse, error) {
+	return m.updateResp, m.updateErr
+}
+
+func (m *mockCalendarServiceServer) DeleteEvent(_ context.Context, _ *pb.DeleteEventRequest) (*pb.DeleteEventResponse, error) {
+	return m.deleteResp, m.deleteErr
+}
+
 // ===== Helper =====
 
 func newServiceWithGRPC(grpcClient GRPCClient, repo Repository) *Service {
-	return NewService(&config.Config{}, logger.New(), repo, grpcClient)
+	// If the provided grpcClient has a mockCalendarServiceClient, we can use it, or just rely on a new server mock
+	var calendarServer pb.CalendarServiceServer
+	if mockClient, ok := grpcClient.(*mockGRPCClient); ok {
+		if mockClient.calendarClient != nil {
+			if m, ok := mockClient.calendarClient.(*mockCalendarServiceClient); ok {
+				calendarServer = &mockCalendarServiceServer{
+					createResp: m.createResp,
+					createErr:  m.createErr,
+					updateResp: m.updateResp,
+					updateErr:  m.updateErr,
+					deleteResp: m.deleteResp,
+					deleteErr:  m.deleteErr,
+				}
+			}
+		}
+	}
+	return NewService(&config.Config{}, logger.New(), repo, grpcClient, calendarServer)
 }
 
 func withUserIDGRPC(r *http.Request, userID string) *http.Request {
@@ -162,7 +202,7 @@ func TestExecuteCreateEvent_Success(t *testing.T) {
 		"end_time":    float64(time.Date(2025, 1, 10, 10, 0, 0, 0, time.UTC).Unix()),
 	}
 
-	result, opID, err := svc.executeCreateEvent(context.Background(), actionData)
+	result, opID, err := svc.executeCreateEvent(context.Background(), actionData, "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,12 +221,12 @@ func TestExecuteCreateEvent_RPCError(t *testing.T) {
 	grpcMock := &mockGRPCClient{calendarClient: calClient}
 	svc := newServiceWithGRPC(grpcMock, &mockRepo{})
 
-	_, _, err := svc.executeCreateEvent(context.Background(), map[string]interface{}{})
+	_, _, err := svc.executeCreateEvent(context.Background(), map[string]interface{}{}, "user-1")
 	if err == nil {
 		t.Fatal("expected error from RPC failure")
 	}
-	if !strings.Contains(err.Error(), "gRPC CreateEvent failed") {
-		t.Errorf("error should mention gRPC CreateEvent failed, got: %v", err)
+	if !strings.Contains(err.Error(), "CreateEvent failed") {
+		t.Errorf("error should mention CreateEvent failed, got: %v", err)
 	}
 }
 
@@ -211,7 +251,7 @@ func TestExecuteUpdateEvent_Success(t *testing.T) {
 		"end_time":    float64(time.Date(2025, 2, 20, 15, 0, 0, 0, time.UTC).Unix()),
 	}
 
-	result, opID, err := svc.executeUpdateEvent(context.Background(), actionData)
+	result, opID, err := svc.executeUpdateEvent(context.Background(), actionData, "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -233,7 +273,7 @@ func TestExecuteUpdateEvent_NonSuccessResponse(t *testing.T) {
 	grpcMock := &mockGRPCClient{calendarClient: calClient}
 	svc := newServiceWithGRPC(grpcMock, &mockRepo{})
 
-	_, _, err := svc.executeUpdateEvent(context.Background(), map[string]interface{}{"id": "evt-x"})
+	_, _, err := svc.executeUpdateEvent(context.Background(), map[string]interface{}{"id": "evt-x"}, "user-1")
 	if err == nil {
 		t.Fatal("expected error when update response indicates failure")
 	}
@@ -254,7 +294,7 @@ func TestExecuteDeleteEvent_Success(t *testing.T) {
 	grpcMock := &mockGRPCClient{calendarClient: calClient}
 	svc := newServiceWithGRPC(grpcMock, &mockRepo{})
 
-	result, opID, err := svc.executeDeleteEvent(context.Background(), map[string]interface{}{"id": "evt-42"})
+	result, opID, err := svc.executeDeleteEvent(context.Background(), map[string]interface{}{"id": "evt-42"}, "user-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

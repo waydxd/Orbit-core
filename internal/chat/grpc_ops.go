@@ -71,19 +71,17 @@ func (s *Service) executeAction(ctx context.Context, action *models.PendingActio
 	// Execute based on action type
 	switch action.ActionType {
 	case "create_event":
-		return s.executeCreateEvent(ctx, actionData)
+		return s.executeCreateEvent(ctx, actionData, action.UserID)
 	case "update_event":
-		return s.executeUpdateEvent(ctx, actionData)
+		return s.executeUpdateEvent(ctx, actionData, action.UserID)
 	case "delete_event":
-		return s.executeDeleteEvent(ctx, actionData)
+		return s.executeDeleteEvent(ctx, actionData, action.UserID)
 	default:
 		return nil, "", fmt.Errorf("unsupported action type: %s", action.ActionType)
 	}
 }
 
-func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]interface{}) (map[string]interface{}, string, error) {
-	client := s.grpcClient.GetCalendarServiceClient()
-
+func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]interface{}, userID string) (map[string]interface{}, string, error) {
 	// Propagate userID via metadata
 	ctx = middleware.PassUserIDToMetadata(ctx)
 
@@ -94,6 +92,7 @@ func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]
 	startTime, endTime, _, _ := extractTimeFields(actionData)
 
 	req := &pb.CreateEventRequest{
+		UserId:      userID,
 		Title:       title,
 		Description: description,
 		StartTime:   startTime,
@@ -103,9 +102,9 @@ func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]
 
 	rpcCtx, cancel := context.WithTimeout(ctx, actionRPCTimeout)
 	defer cancel()
-	res, err := client.CreateEvent(rpcCtx, req)
+	res, err := s.calendarService.CreateEvent(rpcCtx, req)
 	if err != nil {
-		return nil, "", fmt.Errorf("gRPC CreateEvent failed: %w", err)
+		return nil, "", fmt.Errorf("CreateEvent failed: %w", err)
 	}
 
 	if !res.Success {
@@ -120,9 +119,7 @@ func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]
 	return result, res.Event.Id, nil
 }
 
-func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]interface{}) (map[string]interface{}, string, error) {
-	client := s.grpcClient.GetCalendarServiceClient()
-
+func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]interface{}, userID string) (map[string]interface{}, string, error) {
 	// Propagate userID via metadata
 	ctx = middleware.PassUserIDToMetadata(ctx)
 
@@ -134,6 +131,7 @@ func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]
 	startTime, endTime, _, _ := extractTimeFields(actionData)
 
 	req := &pb.UpdateEventRequest{
+		UserId:      userID,
 		Id:          eventID,
 		Title:       title,
 		Description: description,
@@ -144,7 +142,7 @@ func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]
 
 	rpcCtx, cancel := context.WithTimeout(ctx, actionRPCTimeout)
 	defer cancel()
-	res, err := client.UpdateEvent(rpcCtx, req)
+	res, err := s.calendarService.UpdateEvent(rpcCtx, req)
 	if err != nil {
 		return nil, "", fmt.Errorf("gRPC UpdateEvent failed: %w", err)
 	}
@@ -161,9 +159,7 @@ func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]
 	return result, res.Event.Id, nil
 }
 
-func (s *Service) executeDeleteEvent(ctx context.Context, actionData map[string]interface{}) (map[string]interface{}, string, error) {
-	client := s.grpcClient.GetCalendarServiceClient()
-
+func (s *Service) executeDeleteEvent(ctx context.Context, actionData map[string]interface{}, userID string) (map[string]interface{}, string, error) {
 	// Propagate userID via metadata
 	ctx = middleware.PassUserIDToMetadata(ctx)
 
@@ -171,12 +167,13 @@ func (s *Service) executeDeleteEvent(ctx context.Context, actionData map[string]
 	eventID, _ := actionData["id"].(string)
 
 	req := &pb.DeleteEventRequest{
-		Id: eventID,
+		UserId: userID,
+		Id:     eventID,
 	}
 
 	rpcCtx, cancel := context.WithTimeout(ctx, actionRPCTimeout)
 	defer cancel()
-	res, err := client.DeleteEvent(rpcCtx, req)
+	res, err := s.calendarService.DeleteEvent(rpcCtx, req)
 	if err != nil {
 		return nil, "", fmt.Errorf("gRPC DeleteEvent failed: %w", err)
 	}
