@@ -154,10 +154,10 @@ type DeviceToken struct {
 // EventSubscription represents a user's subscription to receive a push notification
 // for a calendar event or task.
 type EventSubscription struct {
-	ID         string `json:"id" db:"id"`
-	UserID     string `json:"user_id" db:"user_id"`
-	EntityID   string `json:"entity_id" db:"entity_id"`
-	EntityType string `json:"entity_type" db:"entity_type"` // "event" or "task"
+	ID          string    `json:"id" db:"id"`
+	UserID      string    `json:"user_id" db:"user_id"`
+	EntityID    string    `json:"entity_id" db:"entity_id"`
+	EntityType  string    `json:"entity_type" db:"entity_type"` // "event" or "task"
 	TriggerTime time.Time `json:"trigger_time" db:"trigger_time"`
 	IsSent      bool      `json:"is_sent" db:"is_sent"`
 	// JobID is the Asynq task ID returned when the notification task is enqueued.

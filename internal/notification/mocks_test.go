@@ -17,23 +17,23 @@ type mockRepo struct {
 	mu sync.Mutex
 
 	// Controlled responses
-	upsertErr          error
-	deleteTokenErr     error
-	tokensResp         []*models.DeviceToken
-	tokensErr          error
-	createSubErr       error
-	createSubID        string
-	deleteSubErr       error
-	existsResp         bool
-	existsErr          error
-	getSubByIDResp     *models.EventSubscription
-	getSubByIDErr      error
-	getSubResp         *models.EventSubscription
-	getSubErr          error
+	upsertErr           error
+	deleteTokenErr      error
+	tokensResp          []*models.DeviceToken
+	tokensErr           error
+	createSubErr        error
+	createSubID         string
+	deleteSubErr        error
+	existsResp          bool
+	existsErr           error
+	getSubByIDResp      *models.EventSubscription
+	getSubByIDErr       error
+	getSubResp          *models.EventSubscription
+	getSubErr           error
 	getSubsByEntityResp []*models.EventSubscription
 	getSubsByEntityErr  error
-	markStatusErr      error
-	updateJobIDErr     error
+	markStatusErr       error
+	updateJobIDErr      error
 
 	// Call records
 	UpsertCalled      bool
