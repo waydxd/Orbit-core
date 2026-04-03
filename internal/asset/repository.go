@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 )
@@ -27,7 +28,6 @@ type Repository interface {
 	DeleteEventImage(ctx context.Context, imageID string) error
 	SaveUserAvatar(ctx context.Context, userID string, data []byte, contentType string) (string, error)
 	DeleteUserAvatar(ctx context.Context, imageID string) error
-	DeleteOtherUserAvatars(ctx context.Context, userID, keepImageID string) error
 	GetUserAvatar(ctx context.Context, imageID string) (*models.UserAvatar, error)
 }
 
@@ -57,7 +57,8 @@ func (r *MongoRepository) createIndexes(ctx context.Context) error {
 	}
 
 	_, err = db.Collection(collectionUserAvatars).Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys: bson.D{{Key: "metadata.user_id", Value: 1}},
+		Keys:    bson.D{{Key: "metadata.user_id", Value: 1}},
+		Options: options.Index().SetUnique(true),
 	})
 	return err
 }
@@ -109,26 +110,47 @@ func (r *MongoRepository) DeleteEventImage(ctx context.Context, imageID string) 
 	return nil
 }
 
-// SaveUserAvatar inserts a new avatar document for the user and returns the new image ID.
+// SaveUserAvatar atomically upserts a user's avatar and returns the persisted image ID.
 func (r *MongoRepository) SaveUserAvatar(ctx context.Context, userID string, data []byte, contentType string) (string, error) {
-	id := uuid.New().String()
 	now := time.Now().UTC()
+	insertID := uuid.New().String()
 
-	doc := models.UserAvatar{
-		ID:      id,
-		BinData: data,
-		Metadata: models.UserAvatarMetadata{
-			UserID:      userID,
-			ContentType: contentType,
-			Size:        int64(len(data)),
-			UpdatedAt:   now,
+	update := bson.M{
+		"$set": bson.M{
+			"binary_data": data,
+			"metadata": bson.M{
+				"user_id":      userID,
+				"content_type": contentType,
+				"size":         int64(len(data)),
+				"updated_at":   now,
+			},
+		},
+		"$setOnInsert": bson.M{
+			"_id": insertID,
 		},
 	}
-	_, err := r.client.Database(r.dbName).Collection(collectionUserAvatars).InsertOne(ctx, doc)
+
+	collection := r.client.Database(r.dbName).Collection(collectionUserAvatars)
+	_, err := collection.UpdateOne(
+		ctx,
+		bson.M{"metadata.user_id": userID},
+		update,
+		options.UpdateOne().SetUpsert(true),
+	)
 	if err != nil {
 		return "", err
 	}
-	return id, nil
+
+	var avatar models.UserAvatar
+	err = collection.FindOne(ctx, bson.M{"metadata.user_id": userID}).Decode(&avatar)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return "", ErrAssetNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+
+	return avatar.ID, nil
 }
 
 // DeleteUserAvatar removes a user avatar document by image ID.
@@ -142,16 +164,6 @@ func (r *MongoRepository) DeleteUserAvatar(ctx context.Context, imageID string) 
 		return ErrAssetNotFound
 	}
 	return nil
-}
-
-// DeleteOtherUserAvatars deletes all avatar documents for userID except keepImageID.
-func (r *MongoRepository) DeleteOtherUserAvatars(ctx context.Context, userID, keepImageID string) error {
-	_, err := r.client.Database(r.dbName).Collection(collectionUserAvatars).
-		DeleteMany(ctx, bson.M{
-			"metadata.user_id": userID,
-			"_id":              bson.M{"$ne": keepImageID},
-		})
-	return err
 }
 
 // GetUserAvatar retrieves a user avatar by its image ID.

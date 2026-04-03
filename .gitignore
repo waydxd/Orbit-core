@@ -28,13 +28,11 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
 
 # Build artifacts
 bin/
-
-.idea
 
 *.log
 

@@ -202,10 +202,6 @@ func (s *Service) uploadProfilePic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if cleanupErr := s.repo.DeleteOtherUserAvatars(ctx, userID, imageID); cleanupErr != nil {
-		s.logger.Warn("Failed to clean up previous user avatars", "user_id", userID, "keep_image_id", imageID, "error", cleanupErr)
-	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]string{"image_id": imageID, "url": imageURL})
@@ -283,7 +279,7 @@ func readAndValidateImage(r *http.Request) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", errors.New("field 'image' is required")
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Read up to maxFileSize+1 bytes so we can detect over-limit uploads.
 	data, err := io.ReadAll(io.LimitReader(file, maxFileSize+1))

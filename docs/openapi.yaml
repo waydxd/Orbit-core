@@ -12,6 +12,40 @@ servers:
   description: Development server
 paths:
   /api/v1/events/{id}/images:
+    get:
+      summary: List image URLs for an event
+      tags:
+      - Assets
+      security:
+      - BearerAuth: []
+      description: Returns all image URLs currently associated with the specified
+        calendar event.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Calendar event ID
+      responses:
+        '200':
+          description: Event image URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+        '403':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
+        '404':
+          $ref: ../schemas/error.yaml#/components/schemas/ErrorResponse
     post:
       summary: Upload an image for an event
       tags:
@@ -415,6 +449,32 @@ paths:
                 $ref: '#/components/schemas/Error'
         '404':
           description: User not found for token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/auth/reset-password:
+    get:
+      summary: Get password reset page
+      tags:
+      - Authentication
+      security: []
+      parameters:
+      - name: token
+        in: query
+        required: true
+        schema:
+          type: string
+        description: Password reset token
+      responses:
+        '200':
+          description: HTML password reset form
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Missing or invalid token
           content:
             application/json:
               schema:
@@ -2157,6 +2217,12 @@ components:
         recurrence_exception:
           type: string
           example: 20240120T100000Z
+        image_url:
+          type: array
+          items:
+            type: string
+          example:
+          - /api/v1/assets/events/img-1
         created_at:
           type: string
           format: date-time
