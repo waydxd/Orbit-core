@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/waydxd/Orbit-core/internal/shared/database"
 	dbq "github.com/waydxd/Orbit-core/internal/shared/database/db"
 	"github.com/waydxd/Orbit-core/pkg/config"
@@ -35,7 +36,14 @@ type Service struct {
 	config  *config.Config
 	logger  *logger.Logger
 	repo    Repository
-	queries *dbq.Queries
+	queries assetQueries
+}
+
+type assetQueries interface {
+	GetEventByID(ctx context.Context, id pgtype.UUID) (dbq.GetEventByIDRow, error)
+	GetEventImageURLs(ctx context.Context, id pgtype.UUID) ([]string, error)
+	AddEventImageURL(ctx context.Context, arg dbq.AddEventImageURLParams) error
+	UpdateUserProfilePicURL(ctx context.Context, arg dbq.UpdateUserProfilePicURLParams) error
 }
 
 // NewService creates a new asset Service.
@@ -167,6 +175,12 @@ func (s *Service) uploadProfilePic(w http.ResponseWriter, r *http.Request) {
 
 // serveEventImage handles GET /assets/events/{image_id}
 func (s *Service) serveEventImage(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		s.writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
 	imageID := mux.Vars(r)["image_id"]
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -180,6 +194,12 @@ func (s *Service) serveEventImage(w http.ResponseWriter, r *http.Request) {
 		}
 		s.logger.Error("Failed to retrieve event image", "error", err)
 		s.writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	event, err := s.queries.GetEventByID(ctx, database.StringToUUID(img.Metadata.EventID))
+	if err != nil || database.UUIDToString(event.UserID) != userID {
+		s.writeError(w, http.StatusNotFound, "image not found")
 		return
 	}
 
