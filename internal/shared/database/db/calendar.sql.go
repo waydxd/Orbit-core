@@ -11,6 +11,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addEventImageURLIfCapacity = `-- name: AddEventImageURLIfCapacity :execrows
+UPDATE events
+SET image_url = array_append(COALESCE(image_url, ARRAY[]::TEXT[]), $1::TEXT),
+    updated_at = $2
+WHERE id = $3
+  AND cardinality(COALESCE(image_url, ARRAY[]::TEXT[])) < 5
+`
+
+type AddEventImageURLIfCapacityParams struct {
+	Url       string             `json:"url"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) AddEventImageURLIfCapacity(ctx context.Context, arg AddEventImageURLIfCapacityParams) (int64, error) {
+	result, err := q.db.Exec(ctx, addEventImageURLIfCapacity, arg.Url, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createEvent = `-- name: CreateEvent :exec
 INSERT INTO events (id, user_id, title, description, start_time, end_time, location, hashtags, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
@@ -104,7 +126,7 @@ func (q *Queries) DeleteTask(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getEventByID = `-- name: GetEventByID :one
-SELECT id, user_id, title, description, start_time, end_time, location, hashtags, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
+SELECT id, user_id, title, description, start_time, end_time, location, hashtags, is_recurring, recurrence_rule, recurrence_exception, image_url, created_at, updated_at
 FROM events WHERE id = $1
 `
 
@@ -120,6 +142,7 @@ type GetEventByIDRow struct {
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
+	ImageUrl            []string           `json:"image_url"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
@@ -139,10 +162,22 @@ func (q *Queries) GetEventByID(ctx context.Context, id pgtype.UUID) (GetEventByI
 		&i.IsRecurring,
 		&i.RecurrenceRule,
 		&i.RecurrenceException,
+		&i.ImageUrl,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getEventImageURLs = `-- name: GetEventImageURLs :one
+SELECT COALESCE(image_url, ARRAY[]::TEXT[]) AS image_url FROM events WHERE id = $1
+`
+
+func (q *Queries) GetEventImageURLs(ctx context.Context, id pgtype.UUID) ([]string, error) {
+	row := q.db.QueryRow(ctx, getEventImageURLs, id)
+	var image_url []string
+	err := row.Scan(&image_url)
+	return image_url, err
 }
 
 const getTaskByID = `-- name: GetTaskByID :one
@@ -182,11 +217,11 @@ func (q *Queries) GetTaskByID(ctx context.Context, id pgtype.UUID) (GetTaskByIDR
 }
 
 const listEventsByTime = `-- name: ListEventsByTime :many
-SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.image_url, e.created_at, e.updated_at
 FROM events e
 WHERE e.start_time <= $1 AND e.end_time >= $2
 UNION
-SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.image_url, e.created_at, e.updated_at
 FROM events e
 WHERE e.is_recurring = true
   AND e.start_time <= $1
@@ -210,6 +245,7 @@ type ListEventsByTimeRow struct {
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
+	ImageUrl            []string           `json:"image_url"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
@@ -235,6 +271,7 @@ func (q *Queries) ListEventsByTime(ctx context.Context, arg ListEventsByTimePara
 			&i.IsRecurring,
 			&i.RecurrenceRule,
 			&i.RecurrenceException,
+			&i.ImageUrl,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -249,12 +286,12 @@ func (q *Queries) ListEventsByTime(ctx context.Context, arg ListEventsByTimePara
 }
 
 const listEventsByUserAndTime = `-- name: ListEventsByUserAndTime :many
-SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.image_url, e.created_at, e.updated_at
 FROM events e
 WHERE e.user_id = $1
   AND e.start_time <= $2 AND e.end_time >= $3
 UNION
-SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.image_url, e.created_at, e.updated_at
 FROM events e
 WHERE e.user_id = $1
   AND e.is_recurring = true
@@ -280,6 +317,7 @@ type ListEventsByUserAndTimeRow struct {
 	IsRecurring         pgtype.Bool        `json:"is_recurring"`
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
+	ImageUrl            []string           `json:"image_url"`
 	CreatedAt           pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
@@ -305,6 +343,7 @@ func (q *Queries) ListEventsByUserAndTime(ctx context.Context, arg ListEventsByU
 			&i.IsRecurring,
 			&i.RecurrenceRule,
 			&i.RecurrenceException,
+			&i.ImageUrl,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -373,6 +412,24 @@ func (q *Queries) ListTasks(ctx context.Context, arg ListTasksParams) ([]ListTas
 		return nil, err
 	}
 	return items, nil
+}
+
+const removeEventImageURL = `-- name: RemoveEventImageURL :exec
+UPDATE events
+SET image_url = array_remove(image_url, $1::TEXT),
+    updated_at = $2
+WHERE id = $3
+`
+
+type RemoveEventImageURLParams struct {
+	Url       string             `json:"url"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	ID        pgtype.UUID        `json:"id"`
+}
+
+func (q *Queries) RemoveEventImageURL(ctx context.Context, arg RemoveEventImageURLParams) error {
+	_, err := q.db.Exec(ctx, removeEventImageURL, arg.Url, arg.UpdatedAt, arg.ID)
+	return err
 }
 
 const updateEvent = `-- name: UpdateEvent :exec

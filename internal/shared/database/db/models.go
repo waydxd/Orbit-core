@@ -30,6 +30,7 @@ type Event struct {
 	RecurrenceRule      pgtype.Text        `json:"recurrence_rule"`
 	RecurrenceException pgtype.Text        `json:"recurrence_exception"`
 	Hashtags            []string           `json:"hashtags"`
+	ImageUrl            []string           `json:"image_url"`
 }
 
 type EventFrequency struct {
@@ -152,4 +153,5 @@ type User struct {
 	Timezone       pgtype.Text        `json:"timezone"`
 	Gender         pgtype.Text        `json:"gender"`
 	BirthDate      pgtype.Date        `json:"birth_date"`
+	ProfilePicUrl  pgtype.Text        `json:"profile_pic_url"`
 }

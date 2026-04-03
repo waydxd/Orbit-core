@@ -70,7 +70,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
 
 -- name: GetActiveRecurringEvents :many
 SELECT id, user_id, title, description, location, hashtags,
-       start_time, end_time, is_recurring, recurrence_rule, recurrence_exception,
+    start_time, end_time, is_recurring, recurrence_rule, recurrence_exception, image_url,
        created_at, updated_at
 FROM events
 WHERE user_id = $1 AND is_recurring = TRUE
