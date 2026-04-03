@@ -214,7 +214,10 @@ func (s *Service) serveUserAvatar(w http.ResponseWriter, r *http.Request) {
 // readAndValidateImage reads the multipart image from the request and validates it.
 // It returns the raw bytes and the detected MIME type.
 func readAndValidateImage(r *http.Request) ([]byte, string, error) {
-	if err := r.ParseMultipartForm(maxFileSize + 1024); err != nil {
+	const multipartBodyLimit = maxFileSize + 1024
+
+	r.Body = http.MaxBytesReader(nil, r.Body, multipartBodyLimit)
+	if err := r.ParseMultipartForm(multipartBodyLimit); err != nil {
 		return nil, "", errors.New("invalid multipart form")
 	}
 
