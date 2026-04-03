@@ -3,27 +3,27 @@ INSERT INTO events (id, user_id, title, description, start_time, end_time, locat
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
 
 -- name: GetEventByID :one
-SELECT id, user_id, title, description, start_time, end_time, location, hashtags, is_recurring, recurrence_rule, recurrence_exception, created_at, updated_at
+SELECT id, user_id, title, description, start_time, end_time, location, hashtags, is_recurring, recurrence_rule, recurrence_exception, image_url, created_at, updated_at
 FROM events WHERE id = $1;
 
 -- name: ListEventsByTime :many
-SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.image_url, e.created_at, e.updated_at
 FROM events e
 WHERE e.start_time <= sqlc.arg('window_end') AND e.end_time >= sqlc.arg('window_start')
 UNION
-SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.image_url, e.created_at, e.updated_at
 FROM events e
 WHERE e.is_recurring = true
   AND e.start_time <= sqlc.arg('window_end')
 ORDER BY start_time;
 
 -- name: ListEventsByUserAndTime :many
-SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.image_url, e.created_at, e.updated_at
 FROM events e
 WHERE e.user_id = sqlc.arg('user_id')
   AND e.start_time <= sqlc.arg('window_end') AND e.end_time >= sqlc.arg('window_start')
 UNION
-SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.created_at, e.updated_at
+SELECT e.id, e.user_id, e.title, e.description, e.start_time, e.end_time, e.location, e.hashtags, e.is_recurring, e.recurrence_rule, e.recurrence_exception, e.image_url, e.created_at, e.updated_at
 FROM events e
 WHERE e.user_id = sqlc.arg('user_id')
   AND e.is_recurring = true
@@ -61,11 +61,12 @@ WHERE id = $8;
 -- name: DeleteTask :exec
 DELETE FROM tasks WHERE id = $1;
 
--- name: AddEventImageURL :exec
+-- name: AddEventImageURLIfCapacity :execrows
 UPDATE events
 SET image_url = array_append(COALESCE(image_url, ARRAY[]::TEXT[]), sqlc.arg('url')::TEXT),
     updated_at = sqlc.arg('updated_at')
-WHERE id = sqlc.arg('id');
+WHERE id = sqlc.arg('id')
+  AND cardinality(COALESCE(image_url, ARRAY[]::TEXT[])) < 5;
 
 -- name: RemoveEventImageURL :exec
 UPDATE events

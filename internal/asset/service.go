@@ -42,7 +42,7 @@ type Service struct {
 type assetQueries interface {
 	GetEventByID(ctx context.Context, id pgtype.UUID) (dbq.GetEventByIDRow, error)
 	GetEventImageURLs(ctx context.Context, id pgtype.UUID) ([]string, error)
-	AddEventImageURL(ctx context.Context, arg dbq.AddEventImageURLParams) error
+	AddEventImageURLIfCapacity(ctx context.Context, arg dbq.AddEventImageURLIfCapacityParams) (int64, error)
 	UpdateUserProfilePicURL(ctx context.Context, arg dbq.UpdateUserProfilePicURLParams) error
 }
 
@@ -59,6 +59,7 @@ func NewService(cfg *config.Config, log *logger.Logger, repo Repository, db *dat
 // RegisterRoutes registers asset routes on the provided (protected) router.
 func (s *Service) RegisterRoutes(r *mux.Router) {
 	r.HandleFunc("/events/{id}/images", s.uploadEventImage).Methods(http.MethodPost)
+	r.HandleFunc("/events/{id}/images", s.listEventImages).Methods(http.MethodGet)
 	r.HandleFunc("/users/me/profile-pic", s.uploadProfilePic).Methods(http.MethodPost)
 	r.HandleFunc("/assets/events/{image_id}", s.serveEventImage).Methods(http.MethodGet)
 	r.HandleFunc("/assets/users/{image_id}", s.serveUserAvatar).Methods(http.MethodGet)
@@ -88,18 +89,6 @@ func (s *Service) uploadEventImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check current image count.
-	existingURLs, err := s.queries.GetEventImageURLs(ctx, database.StringToUUID(eventID))
-	if err != nil {
-		s.logger.Error("Failed to get event image URLs", "error", err)
-		s.writeError(w, http.StatusInternalServerError, "internal server error")
-		return
-	}
-	if len(existingURLs) >= maxEventImages {
-		s.writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf("event already has %d images (maximum)", maxEventImages))
-		return
-	}
-
 	data, contentType, err := readAndValidateImage(r)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, err.Error())
@@ -114,11 +103,12 @@ func (s *Service) uploadEventImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	imageURL := fmt.Sprintf("/api/v1/assets/events/%s", imageID)
-	if err := s.queries.AddEventImageURL(ctx, dbq.AddEventImageURLParams{
+	updatedRows, err := s.queries.AddEventImageURLIfCapacity(ctx, dbq.AddEventImageURLIfCapacityParams{
 		Url:       imageURL,
 		UpdatedAt: database.TimeToTimestamptz(time.Now().UTC()),
 		ID:        database.StringToUUID(eventID),
-	}); err != nil {
+	})
+	if err != nil {
 		s.logger.Error("Failed to update event image URL in PostgreSQL", "error", err)
 		// Attempt to clean up the uploaded image.
 		if cleanupErr := s.repo.DeleteEventImage(ctx, imageID); cleanupErr != nil {
@@ -127,10 +117,51 @@ func (s *Service) uploadEventImage(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
+	if updatedRows == 0 {
+		if cleanupErr := s.repo.DeleteEventImage(ctx, imageID); cleanupErr != nil {
+			s.logger.Warn("Failed to clean up uploaded event image after cap check rejection", "image_id", imageID, "error", cleanupErr)
+		}
+		s.writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf("event already has %d images (maximum)", maxEventImages))
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]string{"image_id": imageID, "url": imageURL})
+}
+
+// listEventImages handles GET /events/{id}/images
+func (s *Service) listEventImages(w http.ResponseWriter, r *http.Request) {
+	userID := middleware.GetUserIDFromContext(r.Context())
+	if userID == "" {
+		s.writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	eventID := mux.Vars(r)["id"]
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	event, err := s.queries.GetEventByID(ctx, database.StringToUUID(eventID))
+	if err != nil {
+		s.writeError(w, http.StatusNotFound, "event not found")
+		return
+	}
+	if database.UUIDToString(event.UserID) != userID {
+		s.writeError(w, http.StatusForbidden, "access denied")
+		return
+	}
+
+	imageURLs, err := s.queries.GetEventImageURLs(ctx, database.StringToUUID(eventID))
+	if err != nil {
+		s.logger.Error("Failed to list event image URLs", "error", err)
+		s.writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string][]string{"images": imageURLs})
 }
 
 // uploadProfilePic handles POST /users/me/profile-pic
@@ -164,8 +195,15 @@ func (s *Service) uploadProfilePic(w http.ResponseWriter, r *http.Request) {
 		ID:            database.StringToUUID(userID),
 	}); err != nil {
 		s.logger.Error("Failed to update user profile_pic_url in PostgreSQL", "error", err)
+		if cleanupErr := s.repo.DeleteUserAvatar(ctx, imageID); cleanupErr != nil {
+			s.logger.Warn("Failed to clean up uploaded avatar after PostgreSQL error", "image_id", imageID, "error", cleanupErr)
+		}
 		s.writeError(w, http.StatusInternalServerError, "internal server error")
 		return
+	}
+
+	if cleanupErr := s.repo.DeleteOtherUserAvatars(ctx, userID, imageID); cleanupErr != nil {
+		s.logger.Warn("Failed to clean up previous user avatars", "user_id", userID, "keep_image_id", imageID, "error", cleanupErr)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -1,5 +1,39 @@
 paths:
   /api/v1/events/{id}/images:
+    get:
+      summary: List image URLs for an event
+      tags:
+        - Assets
+      security:
+        - BearerAuth: []
+      description: Returns all image URLs currently associated with the specified calendar event.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Calendar event ID
+      responses:
+        "200":
+          description: Event image URLs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      type: string
+        "401":
+          $ref: "../schemas/error.yaml#/components/schemas/ErrorResponse"
+        "403":
+          $ref: "../schemas/error.yaml#/components/schemas/ErrorResponse"
+        "404":
+          $ref: "../schemas/error.yaml#/components/schemas/ErrorResponse"
+
     post:
       summary: Upload an image for an event
       tags:

@@ -36,6 +36,7 @@ type Event struct {
 	IsRecurring         bool      `json:"is_recurring" db:"is_recurring"`
 	RecurrenceRule      string    `json:"recurrence_rule" db:"recurrence_rule"`
 	RecurrenceException string    `json:"recurrence_exception" db:"recurrence_exception"`
+	ImageURLs           []string  `json:"image_url" db:"image_url"`
 	CreatedAt           time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt           time.Time `json:"updated_at" db:"updated_at"`
 }

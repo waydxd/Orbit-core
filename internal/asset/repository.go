@@ -26,6 +26,8 @@ type Repository interface {
 	GetEventImage(ctx context.Context, imageID string) (*models.EventImage, error)
 	DeleteEventImage(ctx context.Context, imageID string) error
 	SaveUserAvatar(ctx context.Context, userID string, data []byte, contentType string) (string, error)
+	DeleteUserAvatar(ctx context.Context, imageID string) error
+	DeleteOtherUserAvatars(ctx context.Context, userID, keepImageID string) error
 	GetUserAvatar(ctx context.Context, imageID string) (*models.UserAvatar, error)
 }
 
@@ -107,14 +109,10 @@ func (r *MongoRepository) DeleteEventImage(ctx context.Context, imageID string) 
 	return nil
 }
 
-// SaveUserAvatar upserts the user's avatar in MongoDB (overwrites any existing document for that user).
+// SaveUserAvatar inserts a new avatar document for the user and returns the new image ID.
 func (r *MongoRepository) SaveUserAvatar(ctx context.Context, userID string, data []byte, contentType string) (string, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
-
-	// Delete any existing avatar for this user before inserting the new one.
-	_, _ = r.client.Database(r.dbName).Collection(collectionUserAvatars).
-		DeleteMany(ctx, bson.M{"metadata.user_id": userID})
 
 	doc := models.UserAvatar{
 		ID:      id,
@@ -131,6 +129,29 @@ func (r *MongoRepository) SaveUserAvatar(ctx context.Context, userID string, dat
 		return "", err
 	}
 	return id, nil
+}
+
+// DeleteUserAvatar removes a user avatar document by image ID.
+func (r *MongoRepository) DeleteUserAvatar(ctx context.Context, imageID string) error {
+	res, err := r.client.Database(r.dbName).Collection(collectionUserAvatars).
+		DeleteOne(ctx, bson.M{"_id": imageID})
+	if err != nil {
+		return err
+	}
+	if res.DeletedCount == 0 {
+		return ErrAssetNotFound
+	}
+	return nil
+}
+
+// DeleteOtherUserAvatars deletes all avatar documents for userID except keepImageID.
+func (r *MongoRepository) DeleteOtherUserAvatars(ctx context.Context, userID, keepImageID string) error {
+	_, err := r.client.Database(r.dbName).Collection(collectionUserAvatars).
+		DeleteMany(ctx, bson.M{
+			"metadata.user_id": userID,
+			"_id":              bson.M{"$ne": keepImageID},
+		})
+	return err
 }
 
 // GetUserAvatar retrieves a user avatar by its image ID.

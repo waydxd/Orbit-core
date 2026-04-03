@@ -11,7 +11,7 @@ import (
 )
 
 type Querier interface {
-	AddEventImageURL(ctx context.Context, arg AddEventImageURLParams) error
+	AddEventImageURLIfCapacity(ctx context.Context, arg AddEventImageURLIfCapacityParams) (int64, error)
 	CreateEvent(ctx context.Context, arg CreateEventParams) error
 	CreateHabitSuggestion(ctx context.Context, arg CreateHabitSuggestionParams) error
 	CreateIntegration(ctx context.Context, arg CreateIntegrationParams) error
