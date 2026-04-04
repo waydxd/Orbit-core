@@ -56,6 +56,7 @@ type Querier interface {
 	ListEventsByUserAndTime(ctx context.Context, arg ListEventsByUserAndTimeParams) ([]ListEventsByUserAndTimeRow, error)
 	ListIntegrations(ctx context.Context, userID pgtype.UUID) ([]Integration, error)
 	ListTasks(ctx context.Context, arg ListTasksParams) ([]ListTasksRow, error)
+	MarkEventsAsRecurringByPattern(ctx context.Context, arg MarkEventsAsRecurringByPatternParams) error
 	MarkSubscriptionStatus(ctx context.Context, arg MarkSubscriptionStatusParams) error
 	RemoveEventImageURL(ctx context.Context, arg RemoveEventImageURLParams) error
 	SubscriptionExists(ctx context.Context, arg SubscriptionExistsParams) (bool, error)

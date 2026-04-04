@@ -184,8 +184,8 @@ func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (in
 	}
 
 	// Track event for habit detection (async, don't block response)
-	if s.habitTracker != nil {
-		trackParentCtx := ctx
+	if s.habitTracker != nil && !ev.IsRecurring {
+		trackParentCtx := context.WithoutCancel(ctx)
 		go func() {
 			trackCtx, trackCancel := context.WithTimeout(trackParentCtx, 5*time.Second)
 			defer trackCancel()
@@ -349,8 +349,8 @@ func (s *Service) CreateEvent(ctx context.Context, req *pb.CreateEventRequest) (
 	}
 
 	// Track event for habit detection (async, don't block response)
-	if s.habitTracker != nil {
-		trackParentCtx := ctx
+	if s.habitTracker != nil && !event.IsRecurring && event.RecurrenceRule == "" {
+		trackParentCtx := context.WithoutCancel(ctx)
 		go func() {
 			trackCtx, trackCancel := context.WithTimeout(trackParentCtx, 5*time.Second)
 			defer trackCancel()
@@ -584,13 +584,13 @@ func applyUpdateToEvent(event *models.Event, req *updateEventRequest) {
 	if req.RecurrenceException != "" {
 		event.RecurrenceException = req.RecurrenceException
 	}
-	if req.StartTime != nil {
-		if t, err := parseTimeFromInterface(req.StartTime); err == nil {
+	if req.StartTime != "" {
+		if t, err := time.Parse(time.RFC3339, req.StartTime); err == nil {
 			event.StartTime = t
 		}
 	}
-	if req.EndTime != nil {
-		if t, err := parseTimeFromInterface(req.EndTime); err == nil {
+	if req.EndTime != "" {
+		if t, err := time.Parse(time.RFC3339, req.EndTime); err == nil {
 			event.EndTime = t
 		}
 	}

@@ -40,6 +40,11 @@ type GRPCClient interface {
 	GetCalendarServiceClient() pb.CalendarServiceClient
 }
 
+// UserProfiler defines the interface for fetching user profile info
+type UserProfiler interface {
+	GetUserByID(ctx context.Context, id string) (*models.User, error)
+}
+
 // Service represents the Chat Service for chatbot functionality
 type Service struct {
 	config            *config.Config
@@ -47,18 +52,20 @@ type Service struct {
 	repo              Repository
 	grpcClient        GRPCClient
 	calendarService   pb.CalendarServiceServer
+	userProfiler      UserProfiler
 	policyValidator   *PolicyValidator
 	actionExpiryHours int
 }
 
 // NewService creates a new Chat Service
-func NewService(cfg *config.Config, log *logger.Logger, repo Repository, grpcClient GRPCClient, calendar pb.CalendarServiceServer) *Service {
+func NewService(cfg *config.Config, log *logger.Logger, repo Repository, grpcClient GRPCClient, calendar pb.CalendarServiceServer, userProfiler UserProfiler) *Service {
 	return &Service{
 		config:            cfg,
 		logger:            log,
 		repo:              repo,
 		grpcClient:        grpcClient,
 		calendarService:   calendar,
+		userProfiler:      userProfiler,
 		policyValidator:   NewPolicyValidator(),
 		actionExpiryHours: 24, // Default 24 hours, can be made configurable via cfg
 	}

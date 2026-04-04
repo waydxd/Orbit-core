@@ -37,6 +37,10 @@ type Repository interface {
 	CreateRecurringEvent(ctx context.Context, event *models.Event) error
 	GetActiveRecurringEvents(ctx context.Context, userID string) ([]*models.Event, error)
 	DeactivateRecurringEvent(ctx context.Context, eventID string) error
+	MarkEventsAsRecurringByPattern(ctx context.Context, userID string, title string, dayOfWeek int, timeOfDay int, durationMinutes int) error
+
+	// GetUserTimezone gets the user's timezone preference
+	GetUserTimezone(ctx context.Context, userID string) (string, error)
 }
 
 // SQLRepository implements Repository using PostgreSQL
@@ -392,4 +396,47 @@ func (r *SQLRepository) DeactivateRecurringEvent(ctx context.Context, eventID st
 		return fmt.Errorf("failed to deactivate recurring event: %w", err)
 	}
 	return nil
+}
+
+func (r *SQLRepository) MarkEventsAsRecurringByPattern(ctx context.Context, userID string, title string, dayOfWeek int, timeOfDay int, durationMinutes int) error {
+	// The sqlc generated type bindings mapped these fields weirdly, so we just use plain Exec for this query to bypass type mismatches
+	query := `
+UPDATE events
+SET is_recurring = TRUE, updated_at = $1
+WHERE user_id = $2
+  AND LOWER(TRIM(title)) = LOWER(TRIM($3))
+  AND EXTRACT(DOW FROM start_time) = $4
+  AND EXTRACT(HOUR FROM start_time) * 60 + EXTRACT(MINUTE FROM start_time) = $5
+  AND EXTRACT(EPOCH FROM (end_time - start_time))/60 = $6
+  AND is_recurring = FALSE;
+`
+	_, err := r.pool.Pool.Exec(ctx, query,
+		time.Now(),
+		database.StringToUUID(userID),
+		title,
+		float64(dayOfWeek),
+		float64(timeOfDay),
+		float64(durationMinutes),
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to mark events as recurring: %w", err)
+	}
+	return nil
+}
+
+// GetUserTimezone gets the user's timezone setting from the database
+func (r *SQLRepository) GetUserTimezone(ctx context.Context, userID string) (string, error) {
+	row, err := r.queries.GetUserByID(ctx, database.StringToUUID(userID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "Asia/Hong_Kong", nil // Default to HKT if not found
+		}
+		return "", err
+	}
+	timezone := database.TextToString(row.Timezone)
+	if timezone == "" {
+		return "Asia/Hong_Kong", nil
+	}
+	return timezone, nil
 }

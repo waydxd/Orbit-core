@@ -43,7 +43,6 @@ func (m *mockRepo) GetConversationByCorrelationID(_ context.Context, _ string) (
 func (m *mockRepo) ListConversationsByUser(_ context.Context, _ string, _ int) ([]*models.Conversation, error) {
 	return nil, nil
 }
-
 func (m *mockRepo) UpdateConversationStatus(_ context.Context, _ string, _ string) error { return nil }
 
 func (m *mockRepo) CreateMessage(_ context.Context, msg *models.ChatMessage) (*models.ChatMessage, error) {
@@ -92,7 +91,7 @@ func withUserID(r *http.Request, userID string) *http.Request {
 }
 
 func TestHandlePostMessage_RequiresConversationID(t *testing.T) {
-	svc := NewService(&config.Config{}, logger.New(), &mockRepo{}, nil, nil)
+	svc := NewService(&config.Config{}, logger.New(), &mockRepo{}, nil, nil, nil)
 	router := mux.NewRouter()
 	svc.RegisterRoutes(router)
 
@@ -115,7 +114,7 @@ func TestHandlePostMessage_RequiresConversationID(t *testing.T) {
 }
 
 func TestHandlePostMessage_UnknownConversationReturns404(t *testing.T) {
-	svc := NewService(&config.Config{}, logger.New(), &mockRepo{getConvErr: errors.New("not found")}, nil, nil)
+	svc := NewService(&config.Config{}, logger.New(), &mockRepo{getConvErr: errors.New("not found")}, nil, nil, nil)
 	router := mux.NewRouter()
 	svc.RegisterRoutes(router)
 
@@ -131,7 +130,7 @@ func TestHandlePostMessage_UnknownConversationReturns404(t *testing.T) {
 }
 
 func TestHandleCreateConversation_Created(t *testing.T) {
-	svc := NewService(&config.Config{}, logger.New(), &mockRepo{}, nil, nil)
+	svc := NewService(&config.Config{}, logger.New(), &mockRepo{}, nil, nil, nil)
 	router := mux.NewRouter()
 	svc.RegisterRoutes(router)
 
@@ -155,7 +154,7 @@ func TestHandleCreateConversation_Created(t *testing.T) {
 
 func TestValidateActionForConfirmation_ExpiredActionRejected(t *testing.T) {
 	repo := &mockRepo{}
-	svc := NewService(&config.Config{}, logger.New(), repo, nil, nil)
+	svc := NewService(&config.Config{}, logger.New(), repo, nil, nil, nil)
 	action := &models.PendingAction{
 		ActionID:       "11111111-1111-1111-1111-111111111111",
 		ActionType:     "create_event",
@@ -168,5 +167,88 @@ func TestValidateActionForConfirmation_ExpiredActionRejected(t *testing.T) {
 	err := svc.validateActionForConfirmation(context.Background(), action, "idem-1")
 	if !errors.Is(err, ErrActionExpired) {
 		t.Fatalf("expected ErrActionExpired, got %v", err)
+	}
+}
+
+func TestHandleGetConversation_Success(t *testing.T) {
+	repo := &mockRepo{
+		conversation: &models.Conversation{
+			ID:     "11111111-1111-1111-1111-111111111111",
+			UserID: "user-1",
+			Status: "active",
+		},
+	}
+	svc := NewService(&config.Config{}, logger.New(), repo, nil, nil, nil)
+	router := mux.NewRouter()
+	svc.RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/chat/conversations/11111111-1111-1111-1111-111111111111", nil)
+	req = withUserID(req, "user-1")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, res.Code)
+	}
+}
+
+func TestHandleGetConversation_NotFound(t *testing.T) {
+	svc := NewService(&config.Config{}, logger.New(), &mockRepo{getConvErr: errors.New("not found")}, nil, nil, nil)
+	router := mux.NewRouter()
+	svc.RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/chat/conversations/11111111-1111-1111-1111-111111111111", nil)
+	req = withUserID(req, "user-1")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected status %d, got %d", http.StatusNotFound, res.Code)
+	}
+}
+
+func TestHandleGetConversation_Forbidden(t *testing.T) {
+	repo := &mockRepo{
+		conversation: &models.Conversation{
+			ID:     "11111111-1111-1111-1111-111111111111",
+			UserID: "user-1",
+			Status: "active",
+		},
+	}
+	svc := NewService(&config.Config{}, logger.New(), repo, nil, nil, nil)
+	router := mux.NewRouter()
+	svc.RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/chat/conversations/11111111-1111-1111-1111-111111111111", nil)
+	req = withUserID(req, "user-2")
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d", http.StatusForbidden, res.Code)
+	}
+}
+
+func TestHandleCreateConversation_MissingUserID(t *testing.T) {
+	repo := &mockRepo{}
+	svc := NewService(&config.Config{}, logger.New(), repo, nil, nil, nil)
+	router := mux.NewRouter()
+	svc.RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodPost, "/chat/conversations", nil)
+	// Do not set user ID in context
+	res := httptest.NewRecorder()
+
+	router.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, res.Code)
+	}
+
+	var payload ErrorResponse
+	if err := json.Unmarshal(res.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+	if payload.Code != "unauthorized" {
+		t.Fatalf("expected unauthorized, got %s", payload.Code)
 	}
 }

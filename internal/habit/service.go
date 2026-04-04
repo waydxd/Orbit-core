@@ -4,15 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"time"
-
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/logger"
 	"github.com/waydxd/Orbit-core/pkg/middleware"
+	"net/http"
+	"strings"
+	"time"
 )
 
 const (
@@ -41,7 +41,6 @@ func NewService(cfg *config.Config, log *logger.Logger, repo Repository) *Servic
 // RegisterRoutes registers habit tracking routes
 func (s *Service) RegisterRoutes(router *mux.Router) {
 	habitRouter := router.PathPrefix("/habit").Subrouter()
-
 	// Get pending habit suggestions for the authenticated user
 	habitRouter.HandleFunc("/suggestions", s.handleGetSuggestions).Methods("GET")
 	// Accept a habit suggestion
@@ -50,47 +49,77 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	habitRouter.HandleFunc("/suggestions/{id}/reject", s.handleRejectSuggestion).Methods("POST")
 }
 
+// extractInt safely parses numbers (either float from JSON or string) into an int pointer
+func extractInt(val interface{}) *int {
+	if val == nil {
+		return nil
+	}
+	switch v := val.(type) {
+	case float64:
+		i := int(v)
+		return &i
+	case string:
+		var i int
+		_, err := fmt.Sscanf(v, "%d", &i)
+		if err == nil {
+			return &i
+		}
+	}
+	return nil
+}
+
 // TrackEventCreation analyzes a newly created event and updates frequency patterns
 // This method should be called after an event is successfully created
 func (s *Service) TrackEventCreation(ctx context.Context, event *models.Event) error {
+	// Skip tracking if the event is already recurring
+	if event.RecurrenceRule != "" || event.IsRecurring {
+		s.logger.Debug("Skipping habit track for recurring event", "event_id", event.ID)
+		return nil
+	}
+
 	s.logger.Info("Tracking event creation for habit detection",
 		"user_id", event.UserID,
 		"title", event.Title,
 		"start_time", event.StartTime)
-
 	// Calculate event pattern characteristics
 	durationMinutes := int(event.EndTime.Sub(event.StartTime).Minutes())
 	timeOfDay := event.StartTime.Hour()*60 + event.StartTime.Minute()
 	dayOfWeek := int(event.StartTime.Weekday())
-
 	// Try to find existing frequency record
+	normalizedTitle := strings.ToLower(strings.TrimSpace(event.Title))
 	existing, err := s.repo.GetEventFrequencyByPattern(
-		ctx, event.UserID, event.Title, durationMinutes, timeOfDay, dayOfWeek,
+		ctx, event.UserID, normalizedTitle, durationMinutes, timeOfDay, dayOfWeek,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to get event frequency: %w", err)
 	}
-
 	now := time.Now()
-
 	if existing != nil {
-		// Update existing frequency record
-		existing.OccurrenceCount++
-		existing.OccurrenceTimestamps = append(existing.OccurrenceTimestamps, event.StartTime)
-		// Keep only the last 10 timestamps
-		if len(existing.OccurrenceTimestamps) > 10 {
-			existing.OccurrenceTimestamps = existing.OccurrenceTimestamps[len(existing.OccurrenceTimestamps)-10:]
+		// If suggestion was already shown (accepted or rejected) previously,
+		// and user is manually creating these events AGAIN, treat this as a new cycle.
+		// Since we already marked past events as recurring, hitting this means new non-recurring events were just created.
+		if existing.SuggestionShown {
+			existing.OccurrenceCount = 1
+			existing.OccurrenceTimestamps = []time.Time{event.StartTime}
+			existing.SuggestionShown = false
+			existing.HabitAccepted = false
+		} else {
+			// Update existing frequency record
+			existing.OccurrenceCount++
+			existing.OccurrenceTimestamps = append(existing.OccurrenceTimestamps, event.StartTime)
+			// Keep only the last 10 timestamps
+			if len(existing.OccurrenceTimestamps) > 10 {
+				existing.OccurrenceTimestamps = existing.OccurrenceTimestamps[len(existing.OccurrenceTimestamps)-10:]
+			}
 		}
 
 		if err := s.repo.UpdateEventFrequency(ctx, existing); err != nil {
 			return fmt.Errorf("failed to update event frequency: %w", err)
 		}
-
 		s.logger.Info("Updated event frequency",
 			"frequency_id", existing.ID,
 			"occurrence_count", existing.OccurrenceCount,
 			"threshold", existing.SuggestionThreshold)
-
 		// Check if we should create a suggestion
 		if existing.OccurrenceCount >= existing.SuggestionThreshold && !existing.SuggestionShown && !existing.HabitAccepted {
 			if err := s.createSuggestionFromFrequency(ctx, existing); err != nil {
@@ -102,7 +131,7 @@ func (s *Service) TrackEventCreation(ctx context.Context, event *models.Event) e
 		freq := &models.EventFrequency{
 			ID:                   uuid.New().String(),
 			UserID:               event.UserID,
-			Title:                event.Title,
+			Title:                normalizedTitle,
 			Description:          event.Description,
 			Location:             event.Location,
 			DurationMinutes:      durationMinutes,
@@ -116,23 +145,19 @@ func (s *Service) TrackEventCreation(ctx context.Context, event *models.Event) e
 			CreatedAt:            now,
 			UpdatedAt:            now,
 		}
-
 		if err := s.repo.UpsertEventFrequency(ctx, freq); err != nil {
 			return fmt.Errorf("failed to create event frequency: %w", err)
 		}
-
 		s.logger.Info("Created new event frequency record",
 			"frequency_id", freq.ID,
 			"title", freq.Title)
 	}
-
 	return nil
 }
 
 // createSuggestionFromFrequency creates a habit suggestion from a frequency record
 func (s *Service) createSuggestionFromFrequency(ctx context.Context, freq *models.EventFrequency) error {
 	now := time.Now()
-
 	suggestion := &models.HabitSuggestion{
 		ID:               uuid.New().String(),
 		UserID:           freq.UserID,
@@ -148,9 +173,13 @@ func (s *Service) createSuggestionFromFrequency(ctx context.Context, freq *model
 		UpdatedAt:        now,
 		ExpiresAt:        now.Add(7 * 24 * time.Hour), // Expires in 7 days
 	}
-
 	if err := s.repo.CreateHabitSuggestion(ctx, suggestion); err != nil {
 		return fmt.Errorf("failed to create habit suggestion: %w", err)
+	}
+
+	// Mark matched events from this pattern as recurring immediately (per requirement)
+	if err := s.repo.MarkEventsAsRecurringByPattern(ctx, freq.UserID, freq.Title, freq.DayOfWeek, freq.TimeOfDay, freq.DurationMinutes); err != nil {
+		s.logger.Warn("Failed to mark existing events as recurring", "error", err, "pattern_title", freq.Title)
 	}
 
 	// Mark frequency as suggestion shown
@@ -158,83 +187,110 @@ func (s *Service) createSuggestionFromFrequency(ctx context.Context, freq *model
 	if err := s.repo.UpdateEventFrequency(ctx, freq); err != nil {
 		return fmt.Errorf("failed to update frequency suggestion_shown: %w", err)
 	}
-
 	s.logger.Info("Created habit suggestion",
 		"suggestion_id", suggestion.ID,
 		"user_id", suggestion.UserID,
 		"title", suggestion.Title,
 		"occurrence_count", freq.OccurrenceCount)
-
 	return nil
 }
 
 // GetPendingSuggestions returns all pending habit suggestions for a user
 func (s *Service) GetPendingSuggestions(ctx context.Context, userID string) ([]*models.HabitSuggestion, error) {
-
 	return s.repo.GetPendingHabitSuggestions(ctx, userID)
 }
 
 // AcceptSuggestion accepts a habit suggestion and creates a recurring event
-func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string) (*models.Event, error) {
+func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string, customYears *int, customWeeks *int) (*models.Event, error) {
 	suggestion, err := s.repo.GetHabitSuggestionByID(ctx, suggestionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get suggestion: %w", err)
 	}
-
+	if suggestion == nil {
+		return nil, fmt.Errorf("suggestion not found")
+	}
 	if suggestion.Status != "pending" {
 		return nil, fmt.Errorf("suggestion is not pending, current status: %s", suggestion.Status)
 	}
 
+	totalWeeks := 0
+	if customYears != nil {
+		totalWeeks += *customYears * 52
+	} else if customWeeks == nil {
+		totalWeeks = DefaultRecurrenceYears * 52
+	}
+	if customWeeks != nil {
+		totalWeeks += *customWeeks
+	}
+	if totalWeeks <= 0 {
+		totalWeeks = 1
+	}
+
+	// Calculate start and end times for the first occurrence based on the last tracked event
+	var eventStart time.Time
+	freq, _ := s.repo.GetEventFrequencyByPattern(ctx, suggestion.UserID, suggestion.Title, suggestion.DurationMinutes, suggestion.TimeOfDay, suggestion.DayOfWeek)
 	now := time.Now()
-	endDate := now.AddDate(DefaultRecurrenceYears, 0, 0)
-
-	endDateUTC := time.Date(endDate.Year(), endDate.Month(), endDate.Day(), 23, 59, 59, 0, time.UTC)
-
-	// Build RRULE for weekly recurrence on the specified day of week
-	dayMap := []string{"SU", "MO", "TU", "WE", "TH", "FR", "SA"}
-	byday := dayMap[suggestion.DayOfWeek]
-	rrule := fmt.Sprintf("FREQ=WEEKLY;BYDAY=%s;UNTIL=%s", byday, endDateUTC.Format("20060102T150405Z"))
-
-	// Calculate start and end times for the first occurrence
-	daysUntilTarget := (suggestion.DayOfWeek - int(now.Weekday()) + 7) % 7
-	if daysUntilTarget == 0 && now.Hour()*60+now.Minute() > suggestion.TimeOfDay {
-		daysUntilTarget = 7
+	if freq != nil && len(freq.OccurrenceTimestamps) > 0 {
+		lastOccurrence := freq.OccurrenceTimestamps[len(freq.OccurrenceTimestamps)-1]
+		eventStart = time.Date(
+			lastOccurrence.Year(), lastOccurrence.Month(), lastOccurrence.Day(),
+			suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0,
+			lastOccurrence.Location(),
+		).AddDate(0, 0, 7)
+	} else {
+		daysUntilTarget := (suggestion.DayOfWeek - int(now.Weekday()) + 7) % 7
+		if daysUntilTarget == 0 && now.Hour()*60+now.Minute() > suggestion.TimeOfDay {
+			daysUntilTarget = 7
+		}
+		firstOccurrence := now.AddDate(0, 0, daysUntilTarget)
+		eventStart = time.Date(
+			firstOccurrence.Year(), firstOccurrence.Month(), firstOccurrence.Day(),
+			suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0,
+			firstOccurrence.Location(),
+		)
 	}
 
-	firstOccurrence := now.AddDate(0, 0, daysUntilTarget)
-	eventStart := time.Date(
-		firstOccurrence.Year(), firstOccurrence.Month(), firstOccurrence.Day(),
-		suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0,
-		firstOccurrence.Location(),
-	)
-	eventEnd := eventStart.Add(time.Duration(suggestion.DurationMinutes) * time.Minute)
+	var firstEvent *models.Event
+	var lastEndDate time.Time
 
-	// Create recurring event as an Event record
-	event := &models.Event{
-		ID:             uuid.New().String(),
-		UserID:         suggestion.UserID,
-		Title:          suggestion.Title,
-		Description:    suggestion.Description,
-		Location:       suggestion.Location,
-		StartTime:      eventStart,
-		EndTime:        eventEnd,
-		IsRecurring:    true,
-		RecurrenceRule: rrule,
-		CreatedAt:      now,
-		UpdatedAt:      now,
-	}
+	for i := 0; i < totalWeeks; i++ {
+		currentStart := eventStart.AddDate(0, 0, i*7)
+		currentEnd := currentStart.Add(time.Duration(suggestion.DurationMinutes) * time.Minute)
 
-	if err := s.repo.CreateRecurringEvent(ctx, event); err != nil {
-		return nil, fmt.Errorf("failed to create recurring event: %w", err)
+		event := &models.Event{
+			ID:             uuid.New().String(),
+			UserID:         suggestion.UserID,
+			Title:          suggestion.Title,
+			Description:    suggestion.Description,
+			Location:       suggestion.Location,
+			StartTime:      currentStart,
+			EndTime:        currentEnd,
+			IsRecurring:    true,
+			RecurrenceRule: "",
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+
+		if err := s.repo.CreateRecurringEvent(ctx, event); err != nil {
+			s.logger.Error("failed to create occurrence for habit", "iteration", i, "error", err)
+			if i == 0 {
+				return nil, fmt.Errorf("failed to create recurring event occurrence %d: %w", i, err)
+			}
+			break
+		}
+
+		if i == 0 {
+			firstEvent = event
+		}
+		lastEndDate = currentEnd
 	}
 
 	// Update suggestion status
-	if err := s.repo.UpdateHabitSuggestionStatus(ctx, suggestionID, "accepted", &endDate); err != nil {
+	if err := s.repo.UpdateHabitSuggestionStatus(ctx, suggestionID, "accepted", &lastEndDate); err != nil {
 		return nil, fmt.Errorf("failed to update suggestion status: %w", err)
 	}
-
 	// Update frequency to mark habit as accepted
-	freq, err := s.repo.GetEventFrequencyByPattern(
+	freq, err = s.repo.GetEventFrequencyByPattern(
 		ctx, suggestion.UserID, suggestion.Title,
 		suggestion.DurationMinutes, suggestion.TimeOfDay, suggestion.DayOfWeek,
 	)
@@ -244,13 +300,11 @@ func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string) (*m
 			s.logger.Warn("Failed to update frequency habit_accepted", "error", err)
 		}
 	}
-
-	s.logger.Info("Accepted habit suggestion and created recurring event",
+	s.logger.Info("Accepted habit suggestion and created recurring events",
 		"suggestion_id", suggestionID,
-		"event_id", event.ID,
-		"end_date", endDate)
-
-	return event, nil
+		"total_weeks", totalWeeks,
+		"end_date", lastEndDate)
+	return firstEvent, nil
 }
 
 // RejectSuggestion rejects a habit suggestion
@@ -259,25 +313,20 @@ func (s *Service) RejectSuggestion(ctx context.Context, suggestionID string) err
 	if err != nil {
 		return fmt.Errorf("failed to get suggestion: %w", err)
 	}
-
 	if suggestion.Status != "pending" {
 		return fmt.Errorf("suggestion is not pending, current status: %s", suggestion.Status)
 	}
-
 	if err := s.repo.UpdateHabitSuggestionStatus(ctx, suggestionID, "rejected", nil); err != nil {
 		return fmt.Errorf("failed to update suggestion status: %w", err)
 	}
-
 	s.logger.Info("Rejected habit suggestion", "suggestion_id", suggestionID)
 	return nil
 }
 
 // ===== HTTP Handlers =====
-
 // handleGetSuggestions returns pending habit suggestions for the authenticated user
 func (s *Service) handleGetSuggestions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-
 	userID := middleware.GetUserIDFromContext(r.Context())
 	if userID == "" {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -286,10 +335,8 @@ func (s *Service) handleGetSuggestions(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-
 	suggestions, err := s.GetPendingSuggestions(ctx, userID)
 	if err != nil {
 		s.logger.Error("Failed to get habit suggestions", "error", err)
@@ -300,24 +347,59 @@ func (s *Service) handleGetSuggestions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch user timezone
+	userTz, err := s.repo.GetUserTimezone(ctx, userID)
+	if err != nil {
+		s.logger.Warn("Failed to get user timezone, using HKT", "error", err)
+		userTz = "Asia/Hong_Kong"
+	}
+	location, err := time.LoadLocation(userTz)
+	if err != nil {
+		s.logger.Warn("Invalid timezone, using HKT", "timezone", userTz)
+		location, _ = time.LoadLocation("Asia/Hong_Kong")
+	}
+
 	// Convert to response format with readable time
 	response := make([]map[string]interface{}, len(suggestions))
 	for i, suggestion := range suggestions {
+		// Calculate precise target date based on last occurrence
+		var suggestedStart, suggestedEnd time.Time
+		freq, _ := s.repo.GetEventFrequencyByPattern(ctx, suggestion.UserID, suggestion.Title, suggestion.DurationMinutes, suggestion.TimeOfDay, suggestion.DayOfWeek)
+		if freq != nil && len(freq.OccurrenceTimestamps) > 0 {
+			lastOccurrence := freq.OccurrenceTimestamps[len(freq.OccurrenceTimestamps)-1]
+			suggestedStart = time.Date(lastOccurrence.Year(), lastOccurrence.Month(), lastOccurrence.Day(), suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0, lastOccurrence.Location()).AddDate(0, 0, 7)
+		} else {
+			// Fallback calculate next day of week from suggestion creation (or now)
+			now := time.Now()
+			daysUntilTarget := (suggestion.DayOfWeek - int(now.Weekday()) + 7) % 7
+			if daysUntilTarget == 0 && now.Hour()*60+now.Minute() > suggestion.TimeOfDay {
+				daysUntilTarget = 7
+			}
+			fallbackTarget := now.AddDate(0, 0, daysUntilTarget)
+			suggestedStart = time.Date(fallbackTarget.Year(), fallbackTarget.Month(), fallbackTarget.Day(), suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0, fallbackTarget.Location())
+		}
+		suggestedEnd = suggestedStart.Add(time.Duration(suggestion.DurationMinutes) * time.Minute)
+
+		suggestedStartLoc := suggestedStart.In(location)
+		localTimeOfDay := suggestedStartLoc.Hour()*60 + suggestedStartLoc.Minute()
+		localDayOfWeek := int(suggestedStartLoc.Weekday())
+
 		response[i] = map[string]interface{}{
-			"id":               suggestion.ID,
-			"title":            suggestion.Title,
-			"description":      suggestion.Description,
-			"location":         suggestion.Location,
-			"duration_minutes": suggestion.DurationMinutes,
-			"time_of_day":      formatTimeOfDay(suggestion.TimeOfDay),
-			"day_of_week":      formatDayOfWeek(suggestion.DayOfWeek),
-			"status":           suggestion.Status,
-			"created_at":       suggestion.CreatedAt,
-			"expires_at":       suggestion.ExpiresAt,
-			"message":          fmt.Sprintf("You've scheduled '%s' multiple times on %s at %s. Would you like to make this a recurring event for the next 5 years?", suggestion.Title, formatDayOfWeek(suggestion.DayOfWeek), formatTimeOfDay(suggestion.TimeOfDay)),
+			"id":                   suggestion.ID,
+			"title":                suggestion.Title,
+			"description":          suggestion.Description,
+			"location":             suggestion.Location,
+			"duration_minutes":     suggestion.DurationMinutes,
+			"time_of_day":          formatTimeOfDay(localTimeOfDay),
+			"day_of_week":          formatDayOfWeek(localDayOfWeek),
+			"status":               suggestion.Status,
+			"created_at":           suggestion.CreatedAt,
+			"expires_at":           suggestion.ExpiresAt,
+			"suggested_start_time": suggestedStart.Format(time.RFC3339),
+			"suggested_end_time":   suggestedEnd.Format(time.RFC3339),
+			"message":              fmt.Sprintf("You've scheduled '%s' multiple times on %s at %s. Would you like to make this a recurring event in the future?", suggestion.Title, formatDayOfWeek(localDayOfWeek), formatTimeOfDay(localTimeOfDay)),
 		}
 	}
-
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		s.logger.Error("Failed to encode JSON response", "error", err)
 	}
@@ -326,7 +408,6 @@ func (s *Service) handleGetSuggestions(w http.ResponseWriter, r *http.Request) {
 // handleAcceptSuggestion accepts a habit suggestion
 func (s *Service) handleAcceptSuggestion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-
 	userID := middleware.GetUserIDFromContext(r.Context())
 	if userID == "" {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -335,12 +416,9 @@ func (s *Service) handleAcceptSuggestion(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
-
 	suggestionID := mux.Vars(r)["id"]
-
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-
 	// Verify the suggestion belongs to the authenticated user before accepting
 	suggestion, err := s.repo.GetHabitSuggestionByID(ctx, suggestionID)
 	if err != nil {
@@ -358,8 +436,14 @@ func (s *Service) handleAcceptSuggestion(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
-
-	event, err := s.AcceptSuggestion(ctx, suggestionID)
+	var req struct {
+		Years *int `json:"years"`
+		Weeks *int `json:"weeks"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	event, err := s.AcceptSuggestion(ctx, suggestionID, req.Years, req.Weeks)
 	if err != nil {
 		s.logger.Error("Failed to accept habit suggestion", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
@@ -368,11 +452,10 @@ func (s *Service) handleAcceptSuggestion(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
-
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":         true,
-		"message":         fmt.Sprintf("Habit accepted! '%s' will be scheduled weekly until %s", event.Title, event.EndTime.Format("January 2, 2006")),
+		"message":         fmt.Sprintf("Habit accepted! '%s' will be scheduled for the selected duration", event.Title),
 		"recurring_event": event,
 	}); err != nil {
 		s.logger.Error("Failed to encode JSON response", "error", err)
@@ -382,7 +465,6 @@ func (s *Service) handleAcceptSuggestion(w http.ResponseWriter, r *http.Request)
 // handleRejectSuggestion rejects a habit suggestion
 func (s *Service) handleRejectSuggestion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-
 	userID := middleware.GetUserIDFromContext(r.Context())
 	if userID == "" {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -391,12 +473,9 @@ func (s *Service) handleRejectSuggestion(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
-
 	suggestionID := mux.Vars(r)["id"]
-
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-
 	// Verify the suggestion belongs to the authenticated user before rejecting
 	suggestion, err := s.repo.GetHabitSuggestionByID(ctx, suggestionID)
 	if err != nil {
@@ -414,7 +493,6 @@ func (s *Service) handleRejectSuggestion(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
-
 	if err := s.RejectSuggestion(ctx, suggestionID); err != nil {
 		s.logger.Error("Failed to reject habit suggestion", "error", err)
 		w.WriteHeader(http.StatusBadRequest)
@@ -423,7 +501,6 @@ func (s *Service) handleRejectSuggestion(w http.ResponseWriter, r *http.Request)
 		}
 		return
 	}
-
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
@@ -434,7 +511,6 @@ func (s *Service) handleRejectSuggestion(w http.ResponseWriter, r *http.Request)
 }
 
 // Helper functions
-
 // formatTimeOfDay converts minutes from midnight to a readable time string
 func formatTimeOfDay(minutesFromMidnight int) string {
 	hours := minutesFromMidnight / 60

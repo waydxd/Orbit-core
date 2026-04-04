@@ -113,7 +113,7 @@ func (q *Queries) DeactivateRecurringEvent(ctx context.Context, arg DeactivateRe
 
 const getActiveRecurringEvents = `-- name: GetActiveRecurringEvents :many
 SELECT id, user_id, title, description, location, hashtags,
-	start_time, end_time, is_recurring, recurrence_rule, recurrence_exception, image_url,
+    start_time, end_time, is_recurring, recurrence_rule, recurrence_exception, image_url,
        created_at, updated_at
 FROM events
 WHERE user_id = $1 AND is_recurring = TRUE
@@ -340,6 +340,38 @@ func (q *Queries) GetPendingHabitSuggestions(ctx context.Context, userID pgtype.
 		return nil, err
 	}
 	return items, nil
+}
+
+const markEventsAsRecurringByPattern = `-- name: MarkEventsAsRecurringByPattern :exec
+UPDATE events
+SET is_recurring = TRUE, updated_at = $1
+WHERE user_id = $2
+  AND LOWER(TRIM(title)) = LOWER(TRIM($3))
+  AND EXTRACT(DOW FROM start_time) = $4
+  AND EXTRACT(HOUR FROM start_time) * 60 + EXTRACT(MINUTE FROM start_time) = $5
+  AND EXTRACT(EPOCH FROM (end_time - start_time))/60 = $6
+  AND is_recurring = FALSE
+`
+
+type MarkEventsAsRecurringByPatternParams struct {
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	UserID      pgtype.UUID        `json:"user_id"`
+	Btrim       string             `json:"btrim"`
+	StartTime   pgtype.Timestamptz `json:"start_time"`
+	StartTime_2 pgtype.Timestamptz `json:"start_time_2"`
+	EndTime     pgtype.Timestamptz `json:"end_time"`
+}
+
+func (q *Queries) MarkEventsAsRecurringByPattern(ctx context.Context, arg MarkEventsAsRecurringByPatternParams) error {
+	_, err := q.db.Exec(ctx, markEventsAsRecurringByPattern,
+		arg.UpdatedAt,
+		arg.UserID,
+		arg.Btrim,
+		arg.StartTime,
+		arg.StartTime_2,
+		arg.EndTime,
+	)
+	return err
 }
 
 const updateEventFrequency = `-- name: UpdateEventFrequency :exec

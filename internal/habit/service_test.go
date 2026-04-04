@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -85,8 +84,7 @@ func TestAcceptSuggestion_HappyPath(t *testing.T) {
 
 	// Also return a freq so UpdateEventFrequency will be invoked
 	mock.setGetFreqByPattern(sampleFreq("user-3", "Meditate", 30, 8*60, 1, 3), nil)
-
-	event, err := svc.AcceptSuggestion(context.Background(), "sugg-1")
+	event, err := svc.AcceptSuggestion(context.Background(), "sugg-1", nil, nil)
 	if err != nil {
 		t.Fatalf("AcceptSuggestion returned error: %v", err)
 	}
@@ -103,23 +101,12 @@ func TestAcceptSuggestion_HappyPath(t *testing.T) {
 		t.Fatalf("expected UpdateHabitSuggestionStatus called with accepted")
 	}
 
-	// RRULE checks
-	if !strings.Contains(event.RecurrenceRule, "FREQ=WEEKLY") {
-		t.Fatalf("expected RRULE to contain FREQ=WEEKLY, got %s", event.RecurrenceRule)
+	// RRULE is no longer used, we create discrete events. Just verify the flag.
+	if !event.IsRecurring {
+		t.Fatalf("expected event.IsRecurring to be true")
 	}
-
-	if !strings.Contains(event.RecurrenceRule, "BYDAY=") {
-		t.Fatalf("expected RRULE to contain BYDAY, got %s", event.RecurrenceRule)
-	}
-
-	// UNTIL should be an 8-digit date
-	if idx := strings.Index(event.RecurrenceRule, "UNTIL="); idx >= 0 {
-		until := event.RecurrenceRule[idx+6:]
-		if len(until) < 8 {
-			t.Fatalf("expected UNTIL to contain YYYYMMDD, got %s", until)
-		}
-	} else {
-		t.Fatalf("expected RRULE to contain UNTIL")
+	if event.RecurrenceRule != "" {
+		t.Fatalf("expected empty RecurrenceRule for discrete events, got %s", event.RecurrenceRule)
 	}
 }
 
@@ -127,9 +114,7 @@ func TestAcceptSuggestion_NotFound(t *testing.T) {
 	mock := &mockRepo{}
 	svc := NewService(nil, logger.New(), mock)
 
-	mock.setGetHabitSuggestionByID(nil, errNotFound())
-
-	_, err := svc.AcceptSuggestion(context.Background(), "missing")
+	_, err := svc.AcceptSuggestion(context.Background(), "missing", nil, nil)
 	if err == nil {
 		t.Fatalf("expected error when suggestion not found")
 	}

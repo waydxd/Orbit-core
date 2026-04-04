@@ -39,6 +39,11 @@ func main() {
 		return
 	}
 	defer mongoCancel()
+	defer func(db *database.DB) {
+		db.Close()
+		log.Info("Closed PostgreSQL connection")
+	}(db)
+	defer database.DisconnectMongoDB()
 
 	authRepo, eventRepo, taskRepo, locationRepo, habitRepo := initSQLRepositories(db)
 	chatRepo, assetRepo := initMongoRepositories(log, mongoCtx, cfg.MongoDB.DBName)
@@ -60,7 +65,7 @@ func main() {
 
 	authService := auth.NewService(cfg, log, authRepo)
 	calendarService := calendar.NewService(cfg, log, eventRepo, taskRepo, habitService)
-	chatService := chat.NewService(cfg, log, chatRepo, grpcClient, calendarService)
+	chatService := chat.NewService(cfg, log, chatRepo, grpcClient, calendarService, authRepo)
 	locationService := location.NewService(cfg, log, locationRepo)
 	integrationService := integration.NewService(cfg, log)
 	integrationService.SetCalendarService(calendarService)
@@ -77,6 +82,7 @@ func main() {
 	if grpcServer == nil {
 		return
 	}
+	defer grpcServer.Stop()
 
 	gatewayService := gateway.NewService(cfg, log, gateway.ServiceConfig{
 		AuthService:         authService,
@@ -104,12 +110,6 @@ func initDependencies(log *logger.Logger) (*config.Config, *database.DB, context
 		log.Error("Failed to connect to PostgreSQL", "error", err)
 		return nil, nil, nil, nil
 	}
-	defer func(db *database.DB) {
-		db.Close()
-		log.Info("Closed PostgreSQL connection")
-	}(db)
-
-	defer database.DisconnectMongoDB()
 
 	mongoURI := database.BuildMongoURI(cfg.MongoDB.User, cfg.MongoDB.Pass, cfg.MongoDB.Host, cfg.MongoDB.DBName)
 	if err := database.InitMongoDB(mongoURI); err != nil {
@@ -222,7 +222,6 @@ func initGRPCServer(log *logger.Logger, cfg *config.Config, actionInterceptor *g
 			os.Exit(1)
 		}
 	}()
-	defer grpcServer.Stop()
 
 	return grpcServer
 }

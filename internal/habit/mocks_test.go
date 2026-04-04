@@ -88,6 +88,10 @@ func (m *mockRepo) UpdateEventFrequency(ctx context.Context, freq *models.EventF
 	return m.updateFreqErr
 }
 
+func (m *mockRepo) MarkEventsAsRecurringByPattern(_ context.Context, _ string, _ string, _ int, _ int, _ int) error {
+	return nil
+}
+
 func (m *mockRepo) CreateHabitSuggestion(ctx context.Context, suggestion *models.HabitSuggestion) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -139,6 +143,10 @@ func (m *mockRepo) GetActiveRecurringEvents(ctx context.Context, userID string) 
 
 func (m *mockRepo) DeactivateRecurringEvent(ctx context.Context, eventID string) error {
 	return nil
+}
+
+func (m *mockRepo) GetUserTimezone(ctx context.Context, userID string) (string, error) {
+	return "UTC", nil
 }
 
 // Test helpers
