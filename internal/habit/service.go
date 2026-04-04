@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/logger"
 	"github.com/waydxd/Orbit-core/pkg/middleware"
-	"net/http"
-	"strings"
-	"time"
 )
 
 const (
@@ -47,25 +48,6 @@ func (s *Service) RegisterRoutes(router *mux.Router) {
 	habitRouter.HandleFunc("/suggestions/{id}/accept", s.handleAcceptSuggestion).Methods("POST")
 	// Reject a habit suggestion
 	habitRouter.HandleFunc("/suggestions/{id}/reject", s.handleRejectSuggestion).Methods("POST")
-}
-
-// extractInt safely parses numbers (either float from JSON or string) into an int pointer
-func extractInt(val interface{}) *int {
-	if val == nil {
-		return nil
-	}
-	switch v := val.(type) {
-	case float64:
-		i := int(v)
-		return &i
-	case string:
-		var i int
-		_, err := fmt.Sscanf(v, "%d", &i)
-		if err == nil {
-			return &i
-		}
-	}
-	return nil
 }
 
 // TrackEventCreation analyzes a newly created event and updates frequency patterns
@@ -200,6 +182,47 @@ func (s *Service) GetPendingSuggestions(ctx context.Context, userID string) ([]*
 	return s.repo.GetPendingHabitSuggestions(ctx, userID)
 }
 
+// calculateTotalWeeks helper
+func calculateTotalWeeks(customYears *int, customWeeks *int) int {
+	totalWeeks := 0
+	if customYears != nil {
+		totalWeeks += *customYears * 52
+	} else if customWeeks == nil {
+		totalWeeks = DefaultRecurrenceYears * 52
+	}
+	if customWeeks != nil {
+		totalWeeks += *customWeeks
+	}
+	if totalWeeks <= 0 {
+		totalWeeks = 1
+	}
+	return totalWeeks
+}
+
+// calculateEventStart calculates the start time for the first occurrence
+func (s *Service) calculateEventStart(ctx context.Context, suggestion *models.HabitSuggestion, now time.Time) time.Time {
+	freq, _ := s.repo.GetEventFrequencyByPattern(ctx, suggestion.UserID, suggestion.Title, suggestion.DurationMinutes, suggestion.TimeOfDay, suggestion.DayOfWeek)
+	if freq != nil && len(freq.OccurrenceTimestamps) > 0 {
+		lastOccurrence := freq.OccurrenceTimestamps[len(freq.OccurrenceTimestamps)-1]
+		return time.Date(
+			lastOccurrence.Year(), lastOccurrence.Month(), lastOccurrence.Day(),
+			suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0,
+			lastOccurrence.Location(),
+		).AddDate(0, 0, 7)
+	}
+
+	daysUntilTarget := (suggestion.DayOfWeek - int(now.Weekday()) + 7) % 7
+	if daysUntilTarget == 0 && now.Hour()*60+now.Minute() > suggestion.TimeOfDay {
+		daysUntilTarget = 7
+	}
+	firstOccurrence := now.AddDate(0, 0, daysUntilTarget)
+	return time.Date(
+		firstOccurrence.Year(), firstOccurrence.Month(), firstOccurrence.Day(),
+		suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0,
+		firstOccurrence.Location(),
+	)
+}
+
 // AcceptSuggestion accepts a habit suggestion and creates a recurring event
 func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string, customYears *int, customWeeks *int) (*models.Event, error) {
 	suggestion, err := s.repo.GetHabitSuggestionByID(ctx, suggestionID)
@@ -213,42 +236,10 @@ func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string, cus
 		return nil, fmt.Errorf("suggestion is not pending, current status: %s", suggestion.Status)
 	}
 
-	totalWeeks := 0
-	if customYears != nil {
-		totalWeeks += *customYears * 52
-	} else if customWeeks == nil {
-		totalWeeks = DefaultRecurrenceYears * 52
-	}
-	if customWeeks != nil {
-		totalWeeks += *customWeeks
-	}
-	if totalWeeks <= 0 {
-		totalWeeks = 1
-	}
+	totalWeeks := calculateTotalWeeks(customYears, customWeeks)
 
-	// Calculate start and end times for the first occurrence based on the last tracked event
-	var eventStart time.Time
-	freq, _ := s.repo.GetEventFrequencyByPattern(ctx, suggestion.UserID, suggestion.Title, suggestion.DurationMinutes, suggestion.TimeOfDay, suggestion.DayOfWeek)
 	now := time.Now()
-	if freq != nil && len(freq.OccurrenceTimestamps) > 0 {
-		lastOccurrence := freq.OccurrenceTimestamps[len(freq.OccurrenceTimestamps)-1]
-		eventStart = time.Date(
-			lastOccurrence.Year(), lastOccurrence.Month(), lastOccurrence.Day(),
-			suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0,
-			lastOccurrence.Location(),
-		).AddDate(0, 0, 7)
-	} else {
-		daysUntilTarget := (suggestion.DayOfWeek - int(now.Weekday()) + 7) % 7
-		if daysUntilTarget == 0 && now.Hour()*60+now.Minute() > suggestion.TimeOfDay {
-			daysUntilTarget = 7
-		}
-		firstOccurrence := now.AddDate(0, 0, daysUntilTarget)
-		eventStart = time.Date(
-			firstOccurrence.Year(), firstOccurrence.Month(), firstOccurrence.Day(),
-			suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0,
-			firstOccurrence.Location(),
-		)
-	}
+	eventStart := s.calculateEventStart(ctx, suggestion, now)
 
 	var firstEvent *models.Event
 	var lastEndDate time.Time
@@ -290,7 +281,7 @@ func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string, cus
 		return nil, fmt.Errorf("failed to update suggestion status: %w", err)
 	}
 	// Update frequency to mark habit as accepted
-	freq, err = s.repo.GetEventFrequencyByPattern(
+	freq, err := s.repo.GetEventFrequencyByPattern(
 		ctx, suggestion.UserID, suggestion.Title,
 		suggestion.DurationMinutes, suggestion.TimeOfDay, suggestion.DayOfWeek,
 	)

@@ -201,14 +201,3 @@ func TestHandleAcceptSuggestion_AuthAndOwnership(t *testing.T) {
 		t.Fatalf("expected 403 when suggestion owned by another user, got %d", rec.Code)
 	}
 }
-
-// errNotFound returns an error matching repository not found semantics
-func errNotFound() error {
-	return &notFoundError{}
-}
-
-type notFoundError struct{}
-
-func (n *notFoundError) Error() string { return "not found" }
-
-// Ensure notFoundError isn't used elsewhere; it's only for testing.
