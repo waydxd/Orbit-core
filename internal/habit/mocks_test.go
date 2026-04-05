@@ -29,18 +29,18 @@ type mockRepo struct {
 	createRecurringEventFailAfterN int
 
 	// Call records
-	UpsertCalled                 bool
-	LastUpsert                   *models.EventFrequency
-	UpdateFreqCalled             bool
-	LastUpdatedFreq              *models.EventFrequency
-	CreateSuggestionCalled       bool
-	LastCreatedSuggestion        *models.HabitSuggestion
-	CreateRecurringEventCalled   bool
+	UpsertCalled                  bool
+	LastUpsert                    *models.EventFrequency
+	UpdateFreqCalled              bool
+	LastUpdatedFreq               *models.EventFrequency
+	CreateSuggestionCalled        bool
+	LastCreatedSuggestion         *models.HabitSuggestion
+	CreateRecurringEventCalled    bool
 	CreateRecurringEventCallCount int
-	LastCreatedEvent             *models.Event
-	UpdateSuggestionStatusCalls  []updateSuggestionCall
-	GetPendingCalled             bool
-	GetHabitByIDCalled           bool
+	LastCreatedEvent              *models.Event
+	UpdateSuggestionStatusCalls   []updateSuggestionCall
+	GetPendingCalled              bool
+	GetHabitByIDCalled            bool
 }
 
 type updateSuggestionCall struct {

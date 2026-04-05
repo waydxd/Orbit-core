@@ -166,8 +166,7 @@ func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (in
 	// Look up timezone from user if available, default to HKT
 	// First extract userID to get timezone
 	var timezone string
-	switch v := event.(type) {
-	case map[string]interface{}:
+	if v, ok := event.(map[string]interface{}); ok {
 		if tz, ok := v["timezone"].(string); ok {
 			timezone = tz
 		}
@@ -297,6 +296,32 @@ func (s *Service) UpdateEventAdapter(ctx context.Context, id string, event inter
 		return nil, err
 	}
 
+	existing, err = applyEventUpdatePayload(existing, event)
+	if err != nil {
+		return nil, err
+	}
+
+	existing.UpdatedAt = time.Now()
+	if err := s.eventRepo.UpdateEvent(ctx, existing); err != nil {
+		s.logger.Error("failed to update event (adapter)", "err", err)
+		return nil, err
+	}
+
+	if s.habitTracker != nil && !existing.IsRecurring && existing.RecurrenceRule == "" {
+		trackParentCtx := context.WithoutCancel(ctx)
+		go func() {
+			trackCtx, trackCancel := context.WithTimeout(trackParentCtx, 5*time.Second)
+			defer trackCancel()
+			if err := s.habitTracker.TrackEventCreation(trackCtx, existing); err != nil {
+				s.logger.Error("failed to track event for habit detection (adapter udpate)", "err", err)
+			}
+		}()
+	}
+
+	return existing, nil
+}
+
+func applyEventUpdatePayload(existing *models.Event, event interface{}) (*models.Event, error) {
 	switch v := event.(type) {
 	case map[string]interface{}:
 		if title, ok := v["title"].(string); ok {
@@ -336,23 +361,6 @@ func (s *Service) UpdateEventAdapter(ctx context.Context, id string, event inter
 		existing.Location = v.Location
 	default:
 		return nil, fmt.Errorf("unsupported event type for update")
-	}
-
-	existing.UpdatedAt = time.Now()
-	if err := s.eventRepo.UpdateEvent(ctx, existing); err != nil {
-		s.logger.Error("failed to update event (adapter)", "err", err)
-		return nil, err
-	}
-
-	if s.habitTracker != nil && !existing.IsRecurring && existing.RecurrenceRule == "" {
-		trackParentCtx := context.WithoutCancel(ctx)
-		go func() {
-			trackCtx, trackCancel := context.WithTimeout(trackParentCtx, 5*time.Second)
-			defer trackCancel()
-			if err := s.habitTracker.TrackEventCreation(trackCtx, existing); err != nil {
-				s.logger.Error("failed to track event for habit detection (adapter udpate)", "err", err)
-			}
-		}()
 	}
 
 	return existing, nil
