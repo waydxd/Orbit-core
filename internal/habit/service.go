@@ -261,11 +261,7 @@ func (s *Service) AcceptSuggestion(ctx context.Context, suggestionID string, cus
 		}
 
 		if err := s.repo.CreateRecurringEvent(ctx, event); err != nil {
-			s.logger.Error("failed to create occurrence for habit", "iteration", i, "error", err)
-			if i == 0 {
-				return nil, fmt.Errorf("failed to create recurring event occurrence %d: %w", i, err)
-			}
-			break
+			return nil, fmt.Errorf("failed to create recurring event occurrence %d: %w", i, err)
 		}
 
 		if i == 0 {

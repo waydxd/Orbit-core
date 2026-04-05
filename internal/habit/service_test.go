@@ -3,6 +3,7 @@ package habit
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -203,5 +204,52 @@ func TestHandleAcceptSuggestion_AuthAndOwnership(t *testing.T) {
 	svc.handleAcceptSuggestion(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 when suggestion owned by another user, got %d", rec.Code)
+	}
+}
+
+func TestAcceptSuggestion_CustomWeeks(t *testing.T) {
+	mock := &mockRepo{}
+	svc := NewService(nil, logger.New(), mock)
+
+	sug := sampleSuggestion("user-6", "freq-6", "Swim", 45, 7*60, 3, "pending")
+	mock.setGetHabitSuggestionByID(sug, nil)
+	mock.setGetFreqByPattern(sampleFreq("user-6", "Swim", 45, 7*60, 3, 3), nil)
+
+	customWeeks := 4
+	event, err := svc.AcceptSuggestion(context.Background(), "sugg-6", nil, &customWeeks)
+	if err != nil {
+		t.Fatalf("AcceptSuggestion returned error: %v", err)
+	}
+	if event == nil {
+		t.Fatalf("expected event to be returned")
+	}
+	if mock.CreateRecurringEventCallCount != 4 {
+		t.Fatalf("expected 4 CreateRecurringEvent calls for 4 custom weeks, got %d", mock.CreateRecurringEventCallCount)
+	}
+	if len(mock.UpdateSuggestionStatusCalls) == 0 || mock.UpdateSuggestionStatusCalls[0].status != "accepted" {
+		t.Fatalf("expected suggestion to be marked accepted after all occurrences created")
+	}
+}
+
+func TestAcceptSuggestion_PartialFailure(t *testing.T) {
+	mock := &mockRepo{}
+	svc := NewService(nil, logger.New(), mock)
+
+	sug := sampleSuggestion("user-7", "freq-7", "Run", 30, 6*60, 1, "pending")
+	mock.setGetHabitSuggestionByID(sug, nil)
+	mock.setGetFreqByPattern(sampleFreq("user-7", "Run", 30, 6*60, 1, 3), nil)
+
+	// Fail on the 3rd CreateRecurringEvent call (after 2 successes)
+	customWeeks := 5
+	mock.createRecurringEventErr = fmt.Errorf("db error")
+	mock.createRecurringEventFailAfterN = 3
+
+	_, err := svc.AcceptSuggestion(context.Background(), "sugg-7", nil, &customWeeks)
+	if err == nil {
+		t.Fatalf("expected error when CreateRecurringEvent fails mid-loop")
+	}
+	// Suggestion must NOT be marked accepted when creation fails
+	if len(mock.UpdateSuggestionStatusCalls) != 0 {
+		t.Fatalf("expected suggestion to remain pending on partial failure, but UpdateHabitSuggestionStatus was called %d time(s)", len(mock.UpdateSuggestionStatusCalls))
 	}
 }
