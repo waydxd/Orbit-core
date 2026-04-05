@@ -426,7 +426,13 @@ func (s *Service) handleAcceptSuggestion(w http.ResponseWriter, r *http.Request)
 		Weeks *int `json:"weeks"`
 	}
 	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			if encErr := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body: " + err.Error()}); encErr != nil {
+				s.logger.Error("Failed to encode JSON response", "error", encErr)
+			}
+			return
+		}
 	}
 	event, err := s.AcceptSuggestion(ctx, suggestionID, req.Years, req.Weeks)
 	if err != nil {

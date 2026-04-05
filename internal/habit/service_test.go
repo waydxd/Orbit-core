@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -251,5 +252,32 @@ func TestAcceptSuggestion_PartialFailure(t *testing.T) {
 	// Suggestion must NOT be marked accepted when creation fails
 	if len(mock.UpdateSuggestionStatusCalls) != 0 {
 		t.Fatalf("expected suggestion to remain pending on partial failure, but UpdateHabitSuggestionStatus was called %d time(s)", len(mock.UpdateSuggestionStatusCalls))
+	}
+}
+
+func TestHandleAcceptSuggestion_InvalidJSON(t *testing.T) {
+	mock := &mockRepo{}
+	svc := NewService(nil, logger.New(), mock)
+
+	userID := "user-8"
+	sug := sampleSuggestion(userID, "freq-8", "Bike", 60, 8*60, 5, "pending")
+	mock.setGetHabitSuggestionByID(sug, nil)
+
+	body := strings.NewReader("{invalid json")
+	req := httptest.NewRequest("POST", "/habit/suggestions/sugg-8/accept", body)
+	ctx := context.WithValue(req.Context(), middleware.UserIDKey, userID)
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	svc.handleAcceptSuggestion(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid JSON body, got %d", rec.Code)
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("expected JSON error body, got decode error: %v", err)
+	}
+	if resp["error"] == "" {
+		t.Fatalf("expected non-empty error message in response body")
 	}
 }
