@@ -380,8 +380,8 @@ func (s *Service) handleGetSuggestions(w http.ResponseWriter, r *http.Request) {
 			"status":               suggestion.Status,
 			"created_at":           suggestion.CreatedAt,
 			"expires_at":           suggestion.ExpiresAt,
-			"suggested_start_time": suggestedStart.Format(time.RFC3339),
-			"suggested_end_time":   suggestedEnd.Format(time.RFC3339),
+			"suggested_start_time": suggestedStartLoc.Format(time.RFC3339),
+			"suggested_end_time":   suggestedEnd.In(location).Format(time.RFC3339),
 			"message":              fmt.Sprintf("You've scheduled '%s' multiple times on %s at %s. Would you like to make this a recurring event in the future?", suggestion.Title, formatDayOfWeek(localDayOfWeek), formatTimeOfDay(localTimeOfDay)),
 		}
 	}
