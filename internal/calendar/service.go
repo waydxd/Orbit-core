@@ -330,6 +330,17 @@ func (s *Service) updateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.habitTracker != nil && !existing.IsRecurring && existing.RecurrenceRule == "" {
+		trackParentCtx := context.WithoutCancel(ctx)
+		go func() {
+			trackCtx, trackCancel := context.WithTimeout(trackParentCtx, 5*time.Second)
+			defer trackCancel()
+			if err := s.habitTracker.TrackEventCreation(trackCtx, existing); err != nil {
+				s.logger.Error("failed to track event for habit detection (API update)", "err", err)
+			}
+		}()
+	}
+
 	if err := json.NewEncoder(w).Encode(existing); err != nil {
 		s.logger.Error("failed to write updateEvent response", "error", err)
 		return

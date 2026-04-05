@@ -323,14 +323,21 @@ func (s *Service) CleanupExpiredActions(ctx context.Context) error {
 }
 
 // checkConflicts checks for conflicts before executing an action
-func (s *Service) checkConflicts(_ context.Context, action *models.PendingAction) error {
+func (s *Service) checkConflicts(ctx context.Context, action *models.PendingAction) error {
 	if action.ActionType == "create_event" || action.ActionType == "update_event" {
 		var eventData map[string]interface{}
 		if err := json.Unmarshal(action.ProposedAction, &eventData); err != nil {
 			return fmt.Errorf("failed to parse event data: %w", err)
 		}
 
-		startTime, endTime, hasStart, hasEnd := extractTimeFields(eventData)
+		timezone := "Asia/Hong_Kong"
+		if s.userProfiler != nil {
+			if user, err := s.userProfiler.GetUserByID(ctx, action.UserID); err == nil && user.Timezone != "" {
+				timezone = user.Timezone
+			}
+		}
+
+		startTime, endTime, hasStart, hasEnd := extractTimeFields(eventData, timezone)
 
 		if hasStart && hasEnd {
 			s.logger.Info("Conflict check",
@@ -429,30 +436,52 @@ func generateActionSummary(actionType string, actionData map[string]interface{})
 }
 
 // extractTimeFields is a helper to extract and validate time fields from action data
-func extractTimeFields(actionData map[string]interface{}) (startTime int64, endTime int64, hasStart bool, hasEnd bool) {
-	startFloat, hasStart := actionData["start_time"].(float64)
-	endFloat, hasEnd := actionData["end_time"].(float64)
+func extractTimeFields(actionData map[string]interface{}, timezone string) (startTime int64, endTime int64, hasStart bool, hasEnd bool) {
+	loc, err := time.LoadLocation(timezone)
+	if err != nil || timezone == "" {
+		loc, _ = time.LoadLocation("Asia/Hong_Kong")
+	}
+
+	parseTime := func(v interface{}) (int64, bool) {
+		switch val := v.(type) {
+		case float64:
+			return int64(val), true
+		case int64:
+			return val, true
+		case string:
+			t, err := time.Parse(time.RFC3339, val)
+			if err == nil {
+				return t.Unix(), true
+			}
+			t, err = time.ParseInLocation("2006-01-02T15:04:05", val, loc)
+			if err == nil {
+				return t.Unix(), true
+			}
+			t, err = time.ParseInLocation("2006-01-02T15:04:05.000Z", val, loc)
+			if err == nil {
+				return t.Unix(), true
+			}
+		}
+		return 0, false
+	}
+
+	startTime, hasStart = parseTime(actionData["start_time"])
+	endTime, hasEnd = parseTime(actionData["end_time"])
 
 	if hasStart {
-		startTime = int64(startFloat)
-		// Validate timestamp is reasonable (not negative, not too far in future)
 		if startTime < 0 {
 			startTime = 0
 			hasStart = false
 		} else if startTime > time.Now().AddDate(10, 0, 0).Unix() {
-			// Reject timestamps more than 10 years in the future
 			startTime = 0
 			hasStart = false
 		}
 	}
 	if hasEnd {
-		endTime = int64(endFloat)
-		// Validate timestamp is reasonable (not negative, not too far in future)
 		if endTime < 0 {
 			endTime = 0
 			hasEnd = false
 		} else if endTime > time.Now().AddDate(10, 0, 0).Unix() {
-			// Reject timestamps more than 10 years in the future
 			endTime = 0
 			hasEnd = false
 		}

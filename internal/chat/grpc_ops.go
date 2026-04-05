@@ -96,11 +96,18 @@ func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]
 	// Propagate userID via metadata
 	ctx = middleware.PassUserIDToMetadata(ctx)
 
+	timezone := "Asia/Hong_Kong"
+	if s.userProfiler != nil {
+		if user, err := s.userProfiler.GetUserByID(ctx, userID); err == nil && user.Timezone != "" {
+			timezone = user.Timezone
+		}
+	}
+
 	// Extract event data
 	title, _ := actionData["title"].(string)
 	description, _ := actionData["description"].(string)
 	location, _ := actionData["location"].(string)
-	startTime, endTime, _, _ := extractTimeFields(actionData)
+	startTime, endTime, _, _ := extractTimeFields(actionData, timezone)
 
 	req := &pb.CreateEventRequest{
 		UserId:      userID,
@@ -134,12 +141,19 @@ func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]
 	// Propagate userID via metadata
 	ctx = middleware.PassUserIDToMetadata(ctx)
 
+	timezone := "Asia/Hong_Kong"
+	if s.userProfiler != nil {
+		if user, err := s.userProfiler.GetUserByID(ctx, userID); err == nil && user.Timezone != "" {
+			timezone = user.Timezone
+		}
+	}
+
 	// Extract event data
 	eventID, _ := actionData["id"].(string)
 	title, _ := actionData["title"].(string)
 	description, _ := actionData["description"].(string)
 	location, _ := actionData["location"].(string)
-	startTime, endTime, _, _ := extractTimeFields(actionData)
+	startTime, endTime, _, _ := extractTimeFields(actionData, timezone)
 
 	req := &pb.UpdateEventRequest{
 		UserId:      userID,

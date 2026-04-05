@@ -163,8 +163,21 @@ func (s *Service) ListEventsAdapter(ctx context.Context, startTime, endTime int6
 
 // CreateEventAdapter accepts flexible payloads (map[string]interface{}, *models.Event, pb.Event) and creates an event
 func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (interface{}, error) {
+	// Look up timezone from user if available, default to HKT
+	// First extract userID to get timezone
+	var timezone string
+	switch v := event.(type) {
+	case map[string]interface{}:
+		if tz, ok := v["timezone"].(string); ok {
+			timezone = tz
+		}
+	}
+	if timezone == "" {
+		timezone = "Asia/Hong_Kong" // Default to HKT
+	}
+
 	// Delegate parsing to a helper to keep cyclomatic complexity low
-	ev, err := parseEventPayload(event)
+	ev, err := parseEventPayload(event, timezone)
 	if err != nil {
 		s.logger.Error("failed to parse event payload (adapter)", "err", err)
 		return nil, err
@@ -184,7 +197,7 @@ func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (in
 	}
 
 	// Track event for habit detection (async, don't block response)
-	if s.habitTracker != nil && !ev.IsRecurring {
+	if s.habitTracker != nil && !ev.IsRecurring && ev.RecurrenceRule == "" {
 		trackParentCtx := context.WithoutCancel(ctx)
 		go func() {
 			trackCtx, trackCancel := context.WithTimeout(trackParentCtx, 5*time.Second)
@@ -200,7 +213,7 @@ func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (in
 
 // parseEventPayload converts supported input types into a models.Event value.
 // Supported input types: map[string]interface{}, *models.Event, models.Event, *pb.Event
-func parseEventPayload(event interface{}) (models.Event, error) {
+func parseEventPayload(event interface{}, timezone string) (models.Event, error) {
 	var ev models.Event
 	switch v := event.(type) {
 	case map[string]interface{}:
@@ -218,12 +231,12 @@ func parseEventPayload(event interface{}) (models.Event, error) {
 		}
 		// Parse start_time and end_time using helper
 		if st, ok := v["start_time"]; ok {
-			if t, err := parseTimeFromInterface(st); err == nil {
+			if t, err := parseTimeFromInterface(st, timezone); err == nil {
 				ev.StartTime = t
 			}
 		}
 		if et, ok := v["end_time"]; ok {
-			if t, err := parseTimeFromInterface(et); err == nil {
+			if t, err := parseTimeFromInterface(et, timezone); err == nil {
 				ev.EndTime = t
 			}
 		}
@@ -245,14 +258,32 @@ func parseEventPayload(event interface{}) (models.Event, error) {
 }
 
 // parseTimeFromInterface parses time from various interface{} types (int64, float64, string)
-func parseTimeFromInterface(v interface{}) (time.Time, error) {
+func parseTimeFromInterface(v interface{}, timezone string) (time.Time, error) {
+	loc, err := time.LoadLocation(timezone)
+	if err != nil || timezone == "" {
+		loc, _ = time.LoadLocation("Asia/Hong_Kong")
+	}
+
 	switch tv := v.(type) {
 	case int64:
-		return time.Unix(tv, 0), nil
+		return time.Unix(tv, 0).In(loc), nil
 	case float64:
-		return time.Unix(int64(tv), 0), nil
+		return time.Unix(int64(tv), 0).In(loc), nil
 	case string:
-		return time.Parse(time.RFC3339, tv)
+		t, err := time.Parse(time.RFC3339, tv)
+		if err == nil {
+			return t.In(loc), nil
+		}
+		// Try parsing without timezone
+		t, err = time.ParseInLocation("2006-01-02T15:04:05", tv, loc)
+		if err == nil {
+			return t, nil
+		}
+		t, err = time.ParseInLocation("2006-01-02T15:04:05.000Z", tv, loc)
+		if err == nil {
+			return t, nil
+		}
+		return time.Time{}, fmt.Errorf("unsupported time format: %v", err)
 	default:
 		return time.Time{}, fmt.Errorf("unsupported time type")
 	}
@@ -312,6 +343,18 @@ func (s *Service) UpdateEventAdapter(ctx context.Context, id string, event inter
 		s.logger.Error("failed to update event (adapter)", "err", err)
 		return nil, err
 	}
+
+	if s.habitTracker != nil && !existing.IsRecurring && existing.RecurrenceRule == "" {
+		trackParentCtx := context.WithoutCancel(ctx)
+		go func() {
+			trackCtx, trackCancel := context.WithTimeout(trackParentCtx, 5*time.Second)
+			defer trackCancel()
+			if err := s.habitTracker.TrackEventCreation(trackCtx, existing); err != nil {
+				s.logger.Error("failed to track event for habit detection (adapter udpate)", "err", err)
+			}
+		}()
+	}
+
 	return existing, nil
 }
 
@@ -448,6 +491,17 @@ func (s *Service) UpdateEvent(ctx context.Context, req *pb.UpdateEventRequest) (
 			Success: false,
 			Message: fmt.Sprintf("failed to update event: %v", err),
 		}, nil
+	}
+
+	if s.habitTracker != nil && !event.IsRecurring && event.RecurrenceRule == "" {
+		trackParentCtx := context.WithoutCancel(ctx)
+		go func() {
+			trackCtx, trackCancel := context.WithTimeout(trackParentCtx, 5*time.Second)
+			defer trackCancel()
+			if err := s.habitTracker.TrackEventCreation(trackCtx, event); err != nil {
+				s.logger.Error("failed to track event for habit detection (gRPC update)", "err", err)
+			}
+		}()
 	}
 
 	pbEvent := &pb.Event{

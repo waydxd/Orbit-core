@@ -201,11 +201,16 @@ func calculateTotalWeeks(customYears *int, customWeeks *int) int {
 func (s *Service) calculateEventStart(ctx context.Context, suggestion *models.HabitSuggestion, now time.Time) time.Time {
 	freq, _ := s.repo.GetEventFrequencyByPattern(ctx, suggestion.UserID, suggestion.Title, suggestion.DurationMinutes, suggestion.TimeOfDay, suggestion.DayOfWeek)
 	if freq != nil && len(freq.OccurrenceTimestamps) > 0 {
-		lastOccurrence := freq.OccurrenceTimestamps[len(freq.OccurrenceTimestamps)-1]
+		latestOccurrence := freq.OccurrenceTimestamps[0]
+		for _, t := range freq.OccurrenceTimestamps {
+			if t.After(latestOccurrence) {
+				latestOccurrence = t
+			}
+		}
 		return time.Date(
-			lastOccurrence.Year(), lastOccurrence.Month(), lastOccurrence.Day(),
+			latestOccurrence.Year(), latestOccurrence.Month(), latestOccurrence.Day(),
 			suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0,
-			lastOccurrence.Location(),
+			latestOccurrence.Location(),
 		).AddDate(0, 0, 7)
 	}
 
@@ -351,8 +356,13 @@ func (s *Service) handleGetSuggestions(w http.ResponseWriter, r *http.Request) {
 		var suggestedStart, suggestedEnd time.Time
 		freq, _ := s.repo.GetEventFrequencyByPattern(ctx, suggestion.UserID, suggestion.Title, suggestion.DurationMinutes, suggestion.TimeOfDay, suggestion.DayOfWeek)
 		if freq != nil && len(freq.OccurrenceTimestamps) > 0 {
-			lastOccurrence := freq.OccurrenceTimestamps[len(freq.OccurrenceTimestamps)-1]
-			suggestedStart = time.Date(lastOccurrence.Year(), lastOccurrence.Month(), lastOccurrence.Day(), suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0, lastOccurrence.Location()).AddDate(0, 0, 7)
+			latestOccurrence := freq.OccurrenceTimestamps[0]
+			for _, t := range freq.OccurrenceTimestamps {
+				if t.After(latestOccurrence) {
+					latestOccurrence = t
+				}
+			}
+			suggestedStart = time.Date(latestOccurrence.Year(), latestOccurrence.Month(), latestOccurrence.Day(), suggestion.TimeOfDay/60, suggestion.TimeOfDay%60, 0, 0, latestOccurrence.Location()).AddDate(0, 0, 7)
 		} else {
 			// Fallback calculate next day of week from suggestion creation (or now)
 			now := time.Now()
