@@ -138,10 +138,7 @@ func (m *mockRepo) CreateRecurringEvent(ctx context.Context, event *models.Event
 	m.CreateRecurringEventCalled = true
 	m.CreateRecurringEventCallCount++
 	m.LastCreatedEvent = event
-	if m.createRecurringEventFailAfterN > 0 && m.CreateRecurringEventCallCount >= m.createRecurringEventFailAfterN {
-		return m.createRecurringEventErr
-	}
-	if m.createRecurringEventFailAfterN == 0 {
+	if m.createRecurringEventFailAfterN == 0 || m.CreateRecurringEventCallCount >= m.createRecurringEventFailAfterN {
 		return m.createRecurringEventErr
 	}
 	return nil
