@@ -15,9 +15,20 @@ import (
 func (s *Service) forwardToAgent(ctx context.Context, userID, message, correlationID, conversationID string) (string, *ProposedAction, error) {
 	s.logger.Info("Forwarding to agent", "correlation_id", correlationID, "user_id", userID)
 
+	// Fetch user's timezone from profile, defaulting to HKT (Asia/Hong_Kong)
+	timezone := "Asia/Hong_Kong"
+	if s.userProfiler != nil {
+		if user, err := s.userProfiler.GetUserByID(ctx, userID); err == nil && user.Timezone != "" {
+			timezone = user.Timezone
+		} else if err != nil {
+			s.logger.Warn("Failed to get user profile for timezone, using default", "user_id", userID, "error", err)
+		}
+	}
+
 	// Prepare metadata for the agent
 	metadata := make(map[string]string)
 	metadata["correlation_id"] = correlationID
+	metadata["timezone"] = timezone
 	if conversationID != "" {
 		metadata["conversation_id"] = conversationID
 	}
@@ -85,11 +96,18 @@ func (s *Service) executeCreateEvent(ctx context.Context, actionData map[string]
 	// Propagate userID via metadata
 	ctx = middleware.PassUserIDToMetadata(ctx)
 
+	timezone := "Asia/Hong_Kong"
+	if s.userProfiler != nil {
+		if user, err := s.userProfiler.GetUserByID(ctx, userID); err == nil && user.Timezone != "" {
+			timezone = user.Timezone
+		}
+	}
+
 	// Extract event data
 	title, _ := actionData["title"].(string)
 	description, _ := actionData["description"].(string)
 	location, _ := actionData["location"].(string)
-	startTime, endTime, _, _ := extractTimeFields(actionData)
+	startTime, endTime, _, _ := extractTimeFields(actionData, timezone)
 
 	req := &pb.CreateEventRequest{
 		UserId:      userID,
@@ -123,12 +141,19 @@ func (s *Service) executeUpdateEvent(ctx context.Context, actionData map[string]
 	// Propagate userID via metadata
 	ctx = middleware.PassUserIDToMetadata(ctx)
 
+	timezone := "Asia/Hong_Kong"
+	if s.userProfiler != nil {
+		if user, err := s.userProfiler.GetUserByID(ctx, userID); err == nil && user.Timezone != "" {
+			timezone = user.Timezone
+		}
+	}
+
 	// Extract event data
 	eventID, _ := actionData["id"].(string)
 	title, _ := actionData["title"].(string)
 	description, _ := actionData["description"].(string)
 	location, _ := actionData["location"].(string)
-	startTime, endTime, _, _ := extractTimeFields(actionData)
+	startTime, endTime, _, _ := extractTimeFields(actionData, timezone)
 
 	req := &pb.UpdateEventRequest{
 		UserId:      userID,

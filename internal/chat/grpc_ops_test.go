@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,12 +20,11 @@ import (
 	"google.golang.org/grpc"
 )
 
-// ===== Mock GRPCClient =====
-
+// mockGRPCClient is a mock for the GRPCClient interface
 type mockGRPCClient struct {
-	healthErr      error
 	processResp    *pb.ProcessMessageResponse
 	processErr     error
+	healthErr      error
 	calendarClient pb.CalendarServiceClient
 }
 
@@ -110,7 +110,7 @@ func newServiceWithGRPC(grpcClient GRPCClient, repo Repository) *Service {
 			}
 		}
 	}
-	return NewService(&config.Config{}, logger.New(), repo, grpcClient, calendarServer)
+	return NewService(&config.Config{}, logger.New(), repo, grpcClient, calendarServer, nil)
 }
 
 func withUserIDGRPC(r *http.Request, userID string) *http.Request {
@@ -121,24 +121,24 @@ func withUserIDGRPC(r *http.Request, userID string) *http.Request {
 // ===== Tests for forwardToAgent =====
 
 func TestForwardToAgent_Success(t *testing.T) {
-	grpcMock := &mockGRPCClient{
+	// Setup
+	mockGRPC := &mockGRPCClient{
 		processResp: &pb.ProcessMessageResponse{
 			Success:  true,
 			Response: "Hello from agent",
 		},
 	}
-	repo := &mockRepo{
-		conversation: &models.Conversation{
-			ID:     "conv-1",
-			UserID: "user-1",
-			Status: "active",
-		},
-	}
-	svc := newServiceWithGRPC(grpcMock, repo)
+	repo := &mockRepo{}
 
+	// Ensure we pass a nil UserProfiler since mockRepo doesn't supply it directly, or make mockRepo implement it
+	svc := NewService(&config.Config{}, logger.New(), repo, mockGRPC, nil, nil)
+
+	// Execute
 	reply, proposed, err := svc.forwardToAgent(context.Background(), "user-1", "hello", "corr-1", "conv-1")
+
+	// Verify
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("expected no error, got %v", err)
 	}
 	if reply != "Hello from agent" {
 		t.Errorf("expected agent reply 'Hello from agent', got %q", reply)
@@ -149,14 +149,19 @@ func TestForwardToAgent_Success(t *testing.T) {
 }
 
 func TestForwardToAgent_TransportError(t *testing.T) {
-	grpcMock := &mockGRPCClient{
-		processErr: errors.New("connection refused"),
+	// Setup
+	mockGRPC := &mockGRPCClient{
+		processErr: fmt.Errorf("connection refused"),
 	}
-	svc := newServiceWithGRPC(grpcMock, &mockRepo{})
+	repo := &mockRepo{}
+	svc := NewService(&config.Config{}, logger.New(), repo, mockGRPC, nil, nil)
 
+	// Execute
 	_, _, err := svc.forwardToAgent(context.Background(), "user-1", "hello", "corr-1", "conv-1")
+
+	// Verify
 	if err == nil {
-		t.Fatal("expected error from transport failure")
+		t.Fatalf("expected error")
 	}
 	if !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("error should mention connection refused, got: %v", err)
@@ -164,17 +169,22 @@ func TestForwardToAgent_TransportError(t *testing.T) {
 }
 
 func TestForwardToAgent_AgentReturnsFailure(t *testing.T) {
-	grpcMock := &mockGRPCClient{
+	// Setup
+	mockGRPC := &mockGRPCClient{
 		processResp: &pb.ProcessMessageResponse{
 			Success: false,
 			Error:   "agent internal error",
 		},
 	}
-	svc := newServiceWithGRPC(grpcMock, &mockRepo{})
+	repo := &mockRepo{}
+	svc := NewService(&config.Config{}, logger.New(), repo, mockGRPC, nil, nil)
 
+	// Execute
 	_, _, err := svc.forwardToAgent(context.Background(), "user-1", "hello", "corr-1", "conv-1")
+
+	// Verify
 	if err == nil {
-		t.Fatal("expected error when agent returns failure")
+		t.Fatalf("expected error")
 	}
 	if !strings.Contains(err.Error(), "agent internal error") {
 		t.Errorf("error should mention agent internal error, got: %v", err)

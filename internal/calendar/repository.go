@@ -72,16 +72,19 @@ func NewSQLTaskRepository(pool *database.DB) TaskRepository {
 // CreateEvent inserts a new event into the database
 func (r *SQLEventRepository) CreateEvent(ctx context.Context, event *models.Event) error {
 	params := db.CreateEventParams{
-		ID:          database.StringToUUID(event.ID),
-		UserID:      database.StringToUUID(event.UserID),
-		Title:       event.Title,
-		Description: database.StringToText(event.Description),
-		StartTime:   database.TimeToTimestamptz(event.StartTime),
-		EndTime:     database.TimeToTimestamptz(event.EndTime),
-		Location:    database.StringToText(event.Location),
-		Hashtags:    normalizeStringArray(event.Hashtags),
-		CreatedAt:   database.TimeToTimestamptz(event.CreatedAt),
-		UpdatedAt:   database.TimeToTimestamptz(event.UpdatedAt),
+		ID:                  database.StringToUUID(event.ID),
+		UserID:              database.StringToUUID(event.UserID),
+		Title:               event.Title,
+		Description:         database.StringToText(event.Description),
+		StartTime:           database.TimeToTimestamptz(event.StartTime),
+		EndTime:             database.TimeToTimestamptz(event.EndTime),
+		Location:            database.StringToText(event.Location),
+		Hashtags:            normalizeStringArray(event.Hashtags),
+		IsRecurring:         pgtype.Bool{Bool: event.IsRecurring, Valid: true},
+		RecurrenceRule:      database.StringToText(event.RecurrenceRule),
+		RecurrenceException: database.StringToText(event.RecurrenceException),
+		CreatedAt:           database.TimeToTimestamptz(event.CreatedAt),
+		UpdatedAt:           database.TimeToTimestamptz(event.UpdatedAt),
 	}
 
 	err := r.queries.CreateEvent(ctx, params)

@@ -25,19 +25,22 @@ type mockRepo struct {
 	getHabitSuggestionByIDErr  error
 	updateHabitSuggestionErr   error
 	createRecurringEventErr    error
+	// If > 0, CreateRecurringEvent returns createRecurringEventErr starting at this call number (1-indexed)
+	createRecurringEventFailAfterN int
 
 	// Call records
-	UpsertCalled                bool
-	LastUpsert                  *models.EventFrequency
-	UpdateFreqCalled            bool
-	LastUpdatedFreq             *models.EventFrequency
-	CreateSuggestionCalled      bool
-	LastCreatedSuggestion       *models.HabitSuggestion
-	CreateRecurringEventCalled  bool
-	LastCreatedEvent            *models.Event
-	UpdateSuggestionStatusCalls []updateSuggestionCall
-	GetPendingCalled            bool
-	GetHabitByIDCalled          bool
+	UpsertCalled                  bool
+	LastUpsert                    *models.EventFrequency
+	UpdateFreqCalled              bool
+	LastUpdatedFreq               *models.EventFrequency
+	CreateSuggestionCalled        bool
+	LastCreatedSuggestion         *models.HabitSuggestion
+	CreateRecurringEventCalled    bool
+	CreateRecurringEventCallCount int
+	LastCreatedEvent              *models.Event
+	UpdateSuggestionStatusCalls   []updateSuggestionCall
+	GetPendingCalled              bool
+	GetHabitByIDCalled            bool
 }
 
 type updateSuggestionCall struct {
@@ -88,6 +91,10 @@ func (m *mockRepo) UpdateEventFrequency(ctx context.Context, freq *models.EventF
 	return m.updateFreqErr
 }
 
+func (m *mockRepo) MarkEventsAsRecurringByPattern(_ context.Context, _ string, _ string, _ int, _ int, _ int) error {
+	return nil
+}
+
 func (m *mockRepo) CreateHabitSuggestion(ctx context.Context, suggestion *models.HabitSuggestion) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -129,8 +136,12 @@ func (m *mockRepo) CreateRecurringEvent(ctx context.Context, event *models.Event
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.CreateRecurringEventCalled = true
+	m.CreateRecurringEventCallCount++
 	m.LastCreatedEvent = event
-	return m.createRecurringEventErr
+	if m.createRecurringEventFailAfterN == 0 || m.CreateRecurringEventCallCount >= m.createRecurringEventFailAfterN {
+		return m.createRecurringEventErr
+	}
+	return nil
 }
 
 func (m *mockRepo) GetActiveRecurringEvents(ctx context.Context, userID string) ([]*models.Event, error) {
@@ -139,6 +150,10 @@ func (m *mockRepo) GetActiveRecurringEvents(ctx context.Context, userID string) 
 
 func (m *mockRepo) DeactivateRecurringEvent(ctx context.Context, eventID string) error {
 	return nil
+}
+
+func (m *mockRepo) GetUserTimezone(ctx context.Context, userID string) (string, error) {
+	return "UTC", nil
 }
 
 // Test helpers
