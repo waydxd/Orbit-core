@@ -113,7 +113,7 @@ func (q *Queries) DeactivateRecurringEvent(ctx context.Context, arg DeactivateRe
 
 const getActiveRecurringEvents = `-- name: GetActiveRecurringEvents :many
 SELECT id, user_id, title, description, location, hashtags,
-	start_time, end_time, is_recurring, recurrence_rule, recurrence_exception, image_url,
+    start_time, end_time, is_recurring, recurrence_rule, recurrence_exception, image_url,
        created_at, updated_at
 FROM events
 WHERE user_id = $1 AND is_recurring = TRUE
@@ -227,7 +227,7 @@ SELECT id, user_id, title, description, location, duration_minutes,
        time_of_day, day_of_week, occurrence_count, suggestion_threshold,
        suggestion_shown, habit_accepted, occurrence_timestamps, created_at, updated_at
 FROM event_frequency
-WHERE user_id = $1 AND title = $2 AND duration_minutes = $3
+WHERE user_id = $1 AND LOWER(title) = LOWER($2) AND duration_minutes = $3
       AND time_of_day = $4 AND day_of_week = $5
 `
 
@@ -340,6 +340,38 @@ func (q *Queries) GetPendingHabitSuggestions(ctx context.Context, userID pgtype.
 		return nil, err
 	}
 	return items, nil
+}
+
+const markEventsAsRecurringByPattern = `-- name: MarkEventsAsRecurringByPattern :exec
+UPDATE events
+SET is_recurring = TRUE, updated_at = $1
+WHERE user_id = $2
+  AND LOWER(TRIM(title)) = LOWER(TRIM($3))
+  AND EXTRACT(DOW FROM start_time) = $4::float8
+  AND EXTRACT(HOUR FROM start_time) * 60 + EXTRACT(MINUTE FROM start_time) = $5::float8
+  AND EXTRACT(EPOCH FROM (end_time - start_time))/60 = $6::float8
+  AND is_recurring = FALSE
+`
+
+type MarkEventsAsRecurringByPatternParams struct {
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	UserID          pgtype.UUID        `json:"user_id"`
+	Title           string             `json:"title"`
+	DayOfWeek       float64            `json:"day_of_week"`
+	TimeOfDay       float64            `json:"time_of_day"`
+	DurationMinutes float64            `json:"duration_minutes"`
+}
+
+func (q *Queries) MarkEventsAsRecurringByPattern(ctx context.Context, arg MarkEventsAsRecurringByPatternParams) error {
+	_, err := q.db.Exec(ctx, markEventsAsRecurringByPattern,
+		arg.UpdatedAt,
+		arg.UserID,
+		arg.Title,
+		arg.DayOfWeek,
+		arg.TimeOfDay,
+		arg.DurationMinutes,
+	)
+	return err
 }
 
 const updateEventFrequency = `-- name: UpdateEventFrequency :exec

@@ -37,6 +37,10 @@ type Repository interface {
 	CreateRecurringEvent(ctx context.Context, event *models.Event) error
 	GetActiveRecurringEvents(ctx context.Context, userID string) ([]*models.Event, error)
 	DeactivateRecurringEvent(ctx context.Context, eventID string) error
+	MarkEventsAsRecurringByPattern(ctx context.Context, userID string, title string, dayOfWeek int, timeOfDay int, durationMinutes int) error
+
+	// GetUserTimezone gets the user's timezone preference
+	GetUserTimezone(ctx context.Context, userID string) (string, error)
 }
 
 // SQLRepository implements Repository using PostgreSQL
@@ -392,4 +396,37 @@ func (r *SQLRepository) DeactivateRecurringEvent(ctx context.Context, eventID st
 		return fmt.Errorf("failed to deactivate recurring event: %w", err)
 	}
 	return nil
+}
+
+func (r *SQLRepository) MarkEventsAsRecurringByPattern(ctx context.Context, userID string, title string, dayOfWeek int, timeOfDay int, durationMinutes int) error {
+	now := pgtype.Timestamptz{}
+	_ = now.Scan(time.Now())
+	err := r.queries.MarkEventsAsRecurringByPattern(ctx, db.MarkEventsAsRecurringByPatternParams{
+		UpdatedAt:       now,
+		UserID:          database.StringToUUID(userID),
+		Title:           title,
+		DayOfWeek:       float64(dayOfWeek),
+		TimeOfDay:       float64(timeOfDay),
+		DurationMinutes: float64(durationMinutes),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to mark events as recurring: %w", err)
+	}
+	return nil
+}
+
+// GetUserTimezone gets the user's timezone setting from the database
+func (r *SQLRepository) GetUserTimezone(ctx context.Context, userID string) (string, error) {
+	row, err := r.queries.GetUserByID(ctx, database.StringToUUID(userID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "Asia/Hong_Kong", nil // Default to HKT if not found
+		}
+		return "", err
+	}
+	timezone := database.TextToString(row.Timezone)
+	if timezone == "" {
+		return "Asia/Hong_Kong", nil
+	}
+	return timezone, nil
 }
