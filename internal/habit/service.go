@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -68,9 +67,8 @@ func (s *Service) TrackEventCreation(ctx context.Context, event *models.Event) e
 	timeOfDay := event.StartTime.Hour()*60 + event.StartTime.Minute()
 	dayOfWeek := int(event.StartTime.Weekday())
 	// Try to find existing frequency record
-	normalizedTitle := strings.ToLower(strings.TrimSpace(event.Title))
 	existing, err := s.repo.GetEventFrequencyByPattern(
-		ctx, event.UserID, normalizedTitle, durationMinutes, timeOfDay, dayOfWeek,
+		ctx, event.UserID, event.Title, durationMinutes, timeOfDay, dayOfWeek,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to get event frequency: %w", err)
@@ -113,7 +111,7 @@ func (s *Service) TrackEventCreation(ctx context.Context, event *models.Event) e
 		freq := &models.EventFrequency{
 			ID:                   uuid.New().String(),
 			UserID:               event.UserID,
-			Title:                normalizedTitle,
+			Title:                event.Title,
 			Description:          event.Description,
 			Location:             event.Location,
 			DurationMinutes:      durationMinutes,

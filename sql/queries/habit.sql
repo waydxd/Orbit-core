@@ -17,7 +17,7 @@ SELECT id, user_id, title, description, location, duration_minutes,
        time_of_day, day_of_week, occurrence_count, suggestion_threshold,
        suggestion_shown, habit_accepted, occurrence_timestamps, created_at, updated_at
 FROM event_frequency
-WHERE user_id = $1 AND title = $2 AND duration_minutes = $3
+WHERE user_id = $1 AND LOWER(title) = LOWER($2) AND duration_minutes = $3
       AND time_of_day = $4 AND day_of_week = $5;
 
 -- name: GetEventFrequenciesAboveThreshold :many

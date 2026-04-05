@@ -38,6 +38,10 @@ func TestTrackEventCreation_NewFrequency(t *testing.T) {
 	if mock.LastUpsert.OccurrenceCount != 1 {
 		t.Fatalf("expected occurrence count 1, got %d", mock.LastUpsert.OccurrenceCount)
 	}
+
+	if mock.LastUpsert.Title != "Yoga" {
+		t.Fatalf("expected original title 'Yoga' to be preserved, got %q", mock.LastUpsert.Title)
+	}
 }
 
 func TestTrackEventCreation_ExistingFrequency_TriggersSuggestion(t *testing.T) {
