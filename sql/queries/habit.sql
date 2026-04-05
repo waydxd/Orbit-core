@@ -86,7 +86,7 @@ UPDATE events
 SET is_recurring = TRUE, updated_at = $1
 WHERE user_id = $2
   AND LOWER(TRIM(title)) = LOWER(TRIM($3))
-  AND EXTRACT(DOW FROM start_time) = $4
-  AND EXTRACT(HOUR FROM start_time) * 60 + EXTRACT(MINUTE FROM start_time) = $5
-  AND EXTRACT(EPOCH FROM (end_time - start_time))/60 = $6
+  AND EXTRACT(DOW FROM start_time) = $4::float8
+  AND EXTRACT(HOUR FROM start_time) * 60 + EXTRACT(MINUTE FROM start_time) = $5::float8
+  AND EXTRACT(EPOCH FROM (end_time - start_time))/60 = $6::float8
   AND is_recurring = FALSE;

@@ -347,29 +347,29 @@ UPDATE events
 SET is_recurring = TRUE, updated_at = $1
 WHERE user_id = $2
   AND LOWER(TRIM(title)) = LOWER(TRIM($3))
-  AND EXTRACT(DOW FROM start_time) = $4
-  AND EXTRACT(HOUR FROM start_time) * 60 + EXTRACT(MINUTE FROM start_time) = $5
-  AND EXTRACT(EPOCH FROM (end_time - start_time))/60 = $6
+  AND EXTRACT(DOW FROM start_time) = $4::float8
+  AND EXTRACT(HOUR FROM start_time) * 60 + EXTRACT(MINUTE FROM start_time) = $5::float8
+  AND EXTRACT(EPOCH FROM (end_time - start_time))/60 = $6::float8
   AND is_recurring = FALSE
 `
 
 type MarkEventsAsRecurringByPatternParams struct {
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	UserID      pgtype.UUID        `json:"user_id"`
-	Btrim       string             `json:"btrim"`
-	StartTime   pgtype.Timestamptz `json:"start_time"`
-	StartTime_2 pgtype.Timestamptz `json:"start_time_2"`
-	EndTime     pgtype.Timestamptz `json:"end_time"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	UserID          pgtype.UUID        `json:"user_id"`
+	Title           string             `json:"title"`
+	DayOfWeek       float64            `json:"day_of_week"`
+	TimeOfDay       float64            `json:"time_of_day"`
+	DurationMinutes float64            `json:"duration_minutes"`
 }
 
 func (q *Queries) MarkEventsAsRecurringByPattern(ctx context.Context, arg MarkEventsAsRecurringByPatternParams) error {
 	_, err := q.db.Exec(ctx, markEventsAsRecurringByPattern,
 		arg.UpdatedAt,
 		arg.UserID,
-		arg.Btrim,
-		arg.StartTime,
-		arg.StartTime_2,
-		arg.EndTime,
+		arg.Title,
+		arg.DayOfWeek,
+		arg.TimeOfDay,
+		arg.DurationMinutes,
 	)
 	return err
 }

@@ -399,26 +399,16 @@ func (r *SQLRepository) DeactivateRecurringEvent(ctx context.Context, eventID st
 }
 
 func (r *SQLRepository) MarkEventsAsRecurringByPattern(ctx context.Context, userID string, title string, dayOfWeek int, timeOfDay int, durationMinutes int) error {
-	// The sqlc generated type bindings mapped these fields weirdly, so we just use plain Exec for this query to bypass type mismatches
-	query := `
-UPDATE events
-SET is_recurring = TRUE, updated_at = $1
-WHERE user_id = $2
-  AND LOWER(TRIM(title)) = LOWER(TRIM($3))
-  AND EXTRACT(DOW FROM start_time) = $4
-  AND EXTRACT(HOUR FROM start_time) * 60 + EXTRACT(MINUTE FROM start_time) = $5
-  AND EXTRACT(EPOCH FROM (end_time - start_time))/60 = $6
-  AND is_recurring = FALSE;
-`
-	_, err := r.pool.Pool.Exec(ctx, query,
-		time.Now(),
-		database.StringToUUID(userID),
-		title,
-		float64(dayOfWeek),
-		float64(timeOfDay),
-		float64(durationMinutes),
-	)
-
+	now := pgtype.Timestamptz{}
+	_ = now.Scan(time.Now())
+	err := r.queries.MarkEventsAsRecurringByPattern(ctx, db.MarkEventsAsRecurringByPatternParams{
+		UpdatedAt:       now,
+		UserID:          database.StringToUUID(userID),
+		Title:           title,
+		DayOfWeek:       float64(dayOfWeek),
+		TimeOfDay:       float64(timeOfDay),
+		DurationMinutes: float64(durationMinutes),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to mark events as recurring: %w", err)
 	}
