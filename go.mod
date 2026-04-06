@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	firebase.google.com/go/v4 v4.19.0
-	github.com/arran4/golang-ical v0.3.4
+	github.com/arran4/golang-ical v0.3.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
