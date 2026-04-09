@@ -159,7 +159,7 @@ func TestDetectContentType_PNG(t *testing.T) {
 }
 
 func TestDetectContentType_WebP(t *testing.T) {
-	// RIFF + 4 size bytes + "WEBP"
+	// WebP binary layout: RIFF magic (bytes 0-3), 4 size bytes (bytes 4-7), WEBP marker (bytes 8-11)
 	data := []byte{0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 'W', 'E', 'B', 'P', 0x00}
 	ct, err := detectContentType(data)
 	if err != nil {
