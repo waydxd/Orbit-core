@@ -48,7 +48,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        go-version: '1.26'
+        go-version: '1.26.1'
 
 
     - name: Download dependencies
@@ -108,14 +108,13 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.26'
+        go-version: '1.26.1'
 
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v9.2.0
       with:
         version: latest
-        args: --timeout=5m
-
+        args: --config .golangci.yml --timeout=5m ./...
   docker:
     name: Docker Build
     runs-on: ubuntu-latest

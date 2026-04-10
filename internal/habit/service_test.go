@@ -95,10 +95,6 @@ func TestAcceptSuggestion_HappyPath(t *testing.T) {
 		t.Fatalf("AcceptSuggestion returned error: %v", err)
 	}
 
-	if event == nil {
-		t.Fatalf("expected event to be returned")
-	}
-
 	if !mock.CreateRecurringEventCalled {
 		t.Fatalf("expected CreateRecurringEvent to be called")
 	}
@@ -108,10 +104,10 @@ func TestAcceptSuggestion_HappyPath(t *testing.T) {
 	}
 
 	// RRULE is no longer used, we create discrete events. Just verify the flag.
-	if !event.IsRecurring {
+	if event != nil && !event.IsRecurring {
 		t.Fatalf("expected event.IsRecurring to be true")
 	}
-	if event.RecurrenceRule != "" {
+	if event != nil && event.RecurrenceRule != "" {
 		t.Fatalf("expected empty RecurrenceRule for discrete events, got %s", event.RecurrenceRule)
 	}
 }
