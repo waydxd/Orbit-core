@@ -47,7 +47,7 @@ func TestIncrementConfirmedCancelledExpiredFailed(t *testing.T) {
 		t.Fatalf("expected 1 confirmed, got %d", m.TotalConfirmedActions)
 	}
 	if m.TotalCancelledActions != 2 {
-		t.Fatalf("expected 2 cancelled, got %d", m.TotalCancelledActions)
+		t.Fatalf("expected 2 canceled, got %d", m.TotalCancelledActions)
 	}
 	if m.TotalExpiredActions != 1 {
 		t.Fatalf("expected 1 expired, got %d", m.TotalExpiredActions)
@@ -150,7 +150,7 @@ func TestGetSnapshot_Keys(t *testing.T) {
 
 	requiredKeys := []string{
 		"total_messages", "total_conversations", "total_pending_actions",
-		"total_confirmed_actions", "total_cancelled_actions", "total_expired_actions",
+		"total_confirmed_actions", "total_canceled_actions", "total_expired_actions",
 		"total_failed_actions", "avg_message_latency_ms", "avg_action_latency_ms",
 		"confirmation_rate_pct", "success_rate_pct", "total_errors",
 		"validation_errors", "policy_violations", "conflict_errors",

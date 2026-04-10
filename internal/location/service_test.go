@@ -17,13 +17,13 @@ import (
 // ===== mock repository =====
 
 type mockLocationRepo struct {
-	createErr       error
-	historyResp     []*models.Location
-	historyErr      error
-	currentResp     *models.Location
-	currentErr      error
-	nearbyResp      []*models.Location
-	nearbyErr       error
+	createErr   error
+	historyResp []*models.Location
+	historyErr  error
+	currentResp *models.Location
+	currentErr  error
+	nearbyResp  []*models.Location
+	nearbyErr   error
 }
 
 func (m *mockLocationRepo) CreateLocation(_ context.Context, _ *models.Location) error {

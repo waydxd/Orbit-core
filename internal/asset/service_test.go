@@ -23,13 +23,13 @@ import (
 // ===== mock assetQueries =====
 
 type mockQueries struct {
-	eventRow       dbq.GetEventByIDRow
-	eventErr       error
-	imageURLs      []string
-	imageURLsErr   error
-	addImageRows   int64
-	addImageErr    error
-	updatePicErr   error
+	eventRow     dbq.GetEventByIDRow
+	eventErr     error
+	imageURLs    []string
+	imageURLsErr error
+	addImageRows int64
+	addImageErr  error
+	updatePicErr error
 }
 
 func (m *mockQueries) GetEventByID(_ context.Context, _ pgtype.UUID) (dbq.GetEventByIDRow, error) {
@@ -127,7 +127,9 @@ func buildMultipartRequest(t *testing.T, method, url string, data []byte) *http.
 	if _, err := fw.Write(data); err != nil {
 		t.Fatalf("failed to write form file data: %v", err)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("failed to close writer: %v", err)
+	}
 
 	req := httptest.NewRequest(method, url, &buf)
 	req.Header.Set("Content-Type", w.FormDataContentType())
@@ -246,7 +248,9 @@ func TestUploadEventImage_NoImageField(t *testing.T) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	_ = w.WriteField("other_field", "value")
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("failed to close writer: %v", err)
+	}
 
 	req := httptest.NewRequest(http.MethodPost, "/events/"+testEventID+"/images", &buf)
 	req.Header.Set("Content-Type", w.FormDataContentType())
