@@ -4,20 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/logger"
 	pb "github.com/waydxd/Orbit-core/proto/calendar"
 	"google.golang.org/grpc/metadata"
 )
-
-type mockActionStore struct {
-	actions []*models.PendingAction
-}
-
-func (m *mockActionStore) CreatePendingAction(ctx context.Context, action *models.PendingAction) (*models.PendingAction, error) {
-	m.actions = append(m.actions, action)
-	return action, nil
-}
 
 func TestShouldIntercept(t *testing.T) {
 	tests := []struct {

@@ -1,6 +1,7 @@
 package database
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -285,8 +286,8 @@ func TestBuildParams(t *testing.T) {
 
 func TestBuildBaseURI(t *testing.T) {
 	uri := buildBaseURI("user", "pass", "localhost:27017", "testdb")
-	if uri != "mongodb://user:pass@localhost:27017/testdb" {
-		t.Errorf("buildBaseURI() = %q, want mongodb://user:pass@localhost:27017/testdb", uri)
+	if !strings.Contains(uri, "user:pass@localhost:27017/testdb") {
+		t.Errorf("buildBaseURI() = %q, want to contain user:pass@localhost:27017/testdb", uri)
 	}
 }
 

@@ -204,7 +204,7 @@ func TestExecuteGoogleSync_InvalidDirection(t *testing.T) {
 	log := logger.New()
 	svc := NewService(cfg, log)
 
-	result, err := svc.executeGoogleSync(nil, "user123", "invalid", time.Time{}, time.Time{})
+	result, err := svc.executeGoogleSync(context.TODO(), "user123", "invalid", time.Time{}, time.Time{})
 	if err == nil {
 		t.Error("expected error for invalid direction")
 	}
@@ -218,7 +218,7 @@ func TestPerformBidirectionalSync(t *testing.T) {
 	log := logger.New()
 	svc := NewService(cfg, log)
 
-	result := svc.performBidirectionalSync(nil, "user123", time.Time{}, time.Time{})
+	result := svc.performBidirectionalSync(context.TODO(), "user123", time.Time{}, time.Time{})
 
 	if result["direction"] != "bidirectional" {
 		t.Errorf("direction = %q, want bidirectional", result["direction"])
@@ -231,7 +231,6 @@ func TestSyncData_InvalidJSON(t *testing.T) {
 	svc := NewService(cfg, log)
 
 	r := httptest.NewRequest("POST", "/sync", strings.NewReader(`invalid json`))
-	r.Body = r.Body
 
 	w := httptest.NewRecorder()
 	svc.syncData(w, r)
