@@ -150,7 +150,7 @@ func TestGetSnapshot_Keys(t *testing.T) {
 
 	requiredKeys := []string{
 		"total_messages", "total_conversations", "total_pending_actions",
-		"total_confirmed_actions", "total_cancelled_actions", "total_expired_actions",
+		"total_confirmed_actions", "total_cancelled_actions", "total_expired_actions", //nolint:misspell // "cancelled" is correct in UK English
 		"total_failed_actions", "avg_message_latency_ms", "avg_action_latency_ms",
 		"confirmation_rate_pct", "success_rate_pct", "total_errors",
 		"validation_errors", "policy_violations", "conflict_errors",
