@@ -164,12 +164,10 @@ func TestGoogleEventToModel(t *testing.T) {
 		},
 	}
 	result = googleEventToModel(validEvent, userID)
-	//nolint:staticcheck // googleEventToModel always returns non-nil for valid events with Summary
 	if result == nil {
 		t.Fatal("Expected non-nil result for valid event")
 	}
 
-	//nolint:staticcheck // result is guaranteed non-nil after t.Fatal
 	if result.Title != "Test Meeting" {
 		t.Errorf("Expected title 'Test Meeting', got '%s'", result.Title)
 	}
@@ -194,12 +192,10 @@ func TestGoogleEventToModel(t *testing.T) {
 		},
 	}
 	result = googleEventToModel(allDayEvent, userID)
-	//nolint:staticcheck // googleEventToModel always returns non-nil for valid events with Summary
 	if result == nil {
 		t.Fatal("Expected non-nil result for all-day event")
 	}
 
-	//nolint:staticcheck // result is guaranteed non-nil after t.Fatal
 	if result.Title != "All Day Event" {
 		t.Errorf("Expected title 'All Day Event', got '%s'", result.Title)
 	}
