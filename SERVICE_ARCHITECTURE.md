@@ -17,20 +17,20 @@ The Orbit-core system is architected as a **modular monolith** with specialized,
 │  • Authentication middleware                                         │
 │  • Rate limiting (Redis-backed)                                      │
 │  • Health check endpoint                                             │
-└─┬──────────┬─────────────┬─────────────┬──────────────┬──────────────┤
-  │          │             │             │              │              │
-  ▼          ▼             ▼             ▼              ▼              ▼
-┌──────┐ ┌───────┐ ┌──────────┐ ┌─────────┐ ┌────────┐ ┌───────┐
-│ AUTH │ │CALENDAR│ │LOCATION  │ │INTEGRATION│ │AGENT │ │CHAT   │
-│      │ │ TASK  │ │          │ │           │ │      │ │       │
-└──────┘ └───────┘ └──────────┘ └─────────┐─┘ └──────┘ └───────┘
-    │        │         │             │        │         │
-    └────────┴─────────┴─────────────┴────────┴─────────┘
+└─┬──────────┬─────────────┬─────────────┬──────────────┬────────────────┤
+  │          │             │             │              │                │
+  ▼          ▼             ▼             ▼              ▼                ▼
+┌──────┐ ┌───────┐ ┌──────────┐ ┌─────────┐ ┌────────┐ ┌───────┐ ┌────────┐
+│ AUTH │ │CALENDAR│ │LOCATION  │ │INTEGRATION│ │CHAT   │ │ HABIT │ │ASSET  │
+│      │ │ TASK  │ │          │ │           │ │       │ │      │ │       │
+└──────┘ └───────┘ └──────────┘ └─────────┘ └───────┘ └───────┘ └───────┘
+    │        │         │             │            │           │          │
+    └────────┴─────────┴─────────────┴───────────┴───────────┴──────────┘
                        │ SQL Queries
                        ▼
               ┌──────────────────┐
-              │   PostgreSQL     │
-              │   (Primary DB)   │
+              │   PostgreSQL   │
+              │   (Primary DB)  │
               └──────────────────┘
               
     Additional Infrastructure:
@@ -47,6 +47,11 @@ The Orbit-core system is architected as a **modular monolith** with specialized,
               ┌──────────────────┐
               │  gRPC Server     │ (Calendar Data Service)
               │  (Port 50051)    │
+              └──────────────────┘
+              
+              ┌──────────────────┐
+              │     Asynq        │ (Task queue for notifications)
+              │  (Background)   │
               └──────────────────┘
 ```
 
@@ -68,8 +73,10 @@ AuthServiceInterface
 CalendarServiceInterface
 LocationServiceInterface
 IntegrationServiceInterface
-AgentServiceInterface
 ChatServiceInterface
+HabitServiceInterface
+NotificationServiceInterface
+AssetServiceInterface
 ```
 
 **Technology**: 
@@ -232,57 +239,111 @@ GET    /integration/formats               - List supported formats
 
 ---
 
-### 6. **Agent Service**
-**Purpose**: Provides AI-powered conversational interface for calendar and task management.
+### 6. **Habit Tracking Service**
+**Purpose**: Automatically detects and suggests recurring habits based on user behavior.
 
 **Key Responsibilities**:
-- Natural language processing for calendar operations
-- gRPC communication with external AI agent
-- Calendar data context provision
-- Action execution (create events, retrieve data)
-- Health checking for agent availability
+- Event pattern analysis for recurring behavior detection
+- Habit suggestion generation (3+ occurrences triggers suggestion)
+- Suggestion management (accept/reject)
+- Auto-scheduling of accepted habits (5-year schedule)
 
 **HTTP Endpoints**:
 ```
-POST   /agent/chat                     - Send message to AI agent
-GET    /agent/health                   - Check agent service health
+GET    /habit/suggestions                   - Get habit suggestions
+POST   /habit/suggestions/{id}/accept     - Accept habit suggestion
+POST   /habit/suggestions/{id}/reject     - Reject habit suggestion
 ```
 
-**Request Model**:
-```json
-{
-  "prompt": "Create a meeting tomorrow at 2 PM",
-  "start_time": 1707004800,  // Unix timestamp (optional)
-  "end_time": 1707091200,    // Unix timestamp (optional)
-  "context": "Additional context for the agent"
-}
-```
+**Detection Criteria**:
+- Same event title (case-insensitive)
+- Same day of week
+- Same time (+/- 1 hour window)
+- Same duration (+/- 15 min window)
+- Minimum 3 occurrences
 
-**Integration Points**:
-- **gRPC Client**: Communicates with external Orbi agent service (configurable host/port)
-- **Calendar Service**: Provides event context and execution capabilities
-- **Action Tracking**: Logs agent actions for audit and monitoring
+**Features**:
+- **Pattern Recognition**: Analyzes user event history for recurring patterns
+- **Smart Scheduling**: Automatically creates 5-year recurring event on accept
+- **Decline Tracking**: Stores rejected suggestions to avoid repeat prompts
 
-**Data Flow**:
-```
-User Prompt
-    ↓
-Agent Service
-    ↓
-gRPC Call to Orbi Agent
-    ↓
-AI Processing
-    ↓
-Calendar Service API Call (via gRPC)
-    ↓
-Action Execution
-    ↓
-Response to User
-```
+**Data Storage**:
+- **PostgreSQL**: Habit suggestions, detection rules
 
 ---
 
-### 7. **Chat Service**
+### 7. **Notification Service**
+**Purpose**: Handles push notifications and event reminders using Firebase Cloud Messaging.
+
+**Key Responsibilities**:
+- Device token registration (iOS/Android)
+- Push notification delivery via FCM
+- Event reminder scheduling
+- Notification preferences management
+- Background task processing via Asynq
+
+**HTTP Endpoints**:
+```
+POST   /fcm/token                    - Register device token
+DELETE /fcm/token                    - Delete device token
+POST   /events/{id}/notify           - Subscribe to event notifications
+DELETE /events/{id}/notify           - Unsubscribe from notifications
+```
+
+**Request Models**:
+```json
+// Register Token
+{
+  "token": "device-fcm-token",
+  "device_type": "ios"  // or "android"
+}
+```
+
+**Key Features**:
+- **FCM Integration**: Firebase Cloud Messaging for push notifications
+- **Asynq Queue**: Background task scheduling for reminders
+- **Event Subscriptions**: Per-event notification preferences
+- **Multi-Device**: Support for multiple devices per user
+
+**Data Storage**:
+- **PostgreSQL**: FCM tokens, notification subscriptions
+- **Asynq**: Scheduled reminder tasks
+
+---
+
+### 8. **Asset Service**
+**Purpose**: Manages binary asset uploads including event images and user profile pictures.
+
+**Key Responsibilities**:
+- Event image upload and storage
+- User profile picture management
+- Image validation (magic bytes detection)
+- Asset serving with access control
+
+**HTTP Endpoints**:
+```
+POST   /events/{id}/images              - Upload event image
+GET    /events/{id}/images              - List event images
+POST   /users/me/profile-pic          - Upload profile picture
+GET    /assets/events/{image_id}        - Serve event image
+GET    /assets/users/{image_id}          - Serve user avatar
+```
+
+**Features**:
+- **Magic Byte Validation**: Validates actual image format using file headers
+- **Supported Formats**: JPEG, PNG, WebP
+- **File Size Limit**: 5 MB per image
+- **Event Image Limit**: 5 images per event
+- **Access Control**: Users can only access their own assets
+- **Profile Pictures**: Profile pics are publicly readable
+
+**Data Storage**:
+- **PostgreSQL**: Asset metadata (URLs, associations)
+- **Local Filesystem**: Binary image storage
+
+---
+
+### 9. **Chat Service**
 **Purpose**: Provides chatbot backend with action confirmation workflows and state management.
 
 **Key Responsibilities**:
@@ -350,38 +411,41 @@ GET    /chat/metrics                            - Get service metrics
 ### Dependency Graph
 
 ```
-                         ┌──────────────┐
-                         │   Gateway    │
-                         │   Service    │
-                         └──────┬───────┘
-                                │
-        ┌───────────────────────┼───────────────────────┐
-        │                       │                       │
-        ▼                       ▼                       ▼
-    ┌────────┐            ┌────────────┐          ┌──────────┐
-    │  Auth  │            │ Calendar   │          │Location  │
-    │Service │            │   Service  │          │Service   │
-    └────────┘            └─────┬──────┘          └──────────┘
-                                │
-                    ┌───────────┼───────────┐
-                    │           │           │
-                    ▼           ▼           ▼
-                ┌────────┐  ┌──────────┐  ┌───────┐
-                │ Agent  │  │Integration│ │Chat   │
-                │Service │  │  Service  │ │Service│
-                └────────┘  └──────────┘  └───────┘
-                    │           │
-                    └───────────┴──────────┐
-                                           │
-                                    ┌──────▼──────┐
-                                    │   gRPC      │
-                                    │   Server    │
-                                    └─────────────┘
-                                           │
-                                    ┌──────▼──────┐
-                                    │Orbi Agent   │
-                                    │(External)   │
-                                    └─────────────┘
+                          ┌──────────────┐
+                          │   Gateway    │
+                          │   Service    │
+                          └──────┬───────┘
+                                 │
+         ┌───────────────────────┼───────────────────────┐
+         │                       │                       │
+         ▼                       ▼                       ▼
+     ┌────────┐            ┌────────────┐          ┌──────────┐
+     │  Auth  │            │ Calendar   │          │Location  │
+     │Service │            │   Service  │          │Service   │
+     └────────┘            └─────┬──────┘          └──────────┘
+                                 │
+                     ┌───────────┼───────────┐
+                     │           │           │
+                     ▼           ▼           ▼
+                 ┌────────┐  ┌──────────┐  ┌───────┐
+                 │ Chat   │  │Integration│ │Habit │
+                 │Service │  │  Service  │ │Service│
+                 └────────┘  └──────────┘  └───────┘
+                     │           │
+         ┌───────────┴───────────┤
+         │                       │
+         ▼                       ▼
+     ┌────────┐            ┌──────────┐
+     │Notification│       │  Asset   │
+     │ Service    │        │ Service  │
+     └────────────┘        └─────────┘
+             │                       │
+             └───────────┬───────────┘
+                         │
+                  ┌──────▼──────┐
+                  │   gRPC      │
+                  │   Server   │
+                  └────────────┘
 ```
 
 ### Data Flow Patterns
@@ -488,6 +552,9 @@ Additional Infrastructure:
 - `tasks` - Task management data
 - `locations` - Location tracking records
 - `integrations` - External service credentials/state
+- `habit_suggestions` - Detected habit patterns
+- `fcm_tokens` - Firebase Cloud Messaging tokens
+- `notification_subscriptions` - Event notification preferences
 
 **MongoDB Collections**:
 - `conversations` - Chat conversation records
