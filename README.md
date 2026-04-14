@@ -14,6 +14,7 @@
 - **Push Notifications**: Firebase Cloud Messaging (FCM)
 - **Email**: Resend
 - **External Integrations**: Google Calendar API
+- **Image Processing**: Magic byte validation for image uploads
 
 ## Core Services
 
@@ -62,6 +63,12 @@ The `orbit-core` repository encapsulates the following key services, implemented
    - Event reminder scheduling using **Asynq** task queue
    - Device token management (iOS/Android)
 
+9. **Asset Service**
+   - Handles binary asset uploads (images) for events and user profile pictures
+   - Supports JPEG, PNG, and WebP formats with magic-byte validation
+   - 5 MB file size limit, 5 images per event
+   - Profile picture serving with public access
+
 ## Architecture
 
 ### System Architecture
@@ -84,23 +91,27 @@ The `orbit-core` repository encapsulates the following key services, implemented
    └───┬───┘  └───┬────┘ └───┬────┘ └────┬─────┘ └────┬─────┘ └──┬───┘ └───┬───┘
        │          │          │           │            │          │         │
        └──────────┴──────────┴───────────┴────────────┴──────────┴─────────┘
-                                 │
-                                 ▼
-                     ┌──────────────────────┐
-                     │   Data Layer         │
-                     │  ┌────────────────┐  │
-                     │  │  PostgreSQL    │  │
-                     │  │  (Port 5432)   │  │
-                     │  └────────────────┘  │
-                     │  ┌────────────────┐  │
-                     │  │  MongoDB       │  │
-                     │  │  (Chat Data)   │  │
-                     │  └────────────────┘  │
-                     │  ┌────────────────┐  │
-                     │  │  Redis         │  │
-                     │  │  (Cache/Queue) │  │
-                     │  └────────────────┘  │
-                     └──────────────────────┘
+                                   │
+                                   ▼
+                       ┌──────────────────────┐
+                       │   Data Layer         │
+                       │  ┌────────────────┐  │
+                       │  │  PostgreSQL    │  │
+                       │  │  (Port 5432)   │  │
+                       │  └────────────────┘  │
+                       │  ┌────────────────┐  │
+                       │  │  MongoDB       │  │
+                       │  │  (Chat Data)   │  │
+                       │  └────────────────┘  │
+                       │  ┌────────────────┐  │
+                       │  │  Redis         │  │
+                       │  │  (Cache/Queue) │  │
+                       │  └────────────────┘  │
+                       │  ┌────────────────┐  │
+                       │  │  Asynq         │  │
+                       │  │  (Background)  │  │
+                       │  └────────────────┘  │
+                       └──────────────────────┘
 ```
 
 ### gRPC Architecture
@@ -269,6 +280,13 @@ The full API documentation is available in `docs/openapi.yaml`.
 - `POST /api/v1/events/{id}/notify` - Subscribe to event notifications
 - `DELETE /api/v1/events/{id}/notify` - Unsubscribe from event notifications
 
+#### Assets
+- `POST /api/v1/events/{id}/images` - Upload event image
+- `GET /api/v1/events/{id}/images` - List event images
+- `POST /api/v1/users/me/profile-pic` - Upload profile picture
+- `GET /api/v1/assets/events/{image_id}` - Serve event image
+- `GET /api/v1/assets/users/{image_id}` - Serve user avatar
+
 ## Database
 
 The database schema is managed via **Atlas** migrations in the `migrations/` directory:
@@ -282,6 +300,7 @@ The database schema is managed via **Atlas** migrations in the `migrations/` dir
 - `007_add_hashtag_to_events_tasks.sql` - Hashtag support
 - `008_fcm_notifications.sql` - Push notifications
 - `009_event_subscriptions_asynq.sql` - Asynq task queue for notifications
+- `010_asset_service.sql` - Asset service for image uploads
 
 ## Makefile Commands
 
