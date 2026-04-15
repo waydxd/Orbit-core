@@ -202,10 +202,10 @@ func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (in
 		existing, getErr := s.eventRepo.GetEventByID(ctx, ev.ID)
 		if getErr != nil {
 			s.logger.Error("failed to resolve duplicate event (adapter)", "err", getErr)
-			return nil, err
+			return nil, fmt.Errorf("resolve duplicate event %q after create conflict: %w", ev.ID, getErr)
 		}
 		if existing == nil {
-			return nil, err
+			return nil, fmt.Errorf("resolve duplicate event %q after create conflict: event not found", ev.ID)
 		}
 
 		if existing.UserID != ev.UserID {
