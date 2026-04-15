@@ -39,7 +39,7 @@ func (m *mockEventRepo) UpdateEvent(_ context.Context, event *models.Event) erro
 	m.updatedEvent = event
 	return m.updateErr
 }
-func (m *mockEventRepo) DeleteEvent(_ context.Context, _ string) error        { return nil }
+func (m *mockEventRepo) DeleteEvent(_ context.Context, _ string) error { return nil }
 func (m *mockEventRepo) GetActiveRecurringEvents(_ context.Context, _ string) ([]*models.Event, error) {
 	return nil, nil
 }

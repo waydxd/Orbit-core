@@ -195,8 +195,8 @@ func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (in
 	created := true
 	if err := s.eventRepo.CreateEvent(ctx, &ev); err != nil {
 		if !isUniqueViolation(err) {
-		s.logger.Error("failed to create event (adapter)", "err", err)
-		return nil, err
+			s.logger.Error("failed to create event (adapter)", "err", err)
+			return nil, err
 		}
 
 		existing, getErr := s.eventRepo.GetEventByID(ctx, ev.ID)
