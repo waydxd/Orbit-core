@@ -2,11 +2,13 @@ package calendar
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	pb "github.com/waydxd/Orbit-core/proto/calendar"
 )
@@ -190,13 +192,39 @@ func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (in
 	}
 	ev.UpdatedAt = time.Now()
 
+	created := true
 	if err := s.eventRepo.CreateEvent(ctx, &ev); err != nil {
+		if !isUniqueViolation(err) {
 		s.logger.Error("failed to create event (adapter)", "err", err)
 		return nil, err
+		}
+
+		existing, getErr := s.eventRepo.GetEventByID(ctx, ev.ID)
+		if getErr != nil {
+			s.logger.Error("failed to resolve duplicate event (adapter)", "err", getErr)
+			return nil, err
+		}
+		if existing == nil {
+			return nil, err
+		}
+
+		if existing.UserID != ev.UserID {
+			ev.ID = uuid.New().String()
+			if retryErr := s.eventRepo.CreateEvent(ctx, &ev); retryErr != nil {
+				s.logger.Error("failed to recreate event after duplicate id collision (adapter)", "err", retryErr)
+				return nil, retryErr
+			}
+		} else {
+			if updateErr := s.eventRepo.UpdateEvent(ctx, &ev); updateErr != nil {
+				s.logger.Error("failed to update duplicate event (adapter)", "err", updateErr)
+				return nil, updateErr
+			}
+			created = false
+		}
 	}
 
 	// Track event for habit detection (async, don't block response)
-	if s.habitTracker != nil && !ev.IsRecurring && ev.RecurrenceRule == "" {
+	if created && s.habitTracker != nil && !ev.IsRecurring && ev.RecurrenceRule == "" {
 		trackParentCtx := context.WithoutCancel(ctx)
 		go func() {
 			trackCtx, trackCancel := context.WithTimeout(trackParentCtx, 5*time.Second)
@@ -208,6 +236,11 @@ func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (in
 	}
 
 	return &ev, nil
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 // parseEventPayload converts supported input types into a models.Event value.

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/waydxd/Orbit-core/internal/shared/models"
 	"github.com/waydxd/Orbit-core/pkg/config"
 	"github.com/waydxd/Orbit-core/pkg/logger"
@@ -14,18 +15,30 @@ import (
 // ===== Mock implementations =====
 
 type mockEventRepo struct {
-	events []*models.Event
-	err    error
+	events       []*models.Event
+	err          error
+	createErr    error
+	updateErr    error
+	getByIDErr   error
+	getByIDResp  *models.Event
+	createdEvent *models.Event
+	updatedEvent *models.Event
 }
 
-func (m *mockEventRepo) CreateEvent(_ context.Context, _ *models.Event) error { return nil }
+func (m *mockEventRepo) CreateEvent(_ context.Context, event *models.Event) error {
+	m.createdEvent = event
+	return m.createErr
+}
 func (m *mockEventRepo) GetEventByID(_ context.Context, _ string) (*models.Event, error) {
-	return nil, nil
+	return m.getByIDResp, m.getByIDErr
 }
 func (m *mockEventRepo) ListEvents(_ context.Context, _ string, _, _ time.Time) ([]*models.Event, error) {
 	return m.events, m.err
 }
-func (m *mockEventRepo) UpdateEvent(_ context.Context, _ *models.Event) error { return nil }
+func (m *mockEventRepo) UpdateEvent(_ context.Context, event *models.Event) error {
+	m.updatedEvent = event
+	return m.updateErr
+}
 func (m *mockEventRepo) DeleteEvent(_ context.Context, _ string) error        { return nil }
 func (m *mockEventRepo) GetActiveRecurringEvents(_ context.Context, _ string) ([]*models.Event, error) {
 	return nil, nil
@@ -44,9 +57,14 @@ func (m *mockTaskRepo) ListTasks(_ context.Context, _ string, _ *bool) ([]*model
 func (m *mockTaskRepo) UpdateTask(_ context.Context, _ *models.Task) error { return nil }
 func (m *mockTaskRepo) DeleteTask(_ context.Context, _ string) error       { return nil }
 
-type mockHabitTracker struct{}
+type mockHabitTracker struct {
+	calls int
+}
 
-func (m *mockHabitTracker) TrackEventCreation(_ context.Context, _ *models.Event) error { return nil }
+func (m *mockHabitTracker) TrackEventCreation(_ context.Context, _ *models.Event) error {
+	m.calls++
+	return nil
+}
 
 func newTestCalendarService(events []*models.Event, listErr error) *Service {
 	return NewService(
@@ -56,6 +74,44 @@ func newTestCalendarService(events []*models.Event, listErr error) *Service {
 		&mockTaskRepo{},
 		&mockHabitTracker{},
 	)
+}
+
+func TestCreateEventAdapter_DuplicateIDUpdatesExistingEvent(t *testing.T) {
+	repo := &mockEventRepo{
+		createErr:   &pgconn.PgError{Code: "23505"},
+		getByIDResp: &models.Event{ID: "event-1", UserID: "user-1"},
+	}
+	habitTracker := &mockHabitTracker{}
+	svc := NewService(&config.Config{}, logger.New(), repo, &mockTaskRepo{}, habitTracker)
+
+	event := &models.Event{
+		ID:        "event-1",
+		UserID:    "user-1",
+		Title:     "Updated title",
+		StartTime: time.Date(2025, 1, 10, 10, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2025, 1, 10, 11, 0, 0, 0, time.UTC),
+	}
+
+	result, err := svc.CreateEventAdapter(context.Background(), event)
+	if err != nil {
+		t.Fatalf("CreateEventAdapter returned error: %v", err)
+	}
+	created, ok := result.(*models.Event)
+	if !ok {
+		t.Fatalf("expected *models.Event result, got %T", result)
+	}
+	if repo.updatedEvent == nil {
+		t.Fatal("expected duplicate event to be updated")
+	}
+	if repo.updatedEvent.Title != "Updated title" {
+		t.Errorf("updated title = %q, want %q", repo.updatedEvent.Title, "Updated title")
+	}
+	if habitTracker.calls != 0 {
+		t.Fatalf("expected habit tracker to be skipped for duplicate import, got %d calls", habitTracker.calls)
+	}
+	if created.ID != event.ID {
+		t.Errorf("result ID = %q, want %q", created.ID, event.ID)
+	}
 }
 
 // ===== GetAvailableSlots tests =====

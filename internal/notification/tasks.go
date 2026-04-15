@@ -22,7 +22,7 @@ const (
 const (
 	StatusPending   = "pending"
 	StatusSent      = "sent"
-	StatusCancelled = "canceled"
+	StatusCancelled = "cancelled"
 	StatusFailed    = "failed"
 )
 
