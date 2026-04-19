@@ -194,33 +194,11 @@ func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (in
 
 	created := true
 	if err := s.eventRepo.CreateEvent(ctx, &ev); err != nil {
-		if !isUniqueViolation(err) {
-			s.logger.Error("failed to create event (adapter)", "err", err)
-			return nil, err
+		resolved, resolveErr := s.resolveDuplicateEvent(ctx, &ev, err)
+		if resolveErr != nil {
+			return nil, resolveErr
 		}
-
-		existing, getErr := s.eventRepo.GetEventByID(ctx, ev.ID)
-		if getErr != nil {
-			s.logger.Error("failed to resolve duplicate event (adapter)", "err", getErr)
-			return nil, fmt.Errorf("resolve duplicate event %q after create conflict: %w", ev.ID, getErr)
-		}
-		if existing == nil {
-			return nil, fmt.Errorf("resolve duplicate event %q after create conflict: event not found", ev.ID)
-		}
-
-		if existing.UserID != ev.UserID {
-			ev.ID = uuid.New().String()
-			if retryErr := s.eventRepo.CreateEvent(ctx, &ev); retryErr != nil {
-				s.logger.Error("failed to recreate event after duplicate id collision (adapter)", "err", retryErr)
-				return nil, retryErr
-			}
-		} else {
-			if updateErr := s.eventRepo.UpdateEvent(ctx, &ev); updateErr != nil {
-				s.logger.Error("failed to update duplicate event (adapter)", "err", updateErr)
-				return nil, updateErr
-			}
-			created = false
-		}
+		created = resolved
 	}
 
 	// Track event for habit detection (async, don't block response)
@@ -236,6 +214,37 @@ func (s *Service) CreateEventAdapter(ctx context.Context, event interface{}) (in
 	}
 
 	return &ev, nil
+}
+
+func (s *Service) resolveDuplicateEvent(ctx context.Context, ev *models.Event, createErr error) (bool, error) {
+	if !isUniqueViolation(createErr) {
+		s.logger.Error("failed to create event (adapter)", "err", createErr)
+		return false, createErr
+	}
+
+	existing, getErr := s.eventRepo.GetEventByID(ctx, ev.ID)
+	if getErr != nil {
+		s.logger.Error("failed to resolve duplicate event (adapter)", "err", getErr)
+		return false, fmt.Errorf("resolve duplicate event %q after create conflict: %w", ev.ID, getErr)
+	}
+	if existing == nil {
+		return false, fmt.Errorf("resolve duplicate event %q after create conflict: event not found", ev.ID)
+	}
+
+	if existing.UserID != ev.UserID {
+		ev.ID = uuid.New().String()
+		if retryErr := s.eventRepo.CreateEvent(ctx, ev); retryErr != nil {
+			s.logger.Error("failed to recreate event after duplicate id collision (adapter)", "err", retryErr)
+			return false, retryErr
+		}
+		return true, nil
+	}
+
+	if updateErr := s.eventRepo.UpdateEvent(ctx, ev); updateErr != nil {
+		s.logger.Error("failed to update duplicate event (adapter)", "err", updateErr)
+		return false, updateErr
+	}
+	return false, nil
 }
 
 func isUniqueViolation(err error) bool {

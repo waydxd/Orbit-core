@@ -254,6 +254,7 @@ func TestNewServer(t *testing.T) {
 
 	if server == nil {
 		t.Fatal("expected non-nil server")
+		return
 	}
 
 	if server.port != 50052 {

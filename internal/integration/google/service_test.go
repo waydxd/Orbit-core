@@ -166,6 +166,7 @@ func TestGoogleEventToModel(t *testing.T) {
 	result = googleEventToModel(validEvent, userID)
 	if result == nil {
 		t.Fatal("Expected non-nil result for valid event")
+		return
 	}
 
 	if result.Title != "Test Meeting" {
@@ -194,6 +195,7 @@ func TestGoogleEventToModel(t *testing.T) {
 	result = googleEventToModel(allDayEvent, userID)
 	if result == nil {
 		t.Fatal("Expected non-nil result for all-day event")
+		return
 	}
 
 	if result.Title != "All Day Event" {

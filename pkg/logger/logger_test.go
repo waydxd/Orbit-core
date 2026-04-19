@@ -9,9 +9,11 @@ func TestNew_ReturnsLogger(t *testing.T) {
 	l := New()
 	if l == nil {
 		t.Fatal("expected non-nil logger from New()")
+		return
 	}
 	if l.Logger == nil {
 		t.Fatal("expected non-nil embedded slog.Logger")
+		return
 	}
 }
 
@@ -21,9 +23,11 @@ func TestNewWithLevel_ReturnsLogger(t *testing.T) {
 		l := NewWithLevel(level)
 		if l == nil {
 			t.Fatalf("expected non-nil logger for level %v", level)
+			continue
 		}
 		if l.Logger == nil {
 			t.Fatalf("expected non-nil embedded slog.Logger for level %v", level)
+			continue
 		}
 	}
 }

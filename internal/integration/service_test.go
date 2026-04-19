@@ -21,6 +21,7 @@ func TestNewService(t *testing.T) {
 	svc := NewService(cfg, log)
 	if svc == nil {
 		t.Fatal("expected non-nil service")
+		return
 	}
 
 	if svc.config != cfg {
