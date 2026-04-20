@@ -12,7 +12,7 @@ require (
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/joho/godotenv v1.5.1
 	github.com/redis/go-redis/v9 v9.18.0
-	github.com/resend/resend-go/v3 v3.3.0
+	github.com/resend/resend-go/v3 v3.5.0
 	go.mongodb.org/mongo-driver/v2 v2.5.0
 	golang.org/x/crypto v0.50.0
 	golang.org/x/oauth2 v0.36.0
