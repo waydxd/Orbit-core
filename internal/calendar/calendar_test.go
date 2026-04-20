@@ -3,6 +3,7 @@ package calendar
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -70,12 +71,21 @@ func (m *mockTaskRepo) UpdateTask(_ context.Context, _ *models.Task) error { ret
 func (m *mockTaskRepo) DeleteTask(_ context.Context, _ string) error       { return nil }
 
 type mockHabitTracker struct {
+	mu    sync.Mutex
 	calls int
 }
 
 func (m *mockHabitTracker) TrackEventCreation(_ context.Context, _ *models.Event) error {
+	m.mu.Lock()
 	m.calls++
+	m.mu.Unlock()
 	return nil
+}
+
+func (m *mockHabitTracker) GetCallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
 }
 
 func newTestCalendarService(events []*models.Event, listErr error) *Service {
@@ -118,8 +128,8 @@ func TestCreateEventAdapter_DuplicateIDUpdatesExistingEvent(t *testing.T) {
 	if repo.updatedEvent.Title != "Updated title" {
 		t.Errorf("updated title = %q, want %q", repo.updatedEvent.Title, "Updated title")
 	}
-	if habitTracker.calls != 0 {
-		t.Fatalf("expected habit tracker to be skipped for duplicate import, got %d calls", habitTracker.calls)
+	if habitTracker.GetCallCount() != 0 {
+		t.Fatalf("expected habit tracker to be skipped for duplicate import, got %d calls", habitTracker.GetCallCount())
 	}
 	if created.ID != event.ID {
 		t.Errorf("result ID = %q, want %q", created.ID, event.ID)
@@ -175,8 +185,8 @@ func TestCreateEventAdapter_DuplicateIDDifferentUserRegeneratesAndRetriesCreate(
 	if repo.updatedEvent != nil {
 		t.Fatal("expected UpdateEvent not to be called on different-user collision path")
 	}
-	if habitTracker.calls != 0 {
-		t.Fatalf("expected habit tracker not to run in test execution window, got %d calls", habitTracker.calls)
+	if habitTracker.GetCallCount() != 0 {
+		t.Fatalf("expected habit tracker not to run in test execution window, got %d calls", habitTracker.GetCallCount())
 	}
 }
 
